@@ -1,0 +1,245 @@
+/* AI Novel Editor - Light Theme (Based on novelWriter) */
+
+/* 全局样式 */
+QMainWindow {
+    background-color: #ffffff;
+    color: #24292f;
+}
+
+/* 菜单栏 */
+QMenuBar {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #e1e4e8;
+    padding: 2px;
+    color: #24292f;
+}
+
+QMenuBar::item {
+    background-color: transparent;
+    padding: 8px 12px;
+    border-radius: 3px;
+    color: #24292f;
+}
+
+QMenuBar::item:selected {
+    background-color: #dbeafe;
+    color: #0969da;
+}
+
+QMenuBar::item:pressed {
+    background-color: #b6e3ff;
+}
+
+/* 工具栏 */
+QToolBar {
+    background-color: #f8f9fa;
+    border: none;
+    border-bottom: 1px solid #e1e4e8;
+    spacing: 2px;
+    padding: 6px;
+    color: #24292f;
+}
+
+QToolBar::separator {
+    background-color: #d0d7de;
+    width: 1px;
+    margin: 6px 4px;
+}
+
+/* 按钮 */
+QPushButton {
+    background-color: #ffffff;
+    border: 1px solid #d0d7de;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 14px;
+    color: #424a53;
+}
+
+QPushButton:hover {
+    background-color: #f3f4f6;
+    border-color: #8b949e;
+}
+
+QPushButton:pressed {
+    background-color: #e1e4e8;
+    border-color: #656d76;
+}
+
+QPushButton:disabled {
+    background-color: #f8f9fa;
+    border-color: #e1e4e8;
+    color: #8b949e;
+}
+
+/* 主要按钮 */
+QPushButton.primary {
+    background-color: #0969da;
+    border-color: #0969da;
+    color: #ffffff;
+}
+
+QPushButton.primary:hover {
+    background-color: #0550ae;
+    border-color: #0550ae;
+}
+
+QPushButton.primary:pressed {
+    background-color: #033d8b;
+    border-color: #033d8b;
+}
+
+/* 分割器 */
+QSplitter::handle {
+    background-color: #e1e4e8;
+}
+
+QSplitter::handle:horizontal {
+    width: 1px;
+}
+
+QSplitter::handle:vertical {
+    height: 1px;
+}
+
+QSplitter::handle:hover {
+    background-color: #d0d7de;
+}
+
+/* 状态栏 */
+QStatusBar {
+    background-color: #f8f9fa;
+    border-top: 1px solid #e1e4e8;
+    color: #656d76;
+}
+
+/* 标签页 */
+QTabWidget::pane {
+    border: 1px solid #e1e4e8;
+    border-radius: 6px;
+    background-color: #ffffff;
+}
+
+QTabBar::tab {
+    background-color: #f8f9fa;
+    border: 1px solid #e1e4e8;
+    border-bottom: none;
+    padding: 8px 16px;
+    margin-right: 2px;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+}
+
+QTabBar::tab:selected {
+    background-color: #ffffff;
+    border-bottom: 1px solid #ffffff;
+}
+
+QTabBar::tab:hover:!selected {
+    background-color: #f3f4f6;
+}
+
+/* 滚动条 */
+QScrollBar:vertical {
+    background-color: #f8f9fa;
+    width: 12px;
+    border-radius: 6px;
+}
+
+QScrollBar::handle:vertical {
+    background-color: #d0d7de;
+    border-radius: 6px;
+    min-height: 20px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background-color: #8b949e;
+}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+QScrollBar:horizontal {
+    background-color: #f8f9fa;
+    height: 12px;
+    border-radius: 6px;
+}
+
+QScrollBar::handle:horizontal {
+    background-color: #d0d7de;
+    border-radius: 6px;
+    min-width: 20px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background-color: #8b949e;
+}
+
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {
+    width: 0px;
+}
+
+/* 文本编辑器 */
+QPlainTextEdit {
+    background-color: #ffffff;
+    border: 1px solid #e1e4e8;
+    border-radius: 6px;
+    padding: 12px;
+    font-family: "Consolas", "Monaco", "Courier New", monospace;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #424a53;
+    selection-background-color: #b6e3ff;
+}
+
+QPlainTextEdit:focus {
+    border-color: #0969da;
+    outline: none;
+}
+
+/* 树视图 */
+QTreeView {
+    background-color: #ffffff;
+    border: 1px solid #e1e4e8;
+    border-radius: 6px;
+    alternate-background-color: #f8f9fa;
+}
+
+QTreeView::item {
+    padding: 4px;
+    border: none;
+}
+
+QTreeView::item:selected {
+    background-color: #dbeafe;
+    color: #1e40af;
+}
+
+QTreeView::item:hover {
+    background-color: #f3f4f6;
+}
+
+/* 列表视图 */
+QListView {
+    background-color: #ffffff;
+    border: 1px solid #e1e4e8;
+    border-radius: 6px;
+    alternate-background-color: #f8f9fa;
+}
+
+QListView::item {
+    padding: 8px;
+    border: none;
+}
+
+QListView::item:selected {
+    background-color: #dbeafe;
+    color: #1e40af;
+}
+
+QListView::item:hover {
+    background-color: #f3f4f6;
+}
