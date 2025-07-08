@@ -163,6 +163,7 @@ class MainWindow(QMainWindow):
         # 同步菜单状态以反映面板的实际可见性
         # 使用QTimer延迟执行，确保所有初始化完成后再同步
         QTimer.singleShot(100, self._sync_panel_menu_states)
+        QTimer.singleShot(110, lambda: self._sync_theme_menu_state(self._theme_manager.get_current_theme()))
 
         logger.info("Main window initialized")
 
@@ -483,10 +484,16 @@ class MainWindow(QMainWindow):
             theme_name = ui_config.get("theme", "dark")
             theme_type = ThemeType[theme_name.upper()]
             self._theme_manager.set_theme(theme_type)
+            
+            # 同步主题菜单状态
+            self._sync_theme_menu_state(theme_type)
+            
             logger.info(f"Applied {theme_name} theme")
         except (KeyError, Exception) as e:
             logger.error(f"Failed to apply theme: {e}")
             self._theme_manager.set_theme(ThemeType.DARK)
+            # 即使失败也要同步菜单状态
+            self._sync_theme_menu_state(ThemeType.DARK)
 
 
     @pyqtSlot()
@@ -787,6 +794,10 @@ class MainWindow(QMainWindow):
         ui_config = self._config.get_section("ui")
         ui_config["theme"] = theme_type.value
         self._config.set_section("ui", ui_config)
+        
+        # 同步主题菜单状态
+        self._sync_theme_menu_state(theme_type)
+        
         logger.info(f"Theme changed to: {theme_type.value}")
 
     def _show_preferences(self):
@@ -2131,6 +2142,32 @@ class MainWindow(QMainWindow):
             current_mode = ai_toolbar.get_completion_mode()
             if hasattr(self, '_status_bar'):
                 self._status_bar.show_message(f"补全模式: {current_mode}", 2000)
+    
+    def _sync_theme_menu_state(self, theme_type: ThemeType):
+        """同步主题菜单状态"""
+        if not hasattr(self, '_menu_bar'):
+            return
+            
+        try:
+            # 获取主题动作
+            light_action = self._menu_bar.get_action('light_theme')
+            dark_action = self._menu_bar.get_action('dark_theme')
+            
+            if light_action and dark_action:
+                # 根据当前主题设置选中状态
+                if theme_type == ThemeType.LIGHT:
+                    light_action.setChecked(True)
+                    dark_action.setChecked(False)
+                    logger.debug("主题菜单已同步: 浅色主题选中")
+                elif theme_type == ThemeType.DARK:
+                    light_action.setChecked(False)
+                    dark_action.setChecked(True)
+                    logger.debug("主题菜单已同步: 深色主题选中")
+            else:
+                logger.warning("无法找到主题菜单动作")
+                
+        except Exception as e:
+            logger.error(f"同步主题菜单状态失败: {e}")
     
     def _sync_panel_menu_states(self):
         """同步所有面板的菜单状态"""

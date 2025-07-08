@@ -240,21 +240,21 @@ class ConceptPanel(QWidget):
         
         # 新建按钮
         new_btn = QPushButton(f"新建{concept_type}")
-        new_btn.setFixedHeight(28)
+        new_btn.setFixedHeight(28)  # 与深色模式保持一致
         new_btn.setToolTip(f"新建{concept_type}概念")
         new_btn.clicked.connect(lambda: self._on_new_concept(concept_type))
         layout.addWidget(new_btn)
 
         # 编辑按钮
         edit_btn = QPushButton("编辑")
-        edit_btn.setFixedHeight(28)
+        edit_btn.setFixedHeight(28)  # 与深色模式保持一致
         edit_btn.setToolTip(f"编辑选中的{concept_type}")
         edit_btn.clicked.connect(lambda: self._on_edit_concept(concept_type))
         layout.addWidget(edit_btn)
 
         # 删除按钮
         delete_btn = QPushButton("删除")
-        delete_btn.setFixedHeight(28)
+        delete_btn.setFixedHeight(28)  # 与深色模式保持一致
         delete_btn.setToolTip(f"删除选中的{concept_type}")
         delete_btn.clicked.connect(lambda: self._on_delete_concept(concept_type))
         layout.addWidget(delete_btn)

@@ -3,6 +3,7 @@ import logging
 import inspect
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Union, Optional
 
 try:
     from loguru import logger
@@ -114,11 +115,11 @@ def intercept_logging() -> None:
 
 
 def configure_logging(
-    config: dict | str | Path | None = None,
+    config: Optional[Union[dict, str, Path]] = None,
     *,
     level: str = Defaults.LOG_LEVEL,
     format: str = Defaults.LOG_FORMAT,
-    log_file: Path | None = None,
+    log_file: Optional[Path] = None,
     rotation: str = Defaults.LOG_ROTATION,
     retention: str = Defaults.LOG_RETENTION,
     compression: str = Defaults.LOG_COMPRESSION,

@@ -300,7 +300,7 @@ class AIToolBar(QToolBar):
         """添加API配置按钮"""
         config_btn = QPushButton("API配置")
         config_btn.setToolTip("打开AI配置中心")
-        config_btn.setMaximumHeight(28)
+        config_btn.setMaximumHeight(28)  # 与深色模式保持一致
         config_btn.clicked.connect(
             lambda: self.aiActionTriggered.emit("ai_config", {})
         )
@@ -313,10 +313,7 @@ class AIToolBar(QToolBar):
         """添加提示词模板选择器"""
         template_btn = QPushButton("模板")
         template_btn.setToolTip("选择当前使用的提示词模板")
-        template_btn.setMinimumHeight(32)  # 增加最小高度，防止文字竖向显示
-        template_btn.setMaximumHeight(36)  # 增加最大高度
-        template_btn.setMinimumWidth(60)   # 确保宽度足够
-        template_btn.setMaximumWidth(90)   # 最大宽度
+        template_btn.setMaximumHeight(28)  # 与深色模式保持一致
         template_btn.clicked.connect(
             lambda: self.aiActionTriggered.emit("template_selector", {})
         )
