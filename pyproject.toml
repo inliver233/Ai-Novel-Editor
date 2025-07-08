@@ -1,0 +1,25 @@
+[project]
+name = "ai-novel-editor"
+dynamic = ["version"]
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aiohttp==3.8.4",
+    "loguru==0.7.3",
+    "nltk==3.9.1",
+    "numpy>=2.3.1",
+    "pyqt6>=6.9.1",
+    "pyqt6-sip>=13.10.2",
+    "pytest==8.4.1",
+    "python-docx==1.1.2",
+    "requests==2.32.4",
+    "urllib3==1.26.20",
+    "weasyprint==65.1",
+]
+
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
