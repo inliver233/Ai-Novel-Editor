@@ -141,4 +141,71 @@ cython_debug/
 .vscode/
 .idea/
 
-# custom
+# ========================================
+# AI Novel Editor 项目特定忽略规则
+# ========================================
+
+# 虚拟环境
+venv/
+
+# 截图文件夹
+截图/
+screenshots/
+
+# Claude AI 相关文件夹
+.claude/
+memory-bank/
+
+# 除了 README.md 以外的所有 md 文档
+*.md
+!README.md
+
+# Python 缓存文件 (额外确保)
+src/**/__pycache__/
+src/**/*.pyc
+src/**/*.pyo
+
+# 用户配置和数据文件
+*.sqlite
+*.db
+config.json
+user_config.json
+*.conf
+
+# 临时文件
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+
+# 项目相关的临时文件
+.ai-novel-project.json
+projects/
+exports/
+backups/
+
+# IDE 和编辑器配置
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# 操作系统生成的文件
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# 构建输出
+build/
+dist/
+*.spec
+
+# 日志文件
+*.log
+logs/

@@ -365,7 +365,6 @@ class MenuBar(QMenuBar):
             "切换到深色主题"
         )
         dark_theme_action.setCheckable(True)
-        dark_theme_action.setChecked(True)
         theme_menu.addAction(dark_theme_action)
         
         # 主题互斥

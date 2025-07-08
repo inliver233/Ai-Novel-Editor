@@ -47,14 +47,16 @@ QToolBar::separator {
     margin: 8px 6px;
 }
 
-/* 按钮 - 添加动画效果 */
+/* 按钮 - 统一尺寸和字体 */
 QPushButton {
     background-color: #2a2a2a;
     border: 1px solid #404040;
     border-radius: 6px;
-    padding: 8px 14px;
-    font-size: 14px;
+    padding: 6px 12px;
+    font-size: 13px;
     color: #e8e8e8;
+    min-height: 24px;
+    max-height: 24px;
 }
 
 QPushButton:hover {
@@ -305,7 +307,7 @@ QListView::item:hover {
     background-color: #2a2a2a;
 }
 
-/* 工具按钮 - 现代化交互效果 */
+/* 工具按钮 - 统一尺寸和字体 */
 QToolButton {
     border: 1px solid transparent;
     border-radius: 6px;
@@ -313,8 +315,10 @@ QToolButton {
     color: #e8e8e8;
     font-size: 11px;
     font-weight: 500;
-    padding: 6px 10px;
+    padding: 6px 12px;
     min-width: 60px;
+    min-height: 24px;
+    max-height: 24px;
 }
 
 QToolButton:hover {
@@ -370,14 +374,17 @@ QTextEdit {
     color: #e8e8e8;
 }
 
-/* 组合框 - 增强交互效果 */
+/* 组合框 - 统一尺寸和字体 */
 QComboBox {
     background-color: #2a2a2a;
     border: 1px solid #404040;
     border-radius: 4px;
-    padding: 6px;
+    padding: 4px 8px;
+    font-size: 12px;
     color: #e8e8e8;
-    min-width: 80px;
+    min-width: 70px;
+    min-height: 24px;
+    max-height: 24px;
 }
 
 QComboBox:hover {

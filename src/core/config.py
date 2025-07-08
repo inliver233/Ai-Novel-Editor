@@ -62,7 +62,6 @@ class Config:
         defaults = {
             # 应用程序设置
             "app": {
-                "theme": "light",  # light, dark, auto
                 "language": "zh_CN",
                 "auto_save_interval": 30,  # 秒
                 "backup_count": 5,
@@ -104,6 +103,7 @@ class Config:
             
             # 界面设置
             "ui": {
+                "theme": "dark",  # light, dark, auto - 统一的主题配置位置
                 "window_width": 1200,
                 "window_height": 800,
                 "window_maximized": False,

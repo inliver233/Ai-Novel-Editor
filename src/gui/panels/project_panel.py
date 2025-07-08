@@ -228,14 +228,14 @@ class ProjectPanel(QWidget):
         
         # 新建按钮
         new_btn = QPushButton("新建")
-        new_btn.setFixedHeight(28)
+        new_btn.setFixedHeight(28)  # 与深色模式保持一致
         new_btn.setToolTip("新建文档 (Ctrl+N)")
         new_btn.clicked.connect(self._on_new_document)
         layout.addWidget(new_btn)
 
         # 删除按钮
         delete_btn = QPushButton("删除")
-        delete_btn.setFixedHeight(28)
+        delete_btn.setFixedHeight(28)  # 与深色模式保持一致
         delete_btn.setToolTip("删除选中的文档")
         delete_btn.clicked.connect(self._on_delete_document)
         layout.addWidget(delete_btn)
