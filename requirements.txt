@@ -8,3 +8,4 @@ python_docx==1.1.2
 Requests==2.32.4
 urllib3==1.26.20
 weasyprint==65.1
+loguru==0.7.3
