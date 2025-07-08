@@ -25,21 +25,12 @@ from core.concepts import ConceptManager
 from core.project import ProjectManager
 from gui.main_window import MainWindow
 
-
+from core.log import configure_logging
 def setup_logging():
     """设置日志系统"""
     log_dir = Path.home() / ".ai-novel-editor" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_dir / "app.log"),
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
-
+    configure_logging(log_file=log_dir / "app.log")
 
 def setup_application():
     """设置应用程序基础配置"""
