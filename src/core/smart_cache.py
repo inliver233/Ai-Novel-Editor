@@ -87,8 +87,8 @@ class SmartCache:
         self._memory_size = 0
         self._lock = Lock()
         
-        # 磁盘缓存
-        self._disk_cache_db = None
+        # 磁盘缓存路径
+        self.disk_cache_path = disk_cache_path
         if disk_cache_path:
             self._init_disk_cache()
         
@@ -101,42 +101,55 @@ class SmartCache:
             'total_requests': 0
         }
     
+    def _get_disk_connection(self) -> Optional[sqlite3.Connection]:
+        """获取磁盘缓存数据库连接"""
+        if not self.disk_cache_path:
+            return None
+        try:
+            conn = sqlite3.connect(self.disk_cache_path)
+            conn.execute("PRAGMA journal_mode=WAL")
+            return conn
+        except Exception as e:
+            logger.error(f"获取磁盘缓存连接失败: {e}")
+            return None
+
     def _init_disk_cache(self):
         """初始化磁盘缓存"""
-        try:
-            os.makedirs(os.path.dirname(self.disk_cache_path), exist_ok=True)
-            self._disk_cache_db = sqlite3.connect(self.disk_cache_path, check_same_thread=False)
-            cursor = self._disk_cache_db.cursor()
-            
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS cache_entries (
-                    key TEXT PRIMARY KEY,
-                    data BLOB NOT NULL,
-                    created_at REAL NOT NULL,
-                    access_count INTEGER DEFAULT 0,
-                    last_accessed REAL NOT NULL,
-                    ttl REAL NOT NULL,
-                    size_bytes INTEGER NOT NULL,
-                    tags TEXT
-                )
-            """)
-            
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_cache_last_accessed 
-                ON cache_entries(last_accessed)
-            """)
-            
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_cache_ttl 
-                ON cache_entries(created_at, ttl)
-            """)
-            
-            self._disk_cache_db.commit()
-            logger.info(f"磁盘缓存已初始化: {self.disk_cache_path}")
-            
-        except Exception as e:
-            logger.error(f"初始化磁盘缓存失败: {e}")
-            self._disk_cache_db = None
+        with self._lock:
+            try:
+                os.makedirs(os.path.dirname(self.disk_cache_path), exist_ok=True)
+                # 使用新连接创建表
+                with self._get_disk_connection() as conn:
+                    if conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            CREATE TABLE IF NOT EXISTS cache_entries (
+                                key TEXT PRIMARY KEY,
+                                data BLOB NOT NULL,
+                                created_at REAL NOT NULL,
+                                access_count INTEGER DEFAULT 0,
+                                last_accessed REAL NOT NULL,
+                                ttl REAL NOT NULL,
+                                size_bytes INTEGER NOT NULL,
+                                tags TEXT
+                            )
+                        """)
+                        
+                        cursor.execute("""
+                            CREATE INDEX IF NOT EXISTS idx_cache_last_accessed 
+                            ON cache_entries(last_accessed)
+                        """)
+                        
+                        cursor.execute("""
+                            CREATE INDEX IF NOT EXISTS idx_cache_ttl 
+                            ON cache_entries(created_at, ttl)
+                        """)
+                        
+                        conn.commit()
+                        logger.info(f"磁盘缓存已初始化: {self.disk_cache_path}")
+                    
+            except Exception as e:
+                logger.error(f"初始化磁盘缓存失败: {e}")
     
     def _generate_key(self, *args, **kwargs) -> str:
         """生成缓存键"""
@@ -191,86 +204,97 @@ class SmartCache:
                 self._stats['evictions'] += 1
                 
                 # 如果有磁盘缓存，将驱逐的条目写入磁盘
-                if self._disk_cache_db and not self._is_expired(entry):
+                if self.disk_cache_path and not self._is_expired(entry):
                     self._store_to_disk(lru_key, entry)
                 
                 logger.debug(f"驱逐内存缓存条目: {lru_key}")
     
     def _store_to_disk(self, key: str, entry: CacheEntry):
         """将条目存储到磁盘缓存"""
-        if not self._disk_cache_db:
+        if not self.disk_cache_path:
             return
         
-        try:
-            data_blob = self._safe_serialize(entry.data)
-            tags_str = json.dumps(entry.tags) if entry.tags else None
-            
-            cursor = self._disk_cache_db.cursor()
-            cursor.execute("""
-                INSERT OR REPLACE INTO cache_entries 
-                (key, data, created_at, access_count, last_accessed, ttl, size_bytes, tags)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (key, data_blob, entry.created_at, entry.access_count, 
-                  entry.last_accessed, entry.ttl, entry.size_bytes, tags_str))
-            
-            self._disk_cache_db.commit()
-            
-        except Exception as e:
-            logger.error(f"存储磁盘缓存失败: {e}")
+        with self._lock:
+            try:
+                with self._get_disk_connection() as conn:
+                    if conn:
+                        data_blob = self._safe_serialize(entry.data)
+                        tags_str = json.dumps(entry.tags) if entry.tags else None
+                        
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            INSERT OR REPLACE INTO cache_entries 
+                            (key, data, created_at, access_count, last_accessed, ttl, size_bytes, tags)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (key, data_blob, entry.created_at, entry.access_count, 
+                              entry.last_accessed, entry.ttl, entry.size_bytes, tags_str))
+                        
+                        conn.commit()
+                    
+            except Exception as e:
+                logger.error(f"存储磁盘缓存失败: {e}")
     
     def _load_from_disk(self, key: str) -> Optional[CacheEntry]:
         """从磁盘缓存加载条目"""
-        if not self._disk_cache_db:
+        if not self.disk_cache_path:
             return None
         
-        try:
-            cursor = self._disk_cache_db.cursor()
-            cursor.execute("""
-                SELECT data, created_at, access_count, last_accessed, ttl, size_bytes, tags
-                FROM cache_entries WHERE key = ?
-            """, (key,))
-            
-            row = cursor.fetchone()
-            if not row:
+        with self._lock:
+            try:
+                with self._get_disk_connection() as conn:
+                    if conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            SELECT data, created_at, access_count, last_accessed, ttl, size_bytes, tags
+                            FROM cache_entries WHERE key = ?
+                        """, (key,))
+                        
+                        row = cursor.fetchone()
+                        if not row:
+                            return None
+                        
+                        data = self._safe_deserialize(row[0])
+                        if data is None:
+                            return None
+                        tags = json.loads(row[6]) if row[6] else None
+                        
+                        entry = CacheEntry(
+                            data=data,
+                            created_at=row[1],
+                            access_count=row[2],
+                            last_accessed=row[3],
+                            ttl=row[4],
+                            size_bytes=row[5],
+                            tags=tags
+                        )
+                        
+                        # 检查是否过期
+                        if self._is_expired(entry):
+                            self._remove_from_disk(key)
+                            return None
+                        
+                        return entry
+                
                 return None
-            
-            data = self._safe_deserialize(row[0])
-            if data is None:
+                
+            except Exception as e:
+                logger.error(f"加载磁盘缓存失败: {e}")
                 return None
-            tags = json.loads(row[6]) if row[6] else None
-            
-            entry = CacheEntry(
-                data=data,
-                created_at=row[1],
-                access_count=row[2],
-                last_accessed=row[3],
-                ttl=row[4],
-                size_bytes=row[5],
-                tags=tags
-            )
-            
-            # 检查是否过期
-            if self._is_expired(entry):
-                self._remove_from_disk(key)
-                return None
-            
-            return entry
-            
-        except Exception as e:
-            logger.error(f"加载磁盘缓存失败: {e}")
-            return None
     
     def _remove_from_disk(self, key: str):
         """从磁盘缓存删除条目"""
-        if not self._disk_cache_db:
+        if not self.disk_cache_path:
             return
         
-        try:
-            cursor = self._disk_cache_db.cursor()
-            cursor.execute("DELETE FROM cache_entries WHERE key = ?", (key,))
-            self._disk_cache_db.commit()
-        except Exception as e:
-            logger.error(f"删除磁盘缓存失败: {e}")
+        with self._lock:
+            try:
+                with self._get_disk_connection() as conn:
+                    if conn:
+                        cursor = conn.cursor()
+                        cursor.execute("DELETE FROM cache_entries WHERE key = ?", (key,))
+                        conn.commit()
+            except Exception as e:
+                logger.error(f"删除磁盘缓存失败: {e}")
     
     def get(self, key: str) -> Optional[Any]:
         """获取缓存值"""
@@ -387,20 +411,23 @@ class SmartCache:
                 logger.debug(f"按标签清理内存缓存: {key}")
         
         # 清理磁盘缓存
-        if self._disk_cache_db:
-            try:
-                cursor = self._disk_cache_db.cursor()
-                for tag in tags:
-                    cursor.execute("""
-                        DELETE FROM cache_entries 
-                        WHERE tags LIKE ? OR tags LIKE ? OR tags LIKE ? OR tags = ?
-                    """, (f'%"{tag}"%', f'["{tag}"]', f'"{tag}",%', f'["{tag}"]'))
-                
-                self._disk_cache_db.commit()
-                logger.info(f"按标签清理磁盘缓存: {tags}")
-                
-            except Exception as e:
-                logger.error(f"按标签清理磁盘缓存失败: {e}")
+        if self.disk_cache_path:
+            with self._lock:
+                try:
+                    with self._get_disk_connection() as conn:
+                        if conn:
+                            cursor = conn.cursor()
+                            for tag in tags:
+                                cursor.execute("""
+                                    DELETE FROM cache_entries 
+                                    WHERE tags LIKE ? OR tags LIKE ? OR tags LIKE ? OR tags = ?
+                                """, (f'%"{tag}"%', f'["{tag}"]', f'"{tag}",%', f'["{tag}"]'))
+                            
+                            conn.commit()
+                            logger.info(f"按标签清理磁盘缓存: {tags}")
+                        
+                except Exception as e:
+                    logger.error(f"按标签清理磁盘缓存失败: {e}")
     
     def clear(self):
         """清空所有缓存"""
@@ -408,14 +435,17 @@ class SmartCache:
             self._memory_cache.clear()
             self._memory_size = 0
         
-        if self._disk_cache_db:
-            try:
-                cursor = self._disk_cache_db.cursor()
-                cursor.execute("DELETE FROM cache_entries")
-                self._disk_cache_db.commit()
-                logger.info("磁盘缓存已清空")
-            except Exception as e:
-                logger.error(f"清空磁盘缓存失败: {e}")
+        if self.disk_cache_path:
+            with self._lock:
+                try:
+                    with self._get_disk_connection() as conn:
+                        if conn:
+                            cursor = conn.cursor()
+                            cursor.execute("DELETE FROM cache_entries")
+                            conn.commit()
+                            logger.info("磁盘缓存已清空")
+                except Exception as e:
+                    logger.error(f"清空磁盘缓存失败: {e}")
     
     def cleanup_expired(self):
         """清理过期条目"""
@@ -457,14 +487,16 @@ class SmartCache:
         disk_count = 0
         disk_size_mb = 0.0
         
-        if self._disk_cache_db:
+        if self.disk_cache_path:
             try:
-                cursor = self._disk_cache_db.cursor()
-                cursor.execute("SELECT COUNT(*), SUM(size_bytes) FROM cache_entries")
-                row = cursor.fetchone()
-                if row and row[0]:
-                    disk_count = row[0]
-                    disk_size_mb = (row[1] or 0) / (1024 * 1024)
+                with self._get_disk_connection() as conn:
+                    if conn:
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT COUNT(*), SUM(size_bytes) FROM cache_entries")
+                        row = cursor.fetchone()
+                        if row and row[0]:
+                            disk_count = row[0]
+                            disk_size_mb = (row[1] or 0) / (1024 * 1024)
             except Exception as e:
                 logger.error(f"获取磁盘缓存统计失败: {e}")
         
@@ -483,7 +515,7 @@ class SmartCache:
             'disk_cache': {
                 'count': disk_count,
                 'size_mb': round(disk_size_mb, 2),
-                'enabled': self._disk_cache_db is not None
+                'enabled': self.disk_cache_path is not None
             },
             'performance': {
                 'total_requests': self._stats['total_requests'],
@@ -497,9 +529,7 @@ class SmartCache:
     
     def close(self):
         """关闭缓存"""
-        if self._disk_cache_db:
-            self._disk_cache_db.close()
-            self._disk_cache_db = None
+        # 新设计不需要显式关闭连接
         
         with self._lock:
             self._memory_cache.clear()
