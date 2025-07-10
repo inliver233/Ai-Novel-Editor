@@ -670,10 +670,11 @@ class ModernGhostTextCompletion(QObject):
         return bool(self._current_completion)
         
     def update_position(self):
-        """更新位置（当编辑器滚动时调用） - 使用固定位置"""
+        """更新位置（当编辑器滚动时调用） - 使用内联渲染无需更新位置"""
         if self._current_completion:
-            # 只有在位置已锁定的情况下才更新
-            self._ghost_renderer._update_position()
+            # 内联渲染模式使用文本编辑器的paintEvent，无需手动更新位置
+            # 编辑器滚动时会自动重新绘制ghost text
+            pass
 
     def get_trigger_position(self) -> int:
         """获取触发位置"""

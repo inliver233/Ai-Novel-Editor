@@ -5,7 +5,7 @@
 import logging
 import time
 import hashlib
-import pickle
+# import pickle  # 移除pickle，使用安全的JSON序列化
 import os
 import json
 from typing import Dict, Any, Optional, List, Tuple
@@ -30,6 +30,38 @@ class CacheEntry:
 
 class SmartCache:
     """智能缓存管理器"""
+    
+    @staticmethod
+    def _safe_serialize(obj: Any) -> str:
+        """安全序列化对象为JSON"""
+        try:
+            # 尝试直接JSON序列化
+            return json.dumps(obj)
+        except (TypeError, ValueError):
+            # 对于复杂对象，创建一个可序列化的表示
+            def default(o):
+                if hasattr(o, '__dict__'):
+                    return {'__type__': o.__class__.__name__, '__dict__': o.__dict__}
+                elif hasattr(o, '__iter__') and not isinstance(o, (str, bytes)):
+                    return list(o)
+                else:
+                    return str(o)
+            return json.dumps(obj, default=default)
+    
+    @staticmethod
+    def _safe_deserialize(data: str) -> Any:
+        """安全反序列化JSON数据"""
+        try:
+            obj = json.loads(data)
+            # 检查是否是特殊对象格式
+            if isinstance(obj, dict) and '__type__' in obj and '__dict__' in obj:
+                # 为了安全，我们只返回字典表示，不重建对象
+                return obj['__dict__']
+            return obj
+        except (json.JSONDecodeError, KeyError, ValueError):
+            # 如果反序列化失败，返回None
+            logger.warning(f"Failed to deserialize cache data")
+            return None
     
     def __init__(self, 
                  memory_cache_size: int = 1000,
@@ -119,7 +151,8 @@ class SmartCache:
     def _estimate_size(self, data: Any) -> int:
         """估算数据大小"""
         try:
-            return len(pickle.dumps(data))
+            # 使用JSON序列化来估算大小
+            return len(json.dumps(data, default=str).encode())
         except:
             # 如果无法序列化，返回一个估算值
             return len(str(data).encode()) * 2
@@ -169,7 +202,7 @@ class SmartCache:
             return
         
         try:
-            data_blob = pickle.dumps(entry.data)
+            data_blob = self._safe_serialize(entry.data)
             tags_str = json.dumps(entry.tags) if entry.tags else None
             
             cursor = self._disk_cache_db.cursor()
@@ -201,7 +234,9 @@ class SmartCache:
             if not row:
                 return None
             
-            data = pickle.loads(row[0])
+            data = self._safe_deserialize(row[0])
+            if data is None:
+                return None
             tags = json.loads(row[6]) if row[6] else None
             
             entry = CacheEntry(

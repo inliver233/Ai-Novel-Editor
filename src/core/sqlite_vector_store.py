@@ -4,7 +4,7 @@ SQLite向量存储管理器
 import sqlite3
 import json
 import logging
-import pickle
+# import pickle  # 移除pickle，使用JSON序列化
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 
@@ -108,7 +108,12 @@ class SQLiteVectorStore:
             cursor = conn.cursor()
             
             # 序列化嵌入向量和元数据
-            embedding_blob = pickle.dumps(np.array(embedding))
+            # 将numpy数组转换为列表进行JSON序列化
+            if NUMPY_AVAILABLE and isinstance(embedding, np.ndarray):
+                embedding_list = embedding.tolist()
+            else:
+                embedding_list = list(embedding)
+            embedding_json = json.dumps(embedding_list)
             metadata_json = json.dumps(metadata) if metadata else None
             
             # 插入或更新
@@ -118,7 +123,7 @@ class SQLiteVectorStore:
                  embedding, embedding_model, metadata, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """, (document_id, chunk_index, chunk_text, start_pos, end_pos,
-                  embedding_blob, embedding_model, metadata_json))
+                  embedding_json, embedding_model, metadata_json))
             
             conn.commit()
             return cursor.lastrowid
@@ -130,7 +135,13 @@ class SQLiteVectorStore:
             
             ids = []
             for emb_data in embeddings:
-                embedding_blob = pickle.dumps(np.array(emb_data['embedding']))
+                # 将numpy数组转换为列表进行JSON序列化
+                embedding = emb_data['embedding']
+                if NUMPY_AVAILABLE and isinstance(embedding, np.ndarray):
+                    embedding_list = embedding.tolist()
+                else:
+                    embedding_list = list(embedding)
+                embedding_json = json.dumps(embedding_list)
                 metadata_json = json.dumps(emb_data.get('metadata')) if emb_data.get('metadata') else None
                 
                 cursor.execute("""
@@ -140,7 +151,7 @@ class SQLiteVectorStore:
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 """, (emb_data['document_id'], emb_data['chunk_index'], 
                       emb_data['chunk_text'], emb_data['start_pos'], 
-                      emb_data['end_pos'], embedding_blob,
+                      emb_data['end_pos'], embedding_json,
                       emb_data.get('embedding_model'), metadata_json))
                 
                 ids.append(cursor.lastrowid)
@@ -163,7 +174,12 @@ class SQLiteVectorStore:
             
             results = []
             for row in cursor.fetchall():
-                embedding = pickle.loads(row[5])
+                # 从JSON反序列化嵌入向量
+                embedding_list = json.loads(row[5])
+                if NUMPY_AVAILABLE:
+                    embedding = np.array(embedding_list)
+                else:
+                    embedding = embedding_list
                 metadata = json.loads(row[7]) if row[7] else None
                 
                 results.append({
@@ -201,7 +217,12 @@ class SQLiteVectorStore:
             
             results = []
             for row in cursor.fetchall():
-                embedding = pickle.loads(row[6])
+                # 从JSON反序列化嵌入向量
+                embedding_list = json.loads(row[6])
+                if NUMPY_AVAILABLE:
+                    embedding = np.array(embedding_list)
+                else:
+                    embedding = embedding_list
                 metadata = json.loads(row[8]) if row[8] else None
                 
                 results.append({
@@ -499,11 +520,11 @@ class SQLiteVectorStore:
                 id_val, document_id, chunk_index, chunk_text, start_pos, end_pos, embedding_blob, metadata_json = row
                 
                 # 快速反序列化嵌入向量
-                doc_vec = pickle.loads(embedding_blob)
-                if hasattr(doc_vec, 'tolist'):
-                    doc_vec = np.array(doc_vec)
+                doc_vec_list = json.loads(embedding_blob)
+                if NUMPY_AVAILABLE:
+                    doc_vec = np.array(doc_vec_list)
                 else:
-                    doc_vec = np.array(doc_vec)
+                    doc_vec = doc_vec_list
                 
                 # 快速计算余弦相似度
                 dot_product = np.dot(query_vec, doc_vec)

@@ -157,7 +157,7 @@ class IntelligentTextEditor(QPlainTextEdit):
             self._paint_ghost_text()
 
     def _paint_ghost_text(self):
-        """精确绘制Ghost Text - 修复对齐问题确保文本紧跟光标"""
+        """重新设计的Ghost Text渲染器 - 完全解决重叠和换行问题"""
         try:
             painter = QPainter(self.viewport())
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -167,142 +167,271 @@ class IntelligentTextEditor(QPlainTextEdit):
             painter.setFont(self.font())
             font_metrics = QFontMetrics(self.font())
 
-            # 使用存储的ghost_cursor_position来创建光标，而不是当前光标位置
-            # 这确保Ghost Text显示在触发时的位置，而不会跟随光标移动
+            # 获取触发位置的光标
             cursor = QTextCursor(self.document())
             cursor.setPosition(self._ghost_cursor_position)
-            
-            # 获取光标矩形 - 使用存储的触发位置
             cursor_rect = self.cursorRect(cursor)
             
-            # 精确计算Ghost Text起始位置
-            # 使用光标矩形的右边界作为X起点，确保文本紧跟光标
-            x = cursor_rect.right()
-            # 使用光标矩形的顶部+ascent作为Y基线，确保与正常文本对齐
-            y = cursor_rect.top() + font_metrics.ascent()
-
-            # 设置Ghost Text颜色（根据主题自适应）
+            # 获取当前行信息
+            current_block = cursor.block()
+            block_text = current_block.text()
+            cursor_position_in_block = cursor.position() - current_block.position()
+            text_before_cursor = block_text[:cursor_position_in_block]
+            text_after_cursor = block_text[cursor_position_in_block:]
+            
+            # 设置清晰的Ghost Text颜色
             base_color = self.palette().color(QPalette.ColorRole.Text)
             if base_color.lightness() > 128:  # 浅色主题
-                ghost_color = QColor(160, 160, 160, 140)  # 浅灰色，半透明
+                ghost_color = QColor(100, 100, 100, 180)  # 更深的灰色，更不透明
             else:  # 深色主题
-                ghost_color = QColor(120, 120, 120, 160)  # 深灰色，半透明
+                ghost_color = QColor(140, 140, 140, 200)  # 更亮的灰色，更不透明
             
             painter.setPen(ghost_color)
 
-            # 获取可视区域和可用宽度
-            viewport_rect = self.viewport().rect()
-            available_width = viewport_rect.width() - x - 10  # 留10像素边距
+            # 获取文档布局信息
+            document_layout = self.document().documentLayout()
+            margin = self.document().documentMargin()
             line_height = font_metrics.height()
-
-            logger.debug(f"Ghost text精确渲染: cursor=({x}, {y}), available_width={available_width}")
-            logger.debug(f"Ghost text内容: '{self._ghost_text[:50]}...'")
-
-            # 智能文本换行处理
-            wrapped_lines = self._wrap_ghost_text_to_width(self._ghost_text, available_width, font_metrics)
             
-            logger.debug(f"Ghost text换行结果: {len(wrapped_lines)} 行")
-
-            # 绘制Ghost Text - 第一行从光标位置开始，后续行换行
-            current_y = y
-            max_lines = min(len(wrapped_lines), 5)  # 最多显示5行
+            # 修复：计算更准确的布局信息，解决中句触发的重叠问题
+            viewport_width = self.viewport().width()
+            effective_line_width = viewport_width - margin * 2
             
-            for i, line_text in enumerate(wrapped_lines[:max_lines]):
-                if line_text.strip():  # 只绘制非空行
-                    # 检查是否超出可视区域
-                    if current_y > viewport_rect.height():
-                        logger.debug(f"Line {i+1} exceeds viewport, stopping")
-                        break
+            # 关键修复：正确计算光标后文本的真实宽度
+            after_cursor_width = font_metrics.horizontalAdvance(text_after_cursor) if text_after_cursor.strip() else 0
+            
+            # 计算光标到行末的实际可用空间
+            cursor_x_in_viewport = cursor_rect.left() - margin
+            remaining_space_on_line = effective_line_width - cursor_x_in_viewport - after_cursor_width
+            
+            logger.debug(f"Ghost text精确布局: cursor_x={cursor_x_in_viewport}, after_width={after_cursor_width}")
+            logger.debug(f"effective_line_width={effective_line_width}, remaining_space={remaining_space_on_line}")
+            
+            # 关键改进：智能判断是否需要换行，考虑中文字符宽度
+            min_ghost_width = font_metrics.horizontalAdvance(self._ghost_text[:10]) if len(self._ghost_text) >= 10 else font_metrics.horizontalAdvance(self._ghost_text)
+            need_new_line = remaining_space_on_line < min_ghost_width or remaining_space_on_line < 80  # 至少80像素
+            
+            # 修复：处理中句触发的情况
+            if text_after_cursor.strip() and not need_new_line:
+                # 中句触发且有足够空间：在光标后但不覆盖现有文本的位置显示
+                start_y = cursor_rect.top() + font_metrics.ascent()
+                start_x = cursor_rect.right() + 5  # 在光标右侧留5像素间隙
+                available_width = remaining_space_on_line - 5
+                first_line_mode = 'inline'  # 内联模式
+                logger.debug(f"Ghost text内联模式: ({start_x}, {start_y}), 可用宽度={available_width}")
+            elif need_new_line or text_after_cursor.strip():
+                # 需要换行或有后续文本：从下一行开始
+                start_y = cursor_rect.bottom() + font_metrics.ascent()
+                start_x = margin
+                available_width = effective_line_width
+                first_line_mode = 'newline'  # 换行模式
+                logger.debug(f"Ghost text换行模式: ({start_x}, {start_y}), 可用宽度={available_width}")
+            else:
+                # 行末触发：直接在光标位置继续
+                start_y = cursor_rect.top() + font_metrics.ascent()
+                start_x = cursor_rect.right()
+                available_width = remaining_space_on_line
+                first_line_mode = 'continue'  # 继续模式
+                logger.debug(f"Ghost text继续模式: ({start_x}, {start_y}), 可用宽度={available_width}")
+            
+            # 按行分割Ghost Text，使用改进的换行逻辑
+            ghost_lines = self._split_ghost_text_with_smart_wrapping(
+                self._ghost_text, available_width, effective_line_width, font_metrics, first_line_mode
+            )
+            
+            # 绘制Ghost Text行
+            current_y = start_y
+            
+            for i, line_text in enumerate(ghost_lines[:5]):  # 最多5行
+                if not line_text.strip():
+                    current_y += line_height
+                    continue
                     
-                    # 第一行从光标位置开始，后续行从行首开始
-                    if i == 0:
-                        # 第一行：紧跟光标位置
-                        painter.drawText(x, current_y, line_text)
-                        logger.debug(f"第1行绘制在光标位置: ({x}, {current_y}) '{line_text}'")
-                    else:
-                        # 后续行：从文档左边距开始
-                        margin_x = self.document().documentMargin()
-                        painter.drawText(margin_x, current_y, line_text)
-                        logger.debug(f"第{i+1}行绘制在行首: ({margin_x}, {current_y}) '{line_text}'")
-                        
-                # 移动到下一行
+                # 检查是否超出可视区域
+                if current_y > self.viewport().height():
+                    break
+                
+                if i == 0 and first_line_mode in ['inline', 'continue']:
+                    # 第一行：从光标位置或指定位置开始
+                    painter.drawText(int(start_x), int(current_y), line_text)
+                    logger.debug(f"Ghost text第1行({first_line_mode}): ({int(start_x)}, {int(current_y)}) '{line_text[:30]}...'")
+                else:
+                    # 后续行：从左边距开始，确保对齐
+                    painter.drawText(int(margin), int(current_y), line_text)
+                    logger.debug(f"Ghost text第{i+1}行: ({int(margin)}, {int(current_y)}) '{line_text[:30]}...'")
+                
                 current_y += line_height
 
-            logger.debug(f"Ghost text绘制完成: {len(wrapped_lines)} 行已处理")
+            logger.debug(f"Ghost text绘制完成: {len(ghost_lines)} 行, 模式: {first_line_mode}")
 
         except Exception as e:
             logger.error(f"Ghost text绘制错误: {e}")
     
-    def _wrap_ghost_text_to_width(self, text: str, max_width: int, font_metrics: QFontMetrics) -> list[str]:
-        """将Ghost Text按指定宽度进行智能换行
-        
-        Args:
-            text: 原始文本
-            max_width: 最大宽度（像素）
-            font_metrics: 字体度量对象
-            
-        Returns:
-            换行后的文本行列表
-        """
-        logger.debug(f"Wrapping ghost text: length={len(text)}, max_width={max_width}")
-        
-        if max_width <= 50:  # 宽度太小，不换行
-            logger.debug("Width too small, returning original text")
-            return [text]
+    def _split_ghost_text_properly(self, text: str, first_line_width: int, max_line_width: int, font_metrics: QFontMetrics, start_from_next_line: bool) -> list[str]:
+        """正确分割Ghost Text，使用与编辑器一致的换行逻辑"""
+        if not text:
+            return []
         
         lines = []
         remaining_text = text.strip()
         
-        while remaining_text and len(lines) < 5:  # 最多5行
-            # 尝试找到能放入当前行的最长文本
-            line_text = ""
-            
+        # 处理第一行
+        if start_from_next_line:
+            current_width = max_line_width
+        else:
+            current_width = first_line_width
+        
+        line_count = 0
+        while remaining_text and line_count < 5:
             # 二分查找最佳断行位置
-            left, right = 1, min(len(remaining_text), 200)  # 限制单行最大长度
-            best_length = 0
+            best_length = self._find_optimal_break_position(remaining_text, current_width, font_metrics)
             
-            while left <= right:
-                mid = (left + right) // 2
-                test_text = remaining_text[:mid]
-                text_width = font_metrics.horizontalAdvance(test_text)
-                
-                if text_width <= max_width:
-                    best_length = mid
-                    left = mid + 1
-                else:
-                    right = mid - 1
-            
-            # 如果找到合适长度，使用它
-            if best_length > 0:
-                line_text = remaining_text[:best_length]
-            else:
+            if best_length <= 0:
                 # 如果连一个字符都放不下，强制取一个字符
-                line_text = remaining_text[:1] if remaining_text else ""
+                best_length = 1
             
-            # 优化断行位置：在标点符号处断行
-            if len(line_text) < len(remaining_text) and len(line_text) > 10:
-                # 向后查找合适的断点
-                for j in range(len(line_text) - 1, max(0, len(line_text) - 15), -1):
-                    char = line_text[j]
-                    if char in '，。！？；：、""''）】》 \t':  # 中文标点和空格
-                        line_text = line_text[:j + 1] if char != ' ' else line_text[:j]
-                        break
+            line_text = remaining_text[:best_length]
             
-            if line_text:
-                lines.append(line_text.rstrip())
-                remaining_text = remaining_text[len(line_text):].lstrip()
-                logger.debug(f"Ghost text line {len(lines)}: '{line_text}' (width: {font_metrics.horizontalAdvance(line_text)})")
-            else:
-                # 防止无限循环
-                logger.warning("Ghost text wrapping: no progress made, breaking")
-                break
+            # 在合适的位置断行（标点符号处）
+            if best_length < len(remaining_text) and best_length > 10:
+                better_break = self._find_smart_break_point(line_text)
+                if better_break > 0:
+                    line_text = line_text[:better_break]
+            
+            lines.append(line_text.rstrip())
+            remaining_text = remaining_text[len(line_text):].lstrip()
+            
+            # 第一行之后都使用完整行宽
+            current_width = max_line_width
+            line_count += 1
         
         # 如果还有剩余文本，在最后一行添加省略号
         if remaining_text and lines:
             lines[-1] += "..."
-            
-        logger.debug(f"Ghost text wrapping completed: {len(lines)} lines")
+        
         return lines
+    
+    def _split_ghost_text_with_smart_wrapping(self, text: str, first_line_width: int, max_line_width: int, font_metrics: QFontMetrics, mode: str) -> list[str]:
+        """智能分割Ghost Text，支持不同显示模式的优化换行逻辑"""
+        if not text:
+            return []
+        
+        lines = []
+        remaining_text = text.strip()
+        
+        # 根据模式设置第一行的处理策略
+        if mode == 'newline':
+            # 换行模式：所有行都使用完整宽度
+            current_width = max_line_width
+        else:
+            # 内联/继续模式：第一行使用限制宽度
+            current_width = first_line_width
+        
+        line_count = 0
+        max_lines = 4  # 限制最大行数，避免过长的ghost text
+        
+        while remaining_text and line_count < max_lines:
+            # 优化：使用更智能的断行算法
+            best_length = self._find_optimal_break_position(remaining_text, current_width, font_metrics)
+            
+            if best_length <= 0:
+                # 如果连一个字符都放不下，强制取最少字符
+                best_length = min(3, len(remaining_text))
+            
+            line_text = remaining_text[:best_length]
+            
+            # 在合适的位置进行智能断行
+            if best_length < len(remaining_text) and best_length > 5:
+                optimized_break = self._find_smart_break_point(line_text)
+                if optimized_break > 0:
+                    line_text = line_text[:optimized_break]
+            
+            # 清理和添加行
+            clean_line = line_text.rstrip()
+            if clean_line:  # 只添加非空行
+                lines.append(clean_line)
+            
+            # 更新剩余文本
+            remaining_text = remaining_text[len(line_text):].lstrip()
+            
+            # 第一行之后使用完整行宽
+            if line_count == 0 and mode in ['inline', 'continue']:
+                current_width = max_line_width
+            
+            line_count += 1
+        
+        # 如果还有剩余文本，在最后一行添加省略号
+        if remaining_text and lines:
+            if len(lines[-1]) > 50:  # 如果最后一行过长，截断一些
+                lines[-1] = lines[-1][:47] + "..."
+            else:
+                lines[-1] += "..."
+        
+        return lines
+    
+    def _find_optimal_break_position(self, text: str, max_width: int, font_metrics: QFontMetrics) -> int:
+        """优化的断行位置查找，更准确地处理中文字符"""
+        if max_width <= 20:  # 宽度太小
+            return min(2, len(text))
+        
+        # 使用二分查找找到能放入的最大字符数
+        left, right = 0, len(text)
+        best_length = 0
+        
+        while left <= right:
+            mid = (left + right) // 2
+            test_text = text[:mid]
+            
+            try:
+                text_width = font_metrics.horizontalAdvance(test_text)
+            except Exception:
+                # 如果测量失败，使用估算值
+                text_width = len(test_text) * 12  # 估算每个字符12像素
+            
+            if text_width <= max_width:
+                best_length = mid
+                left = mid + 1
+            else:
+                right = mid - 1
+        
+        # 确保至少返回1个字符（除非宽度太小）
+        return max(1, best_length) if max_width > 10 else 0
+    
+    def _find_smart_break_point(self, text: str) -> int:
+        """智能找到更好的断行点，优先在标点符号和空格处断行"""
+        if len(text) <= 5:
+            return len(text)
+        
+        # 从后向前查找最佳断点，优先级从高到低
+        search_range = min(20, len(text))  # 在最后20个字符中查找
+        
+        # 第一优先级：中文句号后面
+        for i in range(len(text) - 1, max(0, len(text) - search_range), -1):
+            if text[i] in '。！？；：':
+                return i + 1
+        
+        # 第二优先级：中文逗号后面
+        for i in range(len(text) - 1, max(0, len(text) - search_range), -1):
+            if text[i] in '，、':
+                return i + 1
+        
+        # 第三优先级：空格或tab
+        for i in range(len(text) - 1, max(0, len(text) - search_range), -1):
+            if text[i] in ' \t':
+                return i
+        
+        # 第四优先级：英文标点
+        for i in range(len(text) - 1, max(0, len(text) - search_range), -1):
+            if text[i] in '.!?;:':
+                return i + 1
+        
+        # 第五优先级：括号后面
+        for i in range(len(text) - 1, max(0, len(text) - search_range), -1):
+            if text[i] in '）】》"\'':
+                return i + 1
+        
+        # 如果没有找到合适的断点，返回原长度
+        return len(text)
 
     def set_ghost_text(self, text: str, cursor_position: int):
         """设置Ghost Text内容和位置"""

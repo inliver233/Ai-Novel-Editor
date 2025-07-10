@@ -6,7 +6,8 @@
 import time
 import threading
 import hashlib
-import pickle
+import json
+# import pickle  # 移除pickle，使用更安全的方法
 from collections import OrderedDict, defaultdict
 from typing import Dict, Any, List, Optional, Tuple, Callable
 from dataclasses import dataclass, field
@@ -125,7 +126,8 @@ class LRUCache:
     def _estimate_size(self, obj: Any) -> int:
         """估算对象大小"""
         try:
-            return len(pickle.dumps(obj))
+            # 使用JSON序列化来估算大小
+            return len(json.dumps(obj, default=str).encode('utf-8'))
         except:
             # 回退到简单估算
             if isinstance(obj, str):
