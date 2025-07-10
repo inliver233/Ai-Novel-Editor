@@ -1,4 +1,5 @@
 aiohttp==3.8.4
+cryptography==42.0.5
 nltk==3.9.1
 numpy
 PyQt6

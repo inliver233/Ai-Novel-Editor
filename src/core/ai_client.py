@@ -14,6 +14,7 @@ from enum import Enum
 import aiohttp
 import requests
 from PyQt6.QtCore import QObject, pyqtSignal, QThread, QTimer
+from .secure_key_manager import get_secure_key_manager
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,6 @@ class AIProvider(Enum):
 class AIConfig:
     """AI配置数据类"""
     provider: AIProvider
-    api_key: str
     model: str
     endpoint_url: Optional[str] = None
     max_tokens: int = 2000
@@ -37,35 +37,62 @@ class AIConfig:
     top_p: float = 0.9
     timeout: int = 30
     max_retries: int = 3
+    disable_ssl_verify: bool = False  # SSL验证开关
+    _has_api_key: bool = False  # 标记是否有API密钥
+    
+    @property
+    def api_key(self) -> str:
+        """从安全存储获取API密钥"""
+        key_manager = get_secure_key_manager()
+        key = key_manager.retrieve_api_key(self.provider.value)
+        return key or ""
+    
+    def set_api_key(self, api_key: str) -> None:
+        """设置API密钥到安全存储"""
+        if api_key:
+            key_manager = get_secure_key_manager()
+            key_manager.store_api_key(self.provider.value, api_key)
+            self._has_api_key = True
+        else:
+            self._has_api_key = False
     
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
         return {
             'provider': self.provider.value,
-            'api_key': self.api_key,
             'model': self.model,
             'endpoint_url': self.endpoint_url,
             'max_tokens': self.max_tokens,
             'temperature': self.temperature,
             'top_p': self.top_p,
             'timeout': self.timeout,
-            'max_retries': self.max_retries
+            'max_retries': self.max_retries,
+            'disable_ssl_verify': self.disable_ssl_verify,
+            'has_api_key': self._has_api_key
         }
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'AIConfig':
         """从字典创建"""
-        return cls(
+        config = cls(
             provider=AIProvider(data['provider']),
-            api_key=data['api_key'],
             model=data['model'],
             endpoint_url=data.get('endpoint_url'),
             max_tokens=data.get('max_tokens', 2000),
             temperature=data.get('temperature', 0.8),
             top_p=data.get('top_p', 0.9),
             timeout=data.get('timeout', 30),
-            max_retries=data.get('max_retries', 3)
+            max_retries=data.get('max_retries', 3),
+            disable_ssl_verify=data.get('disable_ssl_verify', False)
         )
+        
+        # 处理旧版本的api_key字段（迁移到安全存储）
+        if 'api_key' in data and data['api_key']:
+            config.set_api_key(data['api_key'])
+        elif data.get('has_api_key', False):
+            config._has_api_key = True
+            
+        return config
 
 
 class AIClientError(Exception):
@@ -257,7 +284,11 @@ class AIClient:
             url = self._get_endpoint_url()
             
             self.logger.debug(f"请求URL: {url}")
-            self.logger.debug(f"请求数据: {json.dumps(data, ensure_ascii=False, indent=2)}")
+            # 不记录包含API密钥的敏感数据
+            safe_data = data.copy()
+            if 'api_key' in safe_data:
+                safe_data['api_key'] = '***REDACTED***'
+            self.logger.debug(f"请求数据: {json.dumps(safe_data, ensure_ascii=False, indent=2)}")
             
             # 创建会话并设置适当的配置
             session = requests.Session()
@@ -285,12 +316,19 @@ class AIClient:
             session.mount("http://", adapter)
             session.mount("https://", adapter)
             
-            # 禁用SSL证书验证（仅用于某些自定义API）
+            # SSL证书验证配置
             verify_ssl = True
-            if self.config.provider == AIProvider.CUSTOM or "inliver" in url.lower():
-                verify_ssl = False
-                import urllib3
-                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            ssl_verify_disabled_warning_shown = False
+            
+            # 仅对明确配置的情况禁用SSL验证
+            if self.config.provider == AIProvider.CUSTOM and hasattr(self.config, 'disable_ssl_verify'):
+                if self.config.disable_ssl_verify:
+                    verify_ssl = False
+                    if not ssl_verify_disabled_warning_shown:
+                        self.logger.warning("SSL证书验证已禁用。这可能存在安全风险，请仅在信任的内部网络中使用。")
+                        ssl_verify_disabled_warning_shown = True
+                    import urllib3
+                    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
             
             # 添加额外的超时配置
             timeout_config = (self.config.timeout, self.config.timeout)  # (连接超时, 读取超时)

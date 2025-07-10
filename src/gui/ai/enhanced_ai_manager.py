@@ -2506,7 +2506,7 @@ class EnhancedAIManager(QObject):
                     ai_config = self.config.get_section('ai')
                     if ai_config and ai_config.get('api_key'):
                         rag_config['api_key'] = ai_config['api_key']
-                        logger.info(f"从AI配置获取API key: {rag_config['api_key'][:10]}...")
+                        logger.info("从AI配置获取API key: ***SECURED***")
                 
                 # 创建向量存储
                 logger.info("创建SQLiteVectorStore...")

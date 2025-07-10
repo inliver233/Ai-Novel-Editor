@@ -12,6 +12,7 @@ from PyQt6.QtCore import QSettings, QStandardPaths
 # 导入AI相关类型
 try:
     from .ai_client import AIConfig, AIProvider
+    from .secure_key_manager import get_secure_key_manager
     AI_AVAILABLE = True
 except ImportError:
     AI_AVAILABLE = False
@@ -50,6 +51,10 @@ class Config:
                 with open(self._config_file, 'r', encoding='utf-8') as f:
                     self._config_data = json.load(f)
                 logger.info(f"Loaded config from {self._config_file}")
+                
+                # 迁移API密钥到安全存储
+                if AI_AVAILABLE:
+                    self._migrate_api_keys()
             else:
                 self._config_data = {}
                 logger.info("No config file found, using defaults")
@@ -159,6 +164,38 @@ class Config:
                 if key not in self._config_data[section]:
                     self._config_data[section][key] = value
     
+    def _migrate_api_keys(self):
+        """迁移API密钥到安全存储"""
+        try:
+            key_manager = get_secure_key_manager()
+            needs_save = False
+            
+            # 迁移主要AI配置的API密钥
+            ai_section = self._config_data.get('ai', {})
+            if 'api_key' in ai_section and ai_section['api_key']:
+                provider = ai_section.get('provider', 'openai')
+                key_manager.store_api_key(provider, ai_section['api_key'])
+                ai_section['api_key'] = ""  # 清空明文密钥
+                logger.info(f"已迁移 {provider} 的API密钥到安全存储")
+                needs_save = True
+            
+            # 迁移各个提供商的API密钥
+            providers = ['openai', 'claude', 'qwen', 'zhipu', 'deepseek', 'groq', 'custom']
+            for provider in providers:
+                provider_section = ai_section.get(provider, {})
+                if isinstance(provider_section, dict) and 'api_key' in provider_section and provider_section['api_key']:
+                    key_manager.store_api_key(provider, provider_section['api_key'])
+                    provider_section['api_key'] = ""  # 清空明文密钥
+                    logger.info(f"已迁移 {provider} 的API密钥到安全存储")
+                    needs_save = True
+            
+            if needs_save:
+                self._save_config()
+                logger.info("API密钥迁移完成，配置已更新")
+                
+        except Exception as e:
+            logger.error(f"迁移API密钥失败: {e}")
+    
     def get(self, section: str, key: str, default: Any = None) -> Any:
         """获取配置值"""
         try:
@@ -233,10 +270,7 @@ class Config:
             ai_section = self.get_section('ai')
 
             # 验证必要字段
-            if not ai_section.get('api_key'):
-                logger.warning("AI API密钥未配置")
-                return None
-
+            provider_str = ai_section.get('provider', 'openai')
             if not ai_section.get('model'):
                 logger.warning("AI模型未配置")
                 return None
@@ -244,7 +278,6 @@ class Config:
             # 创建AI配置对象
             from .ai_client import AIConfig, AIProvider
 
-            provider_str = ai_section.get('provider', 'openai')
             try:
                 provider = AIProvider(provider_str)
             except ValueError:
@@ -253,15 +286,27 @@ class Config:
 
             config = AIConfig(
                 provider=provider,
-                api_key=ai_section.get('api_key', ''),
                 model=ai_section.get('model', 'gpt-3.5-turbo'),
                 endpoint_url=ai_section.get('endpoint_url') or None,
                 max_tokens=ai_section.get('max_tokens', 200),
                 temperature=ai_section.get('temperature', 0.8),
                 top_p=ai_section.get('top_p', 0.9),
                 timeout=ai_section.get('timeout', 30),
-                max_retries=ai_section.get('max_retries', 3)
+                max_retries=ai_section.get('max_retries', 3),
+                disable_ssl_verify=ai_section.get('disable_ssl_verify', False)
             )
+            
+            # 处理旧版本的api_key（如果存在）
+            if 'api_key' in ai_section and ai_section['api_key']:
+                config.set_api_key(ai_section['api_key'])
+                # 清空配置中的明文密钥
+                ai_section['api_key'] = ""
+                self._save_config()
+            
+            # 验证是否有API密钥
+            if not config.api_key:
+                logger.warning("AI API密钥未配置")
+                return None
 
             logger.debug(f"AI配置已创建: {provider.value} - {config.model}")
             return config
@@ -277,9 +322,8 @@ class Config:
             return
 
         try:
-            # 更新配置
+            # 更新配置（不保存API密钥到配置文件）
             self.set('ai', 'provider', config.provider.value)
-            self.set('ai', 'api_key', config.api_key)
             self.set('ai', 'model', config.model)
             self.set('ai', 'endpoint_url', config.endpoint_url or '')
             self.set('ai', 'max_tokens', config.max_tokens)
@@ -287,6 +331,7 @@ class Config:
             self.set('ai', 'top_p', config.top_p)
             self.set('ai', 'timeout', config.timeout)
             self.set('ai', 'max_retries', config.max_retries)
+            self.set('ai', 'disable_ssl_verify', config.disable_ssl_verify)
 
             logger.info(f"AI配置已保存: {config.provider.value} - {config.model}")
 

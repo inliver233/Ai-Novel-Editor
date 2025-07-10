@@ -68,7 +68,8 @@ class RAGService:
     
     def __init__(self, config: Dict[str, Any]):
         self.config = config
-        self.api_key = config.get('api_key', '')
+        # 从安全存储获取API密钥
+        self.api_key = self._get_secure_api_key(config)
         self.base_url = config.get('base_url', 'https://api.siliconflow.cn/v1')
         self.embedding_model = config.get('embedding', {}).get('model', 'BAAI/bge-large-zh-v1.5')
         self.rerank_model = config.get('rerank', {}).get('model', 'BAAI/bge-reranker-v2-m3')
@@ -103,6 +104,29 @@ class RAGService:
         
         # 向量存储引用
         self._vector_store = None
+        
+    def _get_secure_api_key(self, config: Dict[str, Any]) -> str:
+        """从安全存储获取API密钥"""
+        try:
+            from .secure_key_manager import get_secure_key_manager
+            key_manager = get_secure_key_manager()
+            
+            # 尝试从配置中获取provider信息
+            provider = config.get('provider', 'openai')
+            api_key = key_manager.retrieve_api_key(provider)
+            
+            if api_key:
+                return api_key
+            
+            # 如果安全存储中没有，尝试从配置中获取（用于兼容性）
+            return config.get('api_key', '')
+            
+        except ImportError:
+            # 如果安全密钥管理器不可用，使用配置中的密钥
+            return config.get('api_key', '')
+        except Exception as e:
+            logger.warning(f"获取安全API密钥失败: {e}")
+            return config.get('api_key', '')
         
     async def _check_network_connectivity(self) -> bool:
         """检查网络连接状态"""

@@ -981,20 +981,29 @@ class SQLiteVectorStore:
     def _get_ai_config_for_keywords(self) -> Optional[Dict[str, str]]:
         """获取用于关键词提取的AI配置"""
         try:
-            # 方法1：从环境变量获取
-            import os
-            api_key = os.getenv('OPENAI_API_KEY') or os.getenv('AI_API_KEY')
-            if api_key:
-                api_url = os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1/chat/completions')
-                model = os.getenv('OPENAI_MODEL', 'gpt-3.5-turbo')
+            # 方法1：从安全存储获取
+            try:
+                from .secure_key_manager import get_secure_key_manager
+                key_manager = get_secure_key_manager()
                 
-                logger.debug(f"[AI_KEYWORDS] 从环境变量获取AI配置: {api_url}")
-                return {
-                    'api_key': api_key,
-                    'api_url': api_url,
-                    'model': model
-                }
-            
+                # 尝试从环境变量获取提供商信息
+                import os
+                provider = os.getenv('AI_PROVIDER', 'openai')
+                api_key = key_manager.retrieve_api_key(provider)
+                
+                if api_key:
+                    api_url = os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1/chat/completions')
+                    model = os.getenv('OPENAI_MODEL', 'gpt-3.5-turbo')
+                    
+                    logger.debug(f"[AI_KEYWORDS] 从安全存储获取AI配置: {provider}")
+                    return {
+                        'api_key': api_key,
+                        'api_url': api_url,
+                        'model': model
+                    }
+            except ImportError:
+                logger.warning("安全密钥管理器不可用，使用后备方案")
+                
             # 方法2：尝试从全局配置获取（如果可用）
             try:
                 # 这里可以尝试导入配置管理器
@@ -1002,24 +1011,33 @@ class SQLiteVectorStore:
                 config = Config()
                 ai_config = config.get_section('ai')
                 
-                if ai_config and ai_config.get('api_key'):
-                    # 根据provider确定API URL
+                if ai_config:
+                    # 从安全存储获取API key
                     provider = ai_config.get('provider', 'openai')
-                    if provider == 'openai':
-                        api_url = 'https://api.openai.com/v1/chat/completions'
-                    elif provider == 'siliconflow':
-                        api_url = 'https://api.siliconflow.cn/v1/chat/completions'
-                    else:
-                        api_url = ai_config.get('base_url', 'https://api.openai.com/v1/chat/completions')
-                        if not api_url.endswith('/chat/completions'):
-                            api_url = api_url.rstrip('/') + '/chat/completions'
+                    try:
+                        from .secure_key_manager import get_secure_key_manager
+                        key_manager = get_secure_key_manager()
+                        api_key = key_manager.retrieve_api_key(provider)
+                    except ImportError:
+                        api_key = None
                     
-                    logger.debug(f"[AI_KEYWORDS] 从配置文件获取AI配置: {provider}")
-                    return {
-                        'api_key': ai_config['api_key'],
-                        'api_url': api_url,
-                        'model': ai_config.get('model', 'gpt-3.5-turbo')
-                    }
+                    if api_key:
+                        # 根据provider确定API URL
+                        if provider == 'openai':
+                            api_url = 'https://api.openai.com/v1/chat/completions'
+                        elif provider == 'siliconflow':
+                            api_url = 'https://api.siliconflow.cn/v1/chat/completions'
+                        else:
+                            api_url = ai_config.get('base_url', 'https://api.openai.com/v1/chat/completions')
+                            if not api_url.endswith('/chat/completions'):
+                                api_url = api_url.rstrip('/') + '/chat/completions'
+                        
+                        logger.debug(f"[AI_KEYWORDS] 从配置文件获取AI配置: {provider}")
+                        return {
+                            'api_key': api_key,
+                            'api_url': api_url,
+                            'model': ai_config.get('model', 'gpt-3.5-turbo')
+                        }
                     
             except ImportError:
                 logger.debug("[AI_KEYWORDS] 无法导入配置管理器")

@@ -303,10 +303,22 @@ class RAGConfigWidget(QWidget):
         
     def get_config(self) -> Dict[str, Any]:
         """获取当前配置"""
+        # 保存API密钥到安全存储
+        api_key = self.api_key_edit.text()
+        provider = self.provider_combo.currentText().lower()
+        
+        if api_key:
+            try:
+                from core.secure_key_manager import get_secure_key_manager
+                key_manager = get_secure_key_manager()
+                key_manager.store_api_key(provider, api_key)
+            except ImportError:
+                pass  # 如果安全密钥管理器不可用，保持兼容性
+        
         return {
             "enabled": self.enable_check.isChecked(),
-            "provider": self.provider_combo.currentText(),
-            "api_key": self.api_key_edit.text(),
+            "provider": provider,
+            "has_api_key": bool(api_key),
             "base_url": self.base_url_edit.text(),
             "embedding": {
                 "model": self.embedding_model_combo.currentText(),
@@ -331,16 +343,36 @@ class RAGConfigWidget(QWidget):
         self.config = config
         self._apply_config(config)
         
+        # 从安全存储加载API密钥
+        provider = config.get("provider", "openai")
+        try:
+            from core.secure_key_manager import get_secure_key_manager
+            key_manager = get_secure_key_manager()
+            api_key = key_manager.retrieve_api_key(provider)
+            if api_key:
+                self.api_key_edit.setText(api_key)
+        except ImportError:
+            # 如果安全密钥管理器不可用，尝试从配置中获取（兼容性）
+            api_key = config.get("api_key", "")
+            if api_key:
+                self.api_key_edit.setText(api_key)
+        
     async def _test_connection_async(self):
         """异步测试连接"""
         config = self.get_config()
         results = []
         
+        # 获取API密钥
+        api_key = self.api_key_edit.text()
+        if not api_key:
+            self.test_result.setText("❌ 请先设置API密钥")
+            return
+        
         async with aiohttp.ClientSession() as session:
             # 测试Embedding API
             try:
                 headers = {
-                    "Authorization": f"Bearer {config['api_key']}",
+                    "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json"
                 }
                 

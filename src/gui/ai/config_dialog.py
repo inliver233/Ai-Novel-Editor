@@ -13,6 +13,11 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 
+try:
+    from ...core.secure_key_manager import get_secure_key_manager
+except ImportError:
+    get_secure_key_manager = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -126,19 +131,65 @@ class AIProviderConfigWidget(QFrame):
     
     def get_config(self) -> Dict[str, Any]:
         """获取配置"""
-        return {
-            "provider": self._provider_combo.currentText(),
-            "api_key": self._api_key_edit.text(),
+        provider = self._provider_combo.currentText()
+        
+        # 将UI中的提供商名称映射到内部使用的键
+        provider_map = {
+            "OpenAI": "openai",
+            "Claude (Anthropic)": "claude",
+            "通义千问 (阿里云)": "qwen",
+            "智谱AI": "zhipu",
+            "DeepSeek": "deepseek",
+            "自定义": "custom"
+        }
+        provider_key = provider_map.get(provider, provider.lower())
+        
+        config = {
+            "provider": provider_key,
             "api_base": self._api_base_edit.text(),
             "model": self._model_edit.text()
         }
+        
+        # 保存API密钥到安全存储
+        api_key = self._api_key_edit.text()
+        if api_key and get_secure_key_manager:
+            key_manager = get_secure_key_manager()
+            key_manager.store_api_key(provider_key, api_key)
+            config["has_api_key"] = True
+        else:
+            config["has_api_key"] = False
+            
+        return config
     
     def set_config(self, config: Dict[str, Any]):
         """设置配置"""
-        self._provider_combo.setCurrentText(config.get("provider", "OpenAI"))
-        self._api_key_edit.setText(config.get("api_key", ""))
+        # 将内部键映射回UI显示名称
+        provider_key = config.get("provider", "openai")
+        provider_display_map = {
+            "openai": "OpenAI",
+            "claude": "Claude (Anthropic)",
+            "qwen": "通义千问 (阿里云)",
+            "zhipu": "智谱AI",
+            "deepseek": "DeepSeek",
+            "custom": "自定义"
+        }
+        provider_display = provider_display_map.get(provider_key, "OpenAI")
+        
+        self._provider_combo.setCurrentText(provider_display)
         self._api_base_edit.setText(config.get("api_base", ""))
         self._model_edit.setText(config.get("model", ""))
+        
+        # 从安全存储读取API密钥
+        if get_secure_key_manager:
+            key_manager = get_secure_key_manager()
+            api_key = key_manager.retrieve_api_key(provider_key)
+            if api_key:
+                self._api_key_edit.setText(api_key)
+            else:
+                self._api_key_edit.clear()
+        else:
+            # 后备方案：从配置中读取（用于兼容性）
+            self._api_key_edit.setText(config.get("api_key", ""))
 
 
 class CompletionConfigWidget(QFrame):

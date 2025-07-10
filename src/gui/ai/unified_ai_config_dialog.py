@@ -89,13 +89,17 @@ class APITestWorker(QThread):
             
             config = AIConfig(
                 provider=provider,
-                api_key=self.config_data['api_key'],
                 model=self.config_data['model'],
                 endpoint_url=endpoint_url,
                 temperature=self.config_data.get('temperature', 0.8),
                 max_tokens=100,  # 测试时使用较小的token数
                 timeout=15  # 缩短超时时间
             )
+            
+            # 设置API密钥
+            api_key = self.config_data.get('api_key', '')
+            if api_key:
+                config.set_api_key(api_key)
             
             self.testProgress.emit("正在连接API服务...")
             
@@ -1631,14 +1635,41 @@ class TemplateManagementWidget(QWidget):
             return
             
         try:
-            # 获取所有模板
-            templates = self._ai_manager.get_available_templates()
+            # 获取所有模板ID
+            template_ids = self._ai_manager.get_available_templates()
             
             # 清空现有内容
             self._template_list.clear()
             self._fast_combo.clear()
             self._balanced_combo.clear()
             self._full_combo.clear()
+            
+            # 获取每个模板的详细信息
+            templates = []
+            for template_id in template_ids:
+                # 尝试从prompt_manager获取模板详情
+                if hasattr(self._ai_manager, 'prompt_manager') and self._ai_manager.prompt_manager:
+                    template = self._ai_manager.prompt_manager.get_template(template_id)
+                    if template:
+                        template_info = {
+                            'id': template.id,
+                            'name': template.name,
+                            'description': template.description,
+                            'category': template.category,
+                            'is_builtin': template.is_builtin,
+                        }
+                        templates.append(template_info)
+            
+            # 如果没有获取到模板详情，使用简化的显示
+            if not templates:
+                for template_id in template_ids:
+                    templates.append({
+                        'id': template_id,
+                        'name': template_id.replace('_', ' ').title(),
+                        'category': 'Template',
+                        'is_builtin': True,
+                        'description': ''
+                    })
             
             # 添加模板到列表和下拉框
             for template in templates:
