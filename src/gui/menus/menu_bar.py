@@ -269,14 +269,6 @@ class MenuBar(QMenuBar):
         project_panel_action.setChecked(True)
         panels_menu.addAction(project_panel_action)
         
-        concept_panel_action = self._create_action(
-            "toggle_concept_panel", "概念面板", "Ctrl+2",
-            "显示/隐藏概念面板"
-        )
-        concept_panel_action.setCheckable(True)
-        concept_panel_action.setChecked(False)  # 默认隐藏，与右侧面板状态一致
-        panels_menu.addAction(concept_panel_action)
-        
         outline_panel_action = self._create_action(
             "toggle_outline_panel", "大纲面板", "Ctrl+3",
             "显示/隐藏大纲面板"
@@ -285,14 +277,6 @@ class MenuBar(QMenuBar):
         outline_panel_action.setChecked(False)  # 默认隐藏
         panels_menu.addAction(outline_panel_action)
 
-        preview_panel_action = self._create_action(
-            "toggle_preview_panel", "预览面板", "Ctrl+4",
-            "显示/隐藏文档预览面板"
-        )
-        preview_panel_action.setCheckable(True)
-        preview_panel_action.setChecked(False)  # 默认关闭
-        panels_menu.addAction(preview_panel_action)
-        
         view_menu.addSeparator()
         
         # 工具栏显示

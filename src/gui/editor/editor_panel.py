@@ -14,7 +14,6 @@ from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QTimer
 from PyQt6.QtGui import QFont, QIcon
 
 from .text_editor import IntelligentTextEditor
-from core.concepts import ConceptManager
 from core.config import Config
 from core.shared import Shared
 
@@ -33,12 +32,11 @@ class EditorPanel(QWidget):
     textStatisticsChanged = pyqtSignal(str)  # 文本统计变化信号 (文本内容)
     cursorPositionChanged = pyqtSignal(int, int)  # 光标位置变化信号 (行, 列)
     
-    def __init__(self, config: Config, shared: Shared, concept_manager: ConceptManager, parent=None):
+    def __init__(self, config: Config, shared: Shared, parent=None):
         super().__init__(parent)
         
         self._config = config
         self._shared = shared
-        self._concept_manager = concept_manager
         
         # 当前文档状态
         self._current_document_id: Optional[str] = None
@@ -159,7 +157,7 @@ class EditorPanel(QWidget):
     
     def _create_default_editor(self, tabs: QTabWidget):
         """创建默认编辑器"""
-        editor = IntelligentTextEditor(self._config, self._shared, self._concept_manager)
+        editor = IntelligentTextEditor(self._config, self._shared)
 
         # 暂不连接编辑器信号，等UI初始化完成后再连接
         
@@ -456,7 +454,7 @@ class EditorPanel(QWidget):
             return False  # 文档已存在
         
         # 创建新编辑器
-        editor = IntelligentTextEditor(self._config, self._shared, self._concept_manager)
+        editor = IntelligentTextEditor(self._config, self._shared)
         self._connect_editor_signals(editor)
         
         # 设置内容

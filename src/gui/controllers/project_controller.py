@@ -6,7 +6,6 @@ from pathlib import Path
 import logging
 
 from core.project import ProjectManager
-from core.concepts import ConceptManager
 from core.config import Config
 
 logger = logging.getLogger(__name__)
@@ -23,11 +22,10 @@ class ProjectController(QObject):
     # 信号，当需要刷新项目树或概念时发出
     project_structure_changed = pyqtSignal()
 
-    def __init__(self, project_manager: ProjectManager, config: Config, concept_manager: ConceptManager, parent=None):
+    def __init__(self, project_manager: ProjectManager, config: Config, parent=None):
         super().__init__(parent)
         self.project_manager = project_manager
         self.config = config
-        self.concept_manager = concept_manager
 
     @pyqtSlot()
     def on_create_project(self):

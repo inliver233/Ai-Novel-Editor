@@ -18,13 +18,10 @@ from PyQt6.QtGui import QAction, QKeySequence, QCloseEvent, QShortcut
 from core.config import Config
 from core.shared import Shared
 from core.project import ProjectManager, DocumentType
-from core.concepts import ConceptManager
 from gui.panels.project_panel import ProjectPanel
-from gui.panels.concept_panel import ConceptPanel
 from gui.panels.outline_panel import OutlinePanel
 from gui.editor.editor_panel import EditorPanel
 from gui.editor.focus_mode import FocusMode
-from gui.viewer.document_viewer import DocumentViewer
 from gui.menus import MenuBar, ToolBarManager
 from gui.ai import AIManager
 from gui.status import EnhancedStatusBar
@@ -45,17 +42,15 @@ logger = logging.getLogger(__name__)
 class MainWindow(QMainWindow):
     """主窗口类"""
 
-    def __init__(self, config: Config, shared: Shared, concept_manager: ConceptManager, project_manager: ProjectManager):
+    def __init__(self, config: Config, shared: Shared, project_manager: ProjectManager):
         super().__init__()
 
         self._config = config
         self._shared = shared
-        self._concept_manager = concept_manager
         self._project_manager = project_manager
         self._project_controller = ProjectController(
             project_manager=self._project_manager,
             config=self._config,
-            concept_manager=self._concept_manager,
             parent=self
         )
 
@@ -91,7 +86,6 @@ class MainWindow(QMainWindow):
                 self._ai_manager = EnhancedAIManager(
                     config=self._config,
                     shared=self._shared,
-                    concept_manager=self._concept_manager,
                     rag_service=rag_service,
                     vector_store=vector_store,
                     parent=self
@@ -256,49 +250,23 @@ class MainWindow(QMainWindow):
         return panel
 
     def _create_center_panel(self) -> QWidget:
-        center_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self._editor_panel = EditorPanel(self._config, self._shared, self._concept_manager, self)
-        center_splitter.addWidget(self._editor_panel)
-        self._document_viewer = DocumentViewer(self._config, self._shared, self._project_manager, self._theme_manager, self)
-        center_splitter.addWidget(self._document_viewer)
-        self._document_viewer.setVisible(False)
-        center_splitter.setSizes([600, 200])
-        center_splitter.setCollapsible(0, False)
-        center_splitter.setCollapsible(1, True)
+        # 直接创建并返回编辑器面板
+        self._editor_panel = EditorPanel(self._config, self._shared, self)
         self._editor_panel.documentModified.connect(self._on_document_modified)
         self._editor_panel.documentSaved.connect(self._on_document_saved)
-        self._editor_panel.conceptsDetected.connect(self._on_concepts_detected)
         if self._ai_manager:
             current_editor = self._editor_panel.get_current_editor()
             if current_editor:
                 self._ai_manager.set_editor(current_editor)
                 logger.info("AI管理器已设置当前编辑器")
-        self._document_viewer.documentChanged.connect(self._on_viewer_document_changed)
-        self._document_viewer.linkClicked.connect(self._on_viewer_link_clicked)
-        return center_splitter
+        return self._editor_panel
 
     def _create_right_panel(self) -> QWidget:
-        """创建右侧面板容器，支持概念面板和大纲面板切换"""
-        from PyQt6.QtWidgets import QStackedWidget
-        
-        # 创建堆叠控件来容纳多个面板
-        self._right_stack = QStackedWidget()
-        
-        # 创建概念面板
-        self._concept_panel = ConceptPanel(self._config, self._shared, self._concept_manager, self)
-        self._concept_panel.conceptSelected.connect(self._on_concept_selected)
-        self._right_stack.addWidget(self._concept_panel)
-        
-        # 创建大纲面板
+        """创建右侧面板 - 大纲面板"""
+        # 直接创建并返回大纲面板
         self._outline_panel = OutlinePanel(self._config, self._shared, self._project_manager, self)
         self._outline_panel.documentSelected.connect(self._on_document_selected)
-        self._right_stack.addWidget(self._outline_panel)
-        
-        # 设置默认显示概念面板（但整个右侧面板默认隐藏）
-        # 这样当用户首次打开面板时，显示的是概念面板
-        self._right_stack.setCurrentWidget(self._concept_panel)
-        
-        return self._right_stack
+        return self._outline_panel
 
     def _init_focus_mode(self):
         """初始化专注模式管理器"""
@@ -551,8 +519,6 @@ class MainWindow(QMainWindow):
                 self._update_ai_manager_editor()
                 # 更新专注模式的编辑器引用
                 self._update_focus_mode_editor()
-            if hasattr(self, '_document_viewer'):
-                self._document_viewer.load_document(document_id)
             word_count = self._calculate_word_count(document.content)
             self.statusBar().showMessage(f"已打开文档: {document.name} ({word_count} 字)")
         else:
@@ -614,9 +580,7 @@ class MainWindow(QMainWindow):
             # View Actions
             "fullscreen": self._toggle_fullscreen,
             "toggle_project_panel": self._toggle_left_panel,
-            "toggle_concept_panel": self._toggle_concept_panel,
             "toggle_outline_panel": self._toggle_outline_panel,
-            "toggle_preview_panel": self._toggle_preview_panel,
 
             # Focus Mode Actions
             "focus_typewriter": self._toggle_typewriter_mode,
@@ -683,46 +647,10 @@ class MainWindow(QMainWindow):
             if action:
                 action.setChecked(self._left_panel.isVisible())
 
-    def _toggle_concept_panel(self):
-        """切换概念面板显示"""
-        # 检查当前状态
-        is_right_panel_visible = self._right_panel.isVisible()
-        is_concept_panel_current = (hasattr(self, '_right_stack') and hasattr(self, '_concept_panel') and 
-                                   self._right_stack.currentWidget() == self._concept_panel)
-        
-        # 如果概念面板正在显示，则隐藏右侧面板
-        if is_right_panel_visible and is_concept_panel_current:
-            self._right_panel.setVisible(False)
-        else:
-            # 否则显示概念面板
-            if not is_right_panel_visible:
-                self._toggle_right_panel()
-            
-            # 切换到概念面板
-            if hasattr(self, '_right_stack') and hasattr(self, '_concept_panel'):
-                self._right_stack.setCurrentWidget(self._concept_panel)
-        
-        # 统一同步菜单状态
-        self._sync_panel_menu_states()
-    
     def _toggle_outline_panel(self):
         """切换大纲面板显示"""
-        # 检查当前状态
-        is_right_panel_visible = self._right_panel.isVisible()
-        is_outline_panel_current = (hasattr(self, '_right_stack') and hasattr(self, '_outline_panel') and 
-                                   self._right_stack.currentWidget() == self._outline_panel)
-        
-        # 如果大纲面板正在显示，则隐藏右侧面板
-        if is_right_panel_visible and is_outline_panel_current:
-            self._right_panel.setVisible(False)
-        else:
-            # 否则显示大纲面板
-            if not is_right_panel_visible:
-                self._toggle_right_panel()
-            
-            # 切换到大纲面板
-            if hasattr(self, '_right_stack') and hasattr(self, '_outline_panel'):
-                self._right_stack.setCurrentWidget(self._outline_panel)
+        # 右侧面板就是大纲面板，直接切换可见性
+        self._toggle_right_panel()
         
         # 统一同步菜单状态
         self._sync_panel_menu_states()
@@ -745,15 +673,6 @@ class MainWindow(QMainWindow):
         
         # 不需要更新菜单状态，因为这是内部方法
 
-    def _toggle_preview_panel(self):
-        if hasattr(self, '_document_viewer'):
-            self._document_viewer.setVisible(not self._document_viewer.isVisible())
-            # 更新菜单状态
-            if hasattr(self, '_menu_bar'):
-                action = self._menu_bar.get_action('toggle_preview_panel')
-                if action:
-                    action.setChecked(self._document_viewer.isVisible())
-    
     def _toggle_ai_toolbar(self):
         """切换AI工具栏显示/隐藏"""
         ai_toolbar = self._toolbar_manager.get_toolbar("ai")
@@ -890,7 +809,6 @@ class MainWindow(QMainWindow):
                 self._ai_manager = EnhancedAIManager(
                     config=self._config,
                     shared=self._shared,
-                    concept_manager=self._concept_manager,
                     rag_service=rag_service,
                     vector_store=vector_store,
                     parent=self
@@ -1514,12 +1432,6 @@ class MainWindow(QMainWindow):
             self._focus_mode.set_mode('normal')
 
     # Dummy slots for signals that might not be connected yet
-    @pyqtSlot(str, str)
-    def _on_concept_selected(self, concept_type: str, concept_name: str): pass
-    @pyqtSlot(str)
-    def _on_viewer_document_changed(self, document_id: str): pass
-    @pyqtSlot(str)
-    def _on_viewer_link_clicked(self, link: str): pass
     @pyqtSlot(str, int, str)
     def _on_completion_requested(self, text: str, position: int, document_id: str):
         """处理来自编辑器的补全请求，转发给AI管理器"""
@@ -1528,8 +1440,6 @@ class MainWindow(QMainWindow):
             self._ai_manager.request_completion('manual')
         else:
             logger.warning("AI管理器不可用，无法处理补全请求")
-    @pyqtSlot(str, list)
-    def _on_concepts_detected(self, document_id: str, concepts: list): pass
     @pyqtSlot(str)
     def _on_project_changed(self, project_path: str): pass
 
@@ -2180,33 +2090,16 @@ class MainWindow(QMainWindow):
             if action:
                 action.setChecked(self._left_panel.isVisible())
         
-        # 同步右侧面板状态（概念面板和大纲面板）
-        if hasattr(self, '_right_panel') and hasattr(self, '_right_stack'):
+        # 同步右侧面板状态（大纲面板）
+        if hasattr(self, '_right_panel'):
             is_right_visible = self._right_panel.isVisible()
             
-            # 概念面板状态
-            concept_action = self._menu_bar.get_action('toggle_concept_panel')
-            if concept_action:
-                is_concept_current = (hasattr(self, '_concept_panel') and 
-                                    self._right_stack.currentWidget() == self._concept_panel)
-                should_check = is_right_visible and is_concept_current
-                concept_action.setChecked(should_check)
-                logger.debug(f"概念面板菜单状态: 右侧可见={is_right_visible}, 概念当前={is_concept_current}, 菜单勾选={should_check}")
-            
-            # 大纲面板状态  
+            # 大纲面板状态（右侧面板就是大纲面板）
             outline_action = self._menu_bar.get_action('toggle_outline_panel')
             if outline_action:
-                is_outline_current = (hasattr(self, '_outline_panel') and 
-                                    self._right_stack.currentWidget() == self._outline_panel)
-                should_check = is_right_visible and is_outline_current
-                outline_action.setChecked(should_check)
-                logger.debug(f"大纲面板菜单状态: 右侧可见={is_right_visible}, 大纲当前={is_outline_current}, 菜单勾选={should_check}")
+                outline_action.setChecked(is_right_visible)
+                logger.debug(f"大纲面板菜单状态: 右侧可见={is_right_visible}, 菜单勾选={is_right_visible}")
         
-        # 同步预览面板状态
-        if hasattr(self, '_document_viewer'):
-            action = self._menu_bar.get_action('toggle_preview_panel')
-            if action:
-                action.setChecked(self._document_viewer.isVisible())
         
         # 同步工具栏状态
         if hasattr(self, '_toolbar_manager'):

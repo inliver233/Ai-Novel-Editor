@@ -15,7 +15,6 @@ from dataclasses import dataclass, asdict, field, fields
 from enum import Enum
 
 from .database_manager import DatabaseManager
-from .concepts import ConceptManager, Concept, ConceptType
 from .config import Config
 from .shared import Shared
 
@@ -123,10 +122,9 @@ class ProjectData:
 class ProjectManager:
     """项目管理器 - 使用SQLite进行持久化"""
 
-    def __init__(self, config: 'Config', shared: 'Shared', concept_manager: 'ConceptManager'):
+    def __init__(self, config: 'Config', shared: 'Shared'):
         self._config = config
         self._shared = shared
-        self._concept_manager = concept_manager
         self._current_project: Optional[ProjectData] = None
         self._project_path: Optional[Path] = None
         self._db_manager: Optional[DatabaseManager] = None
@@ -166,9 +164,7 @@ class ProjectManager:
             self._current_project = project_data
             self._create_default_documents()
 
-            # 清空并创建默认概念
-            self._concept_manager.reload_concepts() # 清空
-            self._create_default_concepts()
+            # 概念系统已移除
 
             if self.save_project():
                 self._shared.current_project_path = str(project_path)
@@ -207,8 +203,6 @@ class ProjectManager:
                 raise ProjectCorruptedError("Project data is empty or metadata is missing.")
 
             self._current_project = self._dict_to_project(data['metadata'], data.get('documents', []))
-            
-            self._concept_manager.reload_concepts(data.get('concepts', []))
 
             self._shared.current_project_path = str(project_path)
             _add_to_recent_projects(str(project_path), self._config)
@@ -237,13 +231,10 @@ class ProjectManager:
             
             project_metadata = self._current_project.to_dict()
             documents_data = [doc.to_dict() for doc in self._current_project.documents.values()]
-            
-            concepts_data = self._concept_manager.get_all_concepts_as_dicts()
 
             full_data = {
                 'metadata': project_metadata,
-                'documents': documents_data,
-                'concepts': concepts_data
+                'documents': documents_data
             }
             
             self._db_manager.save_project_data(full_data)
@@ -269,7 +260,7 @@ class ProjectManager:
             self._project_path = None
             self._db_manager = None
             self._shared.current_project_path = None
-            self._concept_manager.reload_concepts() # Clear concepts from memory
+            # 概念系统已移除
             logger.info("Project closed.")
         return True
     
@@ -561,11 +552,6 @@ class ProjectManager:
                 if chapter1:
                     self.add_document("开场", DocumentType.SCENE, chapter1.id, save=False)
 
-    def _create_default_concepts(self):
-        """创建默认概念"""
-        self._concept_manager.create_concept("李明", ConceptType.CHARACTER, description="男主角")
-        self._concept_manager.create_concept("王小雨", ConceptType.CHARACTER, description="女主角")
-        self._concept_manager.create_concept("咖啡厅", ConceptType.LOCATION, description="他们相遇的地方")
 
     def _trigger_auto_indexing_async(self):
         """智能自动索引（只索引需要索引的文档）"""

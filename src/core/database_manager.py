@@ -77,22 +77,6 @@ class DatabaseManager:
                         )
                     """)
 
-                    # 概念表
-                    conn.execute("""
-                        CREATE TABLE IF NOT EXISTS concepts (
-                            id TEXT PRIMARY KEY,
-                            name TEXT NOT NULL,
-                            aliases TEXT,
-                            description TEXT,
-                            concept_type TEXT NOT NULL,
-                            tags TEXT,
-                            priority INTEGER DEFAULT 5,
-                            auto_detect BOOLEAN DEFAULT TRUE,
-                            created_at TEXT,
-                            updated_at TEXT,
-                            metadata TEXT 
-                        )
-                    """)
                     conn.commit()
                 logger.info("Database schema verified/created successfully.")
             except sqlite3.Error as e:
@@ -100,10 +84,10 @@ class DatabaseManager:
 
     def save_project_data(self, data: Dict[str, Any]):
         """
-        在一个事务中保存所有项目数据（元数据、文档、概念）。
+        在一个事务中保存所有项目数据（元数据、文档）。
         
         Args:
-            data (Dict[str, Any]): 包含 'metadata', 'documents', 'concepts' 的字典。
+            data (Dict[str, Any]): 包含 'metadata', 'documents' 的字典。
         """
         with self._lock:
             try:
@@ -133,22 +117,6 @@ class DatabaseManager:
                                 VALUES (:id, :parent_id, :name, :doc_type, :status, :order, :content, :word_count, :created_at, :updated_at, :metadata)
                             """, doc_copy)
 
-                    # 保存概念
-                    concepts = data.get('concepts', [])
-                    # 先清空旧概念，再插入新概念
-                    conn.execute("DELETE FROM concepts")
-                    if concepts:
-                        for concept in concepts:
-                            # 创建副本以避免修改原始数据
-                            concept_copy = concept.copy()
-                            concept_copy['aliases'] = json.dumps(concept_copy.get('aliases', []))
-                            concept_copy['tags'] = json.dumps(concept_copy.get('tags', []))
-                            concept_copy['metadata'] = json.dumps(concept_copy.get('metadata', {}))
-                            conn.execute("""
-                                INSERT INTO concepts (id, name, aliases, description, concept_type, tags, priority, auto_detect, created_at, updated_at, metadata)
-                                VALUES (:id, :name, :aliases, :description, :concept_type, :tags, :priority, :auto_detect, :created_at, :updated_at, :metadata)
-                            """, concept_copy)
-                    
                     conn.commit()
                     logger.info(f"Project data saved successfully for project: {metadata.get('name')}")
 
@@ -177,15 +145,6 @@ class DatabaseManager:
                         doc['metadata'] = json.loads(doc.get('metadata', '{}'))
                     data['documents'] = documents
 
-                    # 加载概念
-                    cursor = conn.execute("SELECT * FROM concepts")
-                    concepts = [dict(row) for row in cursor.fetchall()]
-                    for concept in concepts:
-                        concept['aliases'] = json.loads(concept.get('aliases', '[]'))
-                        concept['tags'] = json.loads(concept.get('tags', '[]'))
-                        concept['metadata'] = json.loads(concept.get('metadata', '{}'))
-                    data['concepts'] = concepts
-                    
                 logger.info(f"Project data loaded successfully for project: {data.get('metadata', {}).get('name')}")
                 return data
 

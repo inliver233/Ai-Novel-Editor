@@ -12,8 +12,6 @@ from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 from PyQt6.QtGui import QTextCursor
 
 from core.config import Config
-from core.concepts import ConceptManager
-from core.metadata_extractor import MetadataExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +34,10 @@ class CompletionEngine(QObject):
     # 信号定义
     suggestionsReady = pyqtSignal(list)  # 建议准备完成
     
-    def __init__(self, config: Config, concept_manager: ConceptManager, parent=None):
+    def __init__(self, config: Config, parent=None):
         super().__init__(parent)
         
         self._config = config
-        self._concept_manager = concept_manager
-        self._metadata_extractor = MetadataExtractor()
         
         # 补全配置
         self._min_chars = 2
@@ -251,31 +247,8 @@ class CompletionEngine(QObject):
         return cursor_position, cursor_position
     
     def _get_concept_completions(self, current_word: str, word_start: int, word_end: int) -> List[CompletionSuggestion]:
-        """获取概念补全"""
-        suggestions = []
-
-        try:
-            # 使用概念管理器查找匹配的概念
-            matching_concepts = self._concept_manager.detector.find_matching_concepts(current_word)
-
-            for concept in matching_concepts[:5]:  # 限制概念补全数量
-                # 安全地获取概念类型
-                concept_type = getattr(concept.concept_type, 'value', str(concept.concept_type)) if hasattr(concept, 'concept_type') else 'unknown'
-
-                suggestion = CompletionSuggestion(
-                    text=concept.name,
-                    display_text=f"{concept.name} ({concept_type})",
-                    completion_type="concept",
-                    priority=3,
-                    description=getattr(concept, 'description', '')[:50] + "..." if len(getattr(concept, 'description', '')) > 50 else getattr(concept, 'description', ''),
-                    insert_position=word_start,
-                    replace_length=word_end - word_start
-                )
-                suggestions.append(suggestion)
-        except Exception as e:
-            logger.warning(f"概念补全失败: {e}")
-
-        return suggestions
+        """获取概念补全 - 概念系统已移除，返回空列表"""
+        return []
     
     def _get_reference_completions(self, current_word: str, word_start: int, word_end: int) -> List[CompletionSuggestion]:
         """获取引用补全（章节、场景等）"""

@@ -21,7 +21,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from core.config import Config
 from core.shared import Shared
-from core.concepts import ConceptManager
 from core.project import ProjectManager
 from gui.main_window import MainWindow
 
@@ -78,8 +77,7 @@ def main():
         # 初始化全局配置和共享数据
         config_instance = Config()
         shared_instance = Shared(config=config_instance)
-        concept_manager_instance = ConceptManager(config=config_instance, shared=shared_instance)
-        project_manager_instance = ProjectManager(config=config_instance, shared=shared_instance, concept_manager=concept_manager_instance)
+        project_manager_instance = ProjectManager(config=config_instance, shared=shared_instance)
         
         # 初始化RAG服务和向量存储
         rag_service = None
@@ -136,7 +134,6 @@ def main():
         main_window = MainWindow(
             config=config_instance,
             shared=shared_instance,
-            concept_manager=concept_manager_instance,
             project_manager=project_manager_instance
         )
         main_window.show()

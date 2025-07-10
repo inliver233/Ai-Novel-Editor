@@ -24,9 +24,6 @@ from PyQt6.QtGui import (
 )
 
 from typing import TYPE_CHECKING
-from core.metadata_extractor import MetadataExtractor
-from core.concepts import ConceptManager
-from core.concept_detector import ConceptDetector
 from core.auto_replace import get_auto_replace_engine
 from .syntax_highlighter import NovelWriterHighlighter
 from .completion_widget import CompletionWidget
@@ -66,12 +63,11 @@ class IntelligentTextEditor(QPlainTextEdit):
     metadataChanged = pyqtSignal(dict)  # 元数据变化信号
     autoSaveTriggered = pyqtSignal(str)  # 自动保存信号
     
-    def __init__(self, config: Config, shared: Shared, concept_manager: ConceptManager, parent=None):
+    def __init__(self, config: Config, shared: Shared, parent=None):
         super().__init__(parent)
         
         self._config = config
         self._shared = shared
-        self._concept_manager = concept_manager
         
         # 编辑器状态
         self._is_modified = False
@@ -95,14 +91,10 @@ class IntelligentTextEditor(QPlainTextEdit):
         self._syntax_highlighter = NovelWriterHighlighter(self._config, self.document())
 
         # 元数据提取器
-        self._metadata_extractor = MetadataExtractor()
-
-        # 概念检测器
-        self._concept_detector = ConceptDetector()
 
         # 智能补全引擎
         from .completion_engine import CompletionEngine
-        self._completion_engine = CompletionEngine(self._config, self._concept_manager, self)
+        self._completion_engine = CompletionEngine(self._config, self)
 
         # 补全界面组件
         self._completion_widget = CompletionWidget(self)
@@ -917,10 +909,8 @@ class IntelligentTextEditor(QPlainTextEdit):
         auto_save_interval = self._config.get("app", "auto_save_interval", 30) * 1000
         self._auto_save_timer.start(auto_save_interval)
 
-        # 提取并发出元数据变化信号
+        # 发出文本变化信号
         text = self.toPlainText()
-        metadata = self._metadata_extractor.extract_scene_metadata(text)
-        self.metadataChanged.emit(metadata)
 
         # 发出文本修改信号
         self.textModified.emit(text)
@@ -995,16 +985,10 @@ class IntelligentTextEditor(QPlainTextEdit):
     
     @pyqtSlot()
     def _detect_concepts(self):
-        """检测概念"""
-        text = self.toPlainText()
-
-        # 使用概念检测器检测概念
-        detected_concepts = self._concept_detector.detect_concepts_in_text(text)
-
-        # 发出概念检测信号
-        self.conceptDetected.emit(detected_concepts)
-
-        logger.debug(f"Detected {len(detected_concepts)} concepts in text")
+        """检测概念 - 概念系统已移除，发出空列表"""
+        # 概念检测系统已被移除，发出空的概念列表
+        self.conceptDetected.emit([])
+        logger.debug("Concept detection system has been removed")
     
     def set_document_content(self, content: str, document_id: str = None):
         """设置文档内容"""
@@ -1070,28 +1054,7 @@ class IntelligentTextEditor(QPlainTextEdit):
         """获取语法高亮器"""
         return self._syntax_highlighter
 
-    def get_current_metadata(self) -> dict:
-        """获取当前文档的元数据"""
-        text = self.toPlainText()
-        return self._metadata_extractor.extract_scene_metadata(text)
 
-    def get_metadata_extractor(self) -> MetadataExtractor:
-        """获取元数据提取器"""
-        return self._metadata_extractor
-
-    def get_concept_detector(self) -> ConceptDetector:
-        """获取概念检测器"""
-        return self._concept_detector
-
-    def load_concepts_for_detection(self, concepts):
-        """加载概念到检测器"""
-        self._concept_detector.load_concepts(concepts)
-        logger.info(f"Loaded {len(concepts)} concepts for detection")
-
-    def get_detected_concepts(self):
-        """获取当前检测到的概念"""
-        text = self.toPlainText()
-        return self._concept_detector.detect_concepts_in_text(text)
 
     def set_project_manager(self, project_manager):
         """设置项目管理器"""
