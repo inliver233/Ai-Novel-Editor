@@ -306,18 +306,8 @@ class AIToolBar(QToolBar):
         )
         self.addWidget(config_btn)
         
-        # 添加提示词模板选择按钮
-        self._add_template_selector()
-    
-    def _add_template_selector(self):
-        """添加提示词模板选择器"""
-        template_btn = QPushButton("模板")
-        template_btn.setToolTip("选择当前使用的提示词模板")
-        template_btn.setMaximumHeight(28)  # 与深色模式保持一致
-        template_btn.clicked.connect(
-            lambda: self.aiActionTriggered.emit("template_selector", {})
-        )
-        self.addWidget(template_btn)
+        # 复杂的模板选择器已被简化的AI写作设置替代
+        # 用户可通过AI菜单访问简化的标签化界面
     
     def _add_ai_status(self):
         """添加AI状态显示（在AI工具栏最右边）"""

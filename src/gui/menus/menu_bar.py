@@ -473,12 +473,12 @@ class MenuBar(QMenuBar):
         )
         ai_menu.addAction(ai_config_action)
         
-        # 提示词管理
-        prompt_manager_action = self._create_action(
-            "prompt_manager", "提示词管理(&P)", "",
-            "管理和编辑AI提示词模板"
+        # AI写作提示词设置（统一入口）
+        ai_prompt_settings_action = self._create_action(
+            "ai_prompt_settings", "AI写作提示词设置(&P)", "Ctrl+Alt+A",
+            "配置AI写作风格、提示词和参数"
         )
-        ai_menu.addAction(prompt_manager_action)
+        ai_menu.addAction(ai_prompt_settings_action)
         
         # RAG索引管理
         index_manager_action = self._create_action(

@@ -11,7 +11,7 @@ from typing import Optional
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QSplitter, QMenuBar, QToolBar, QStatusBar,
-    QMessageBox, QApplication, QFileDialog
+    QMessageBox, QApplication, QFileDialog, QDialog
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot
 from PyQt6.QtGui import QAction, QKeySequence, QCloseEvent, QShortcut
@@ -597,7 +597,7 @@ class MainWindow(QMainWindow):
             "concept_detect": self._trigger_concept_detection,
             "completion_mode": self._cycle_completion_mode,
             "ai_control_panel": self._show_ai_control_panel,
-            "prompt_manager": self._show_prompt_manager,
+            "ai_prompt_settings": self._show_ai_prompt_settings,
             "index_manager": self._show_index_manager,
             "batch_index": self._show_batch_index_dialog,
 
@@ -726,6 +726,85 @@ class MainWindow(QMainWindow):
     def _show_about(self):
         dialog = AboutDialog(self)
         dialog.exec()
+
+    def _show_ai_prompt_settings(self):
+        """显示AI写作提示词设置对话框"""
+        try:
+            from gui.ai.simplified_prompt_dialog import SimplifiedPromptDialog
+            
+            # 创建并显示简化的对话框
+            dialog = SimplifiedPromptDialog(self)
+            # 不连接settingsChanged信号，避免重复保存
+            
+            result = dialog.exec()
+            if result == QDialog.DialogCode.Accepted:
+                # 获取并应用设置
+                settings = dialog.get_current_settings()
+                self._on_ai_prompt_config_saved(settings)
+                logger.info("AI写作提示词设置已保存")
+            
+        except ImportError as e:
+            logger.error(f"导入简化提示词对话框失败: {e}")
+            QMessageBox.critical(self, "错误", "无法加载AI写作提示词设置界面。")
+        except Exception as e:
+            logger.error(f"显示AI写作提示词设置失败: {e}")
+            QMessageBox.critical(self, "错误", f"显示AI写作提示词设置时发生错误：{str(e)}")
+    
+    def _on_ai_prompt_config_saved(self, config: dict):
+        """处理AI写作提示词配置保存"""
+        try:
+            # 提取设置数据
+            selected_tags = config.get('selected_tags', [])
+            advanced_settings = config.get('advanced_settings', {})
+            
+            # 应用配置到AI管理器
+            if self._ai_manager:
+                # 应用上下文模式
+                if hasattr(self._ai_manager, 'set_context_mode'):
+                    context_mode = advanced_settings.get('mode', 'balanced')
+                    self._ai_manager.set_context_mode(context_mode)
+                
+                # 应用风格标签
+                if hasattr(self._ai_manager, 'set_style_tags'):
+                    self._ai_manager.set_style_tags(selected_tags)
+                
+                # 应用其他设置
+                if hasattr(self._ai_manager, 'update_completion_settings'):
+                    completion_settings = {
+                        'temperature': advanced_settings.get('creativity', 0.5),
+                        'max_length': advanced_settings.get('word_count', 300),
+                        'auto_trigger': advanced_settings.get('auto_trigger', True),
+                        'trigger_delay': advanced_settings.get('trigger_delay', 1000)
+                    }
+                    self._ai_manager.update_completion_settings(completion_settings)
+                
+                logger.info("AI写作配置已应用到AI管理器")
+            
+            # 批量保存配置到配置文件，避免多次保存
+            if self._config:
+                # 准备配置更新
+                ai_config_updates = {
+                    'context_mode': advanced_settings.get('mode', 'balanced'),
+                    'style_tags': selected_tags,
+                    'temperature': advanced_settings.get('creativity', 0.5),
+                    'completion_length': advanced_settings.get('word_count', 300),
+                    'auto_suggestions': advanced_settings.get('auto_trigger', True),
+                    'completion_delay': advanced_settings.get('trigger_delay', 1000),
+                    'rag_enabled': advanced_settings.get('rag_enabled', True),
+                    'entity_detection': advanced_settings.get('entity_detection', True)
+                }
+                
+                # 批量更新配置
+                for key, value in ai_config_updates.items():
+                    self._config.set('ai', key, value)
+                
+                # 一次性保存
+                self._config.save()
+                logger.info("AI写作提示词配置已保存到配置文件")
+                
+        except Exception as e:
+            logger.error(f"应用AI写作提示词配置失败: {e}")
+            QMessageBox.warning(self, "警告", f"保存配置时发生错误：{str(e)}")
 
     def _show_ai_config_dialog(self):
         """显示AI配置对话框"""
@@ -867,300 +946,8 @@ class MainWindow(QMainWindow):
             logger.error(f"显示基础AI配置对话框失败: {e}")
             QMessageBox.critical(self, "错误", f"无法打开配置对话框: {str(e)}")
 
-    def _show_template_selector_dialog(self):
-        """显示提示词模板选择对话框"""
-        if not self._ai_manager:
-            QMessageBox.warning(self, "警告", "AI管理器未初始化")
-            return
-            
-        try:
-            # 检查是否有增强AI管理器和模板系统
-            if hasattr(self._ai_manager, 'get_available_templates') and hasattr(self._ai_manager, 'get_current_template_info'):
-                self._show_enhanced_template_selector()
-            else:
-                QMessageBox.information(self, "提示", "当前AI管理器不支持模板选择功能")
-                
-        except Exception as e:
-            logger.error(f"显示模板选择对话框失败: {e}")
-            QMessageBox.critical(self, "错误", f"无法打开模板选择对话框: {str(e)}")
-    
-    def _show_enhanced_template_selector(self):
-        """显示增强版模板选择对话框"""
-        try:
-            from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem, QPushButton, QLabel, QTextEdit
-            
-            # 创建对话框
-            dialog = QDialog(self)
-            dialog.setWindowTitle("选择提示词模板")
-            dialog.setMinimumSize(700, 550)  # 增加最小尺寸
-            dialog.resize(750, 600)  # 设置更大的默认尺寸
-            
-            # 应用深色主题样式
-            dialog.setStyleSheet("""
-                QDialog {
-                    background-color: #1a1a1a;
-                    color: #e8e8e8;
-                }
-                QLabel {
-                    color: #e8e8e8;
-                    background-color: transparent;
-                }
-                QListWidget {
-                    background-color: #2a2a2a;
-                    border: 1px solid #404040;
-                    border-radius: 6px;
-                    color: #e8e8e8;
-                    selection-background-color: #8b5cf6;
-                    selection-color: #ffffff;
-                    alternate-background-color: #333333;
-                    padding: 4px;
-                }
-                QListWidget::item {
-                    padding: 8px 12px;
-                    border-bottom: 1px solid #404040;
-                    min-height: 24px;
-                    max-height: 40px;
-                }
-                QListWidget::item:selected {
-                    background-color: #8b5cf6;
-                    color: #ffffff;
-                }
-                QListWidget::item:hover {
-                    background-color: #4a4a4a;
-                }
-                QTextEdit {
-                    background-color: #2a2a2a;
-                    border: 1px solid #404040;
-                    border-radius: 6px;
-                    color: #e8e8e8;
-                    padding: 8px;
-                    font-size: 12px;
-                }
-                QPushButton {
-                    background-color: #8b5cf6;
-                    color: white;
-                    border: none;
-                    padding: 10px 20px;
-                    border-radius: 6px;
-                    font-weight: bold;
-                    min-width: 80px;
-                }
-                QPushButton:hover {
-                    background-color: #7c3aed;
-                }
-                QPushButton:pressed {
-                    background-color: #6d28d9;
-                }
-                QPushButton:disabled {
-                    background-color: #4a4a4a;
-                    color: #888888;
-                }
-            """)
-            
-            layout = QVBoxLayout(dialog)
-            layout.setSpacing(16)
-            layout.setContentsMargins(20, 20, 20, 20)
-            
-            # 当前模板信息
-            current_info = self._ai_manager.get_current_template_info()
-            if current_info:
-                current_label = QLabel(f"当前模板: {current_info['name']} ({current_info['category']})")
-                current_label.setStyleSheet("""
-                    QLabel {
-                        font-weight: bold; 
-                        padding: 10px 16px; 
-                        background-color: rgba(139, 92, 246, 0.15);
-                        border: 1px solid rgba(139, 92, 246, 0.3);
-                        border-radius: 6px;
-                        color: #e8e8e8;
-                        margin-bottom: 8px;
-                    }
-                """)
-                layout.addWidget(current_label)
-            
-            # 模板列表区域
-            list_label = QLabel("可用模板:")
-            list_label.setStyleSheet("font-weight: bold; font-size: 13px; margin-top: 12px; margin-bottom: 6px;")
-            layout.addWidget(list_label)
-            
-            template_list = QListWidget()
-            template_list.setAlternatingRowColors(True)
-            template_list.setMinimumHeight(250)  # 增加列表高度
-            template_list.setMaximumHeight(300)  # 限制最大高度，为描述区域留空间
-            template_list.setSpacing(2)  # 设置项目间距
-            template_list.setUniformItemSizes(True)  # 统一项目大小
-            available_templates = self._ai_manager.get_available_templates()
-            
-            for template_id in available_templates:
-                # 获取模板详细信息（如果可能）
-                try:
-                    if hasattr(self._ai_manager, 'prompt_manager') and self._ai_manager.prompt_manager:
-                        template = self._ai_manager.prompt_manager.get_template(template_id)
-                        if template:
-                            item_text = f"{template.name} - {template.category}"
-                            item = QListWidgetItem(item_text)
-                            item.setData(Qt.ItemDataRole.UserRole, template_id)
-                            # 设置固定高度避免重叠
-                            from PyQt6.QtCore import QSize
-                            item.setSizeHint(QSize(-1, 32))  # 固定高度32像素
-                            template_list.addItem(item)
-                            
-                            # 如果是当前模板，设置选中
-                            if current_info and template_id == current_info['id']:
-                                template_list.setCurrentItem(item)
-                except Exception as e:
-                    logger.warning(f"获取模板信息失败: {template_id}, {e}")
-                    # 回退到简单显示
-                    item = QListWidgetItem(template_id)
-                    item.setData(Qt.ItemDataRole.UserRole, template_id)
-                    from PyQt6.QtCore import QSize
-                    item.setSizeHint(QSize(-1, 32))  # 固定高度32像素
-                    template_list.addItem(item)
-            
-            layout.addWidget(template_list)
-            
-            # 模板描述区域
-            desc_label = QLabel("模板描述:")
-            desc_label.setStyleSheet("font-weight: bold; font-size: 13px; margin-top: 12px; margin-bottom: 6px;")
-            layout.addWidget(desc_label)
-            
-            description_area = QTextEdit()
-            description_area.setFixedHeight(100)  # 固定高度，防止布局冲突
-            description_area.setReadOnly(True)
-            description_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-            layout.addWidget(description_area)
-            
-            # 更新描述的函数
-            def update_description():
-                current_item = template_list.currentItem()
-                if current_item:
-                    template_id = current_item.data(Qt.ItemDataRole.UserRole)
-                    try:
-                        if hasattr(self._ai_manager, 'prompt_manager') and self._ai_manager.prompt_manager:
-                            template = self._ai_manager.prompt_manager.get_template(template_id)
-                            if template:
-                                desc = f"名称: {template.name}\n"
-                                desc += f"分类: {template.category}\n"
-                                desc += f"描述: {template.description}\n"
-                                desc += f"类型: {'内置' if template.is_builtin else '自定义'}"
-                                description_area.setPlainText(desc)
-                            else:
-                                description_area.setPlainText(f"模板ID: {template_id}")
-                        else:
-                            description_area.setPlainText(f"模板ID: {template_id}")
-                    except Exception as e:
-                        description_area.setPlainText(f"无法获取模板信息: {str(e)}")
-                else:
-                    description_area.clear()
-            
-            template_list.currentItemChanged.connect(lambda: update_description())
-            
-            # 初始化描述
-            if template_list.currentItem():
-                update_description()
-            
-            # 按钮区域
-            button_layout = QHBoxLayout()
-            button_layout.setSpacing(12)
-            button_layout.setContentsMargins(0, 20, 0, 0)  # 顶部留更多空间
-            
-            # 管理按钮（左侧）
-            manage_btn = QPushButton("管理模板")
-            manage_btn.setMinimumWidth(100)
-            manage_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #4a5568;
-                    color: white;
-                    border: none;
-                    padding: 10px 20px;
-                    border-radius: 6px;
-                    font-weight: bold;
-                    min-width: 100px;
-                }
-                QPushButton:hover {
-                    background-color: #2d3748;
-                }
-                QPushButton:pressed {
-                    background-color: #1a202c;
-                }
-            """)
-            
-            # 主要按钮（右侧）
-            select_btn = QPushButton("选择模板")
-            select_btn.setMinimumWidth(100)
-            
-            cancel_btn = QPushButton("取消")
-            cancel_btn.setMinimumWidth(80)
-            cancel_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #e53e3e;
-                    color: white;
-                    border: none;
-                    padding: 10px 20px;
-                    border-radius: 6px;
-                    font-weight: bold;
-                    min-width: 80px;
-                }
-                QPushButton:hover {
-                    background-color: #c53030;
-                }
-                QPushButton:pressed {
-                    background-color: #9c1c1c;
-                }
-            """)
-            
-            def on_select():
-                current_item = template_list.currentItem()
-                if current_item:
-                    template_id = current_item.data(Qt.ItemDataRole.UserRole)
-                    success = self._ai_manager.set_current_template(template_id)
-                    if success:
-                        dialog.accept()
-                        # 更新工具栏显示（如果需要）
-                        if hasattr(self, '_toolbar_manager'):
-                            try:
-                                ai_toolbar = self._toolbar_manager.get_toolbar('ai_toolbar')
-                                if hasattr(ai_toolbar, 'update_template_display'):
-                                    ai_toolbar.update_template_display(template_id)
-                            except:
-                                pass
-                        
-                        QMessageBox.information(self, "成功", f"已切换到模板: {current_item.text()}")
-                    else:
-                        QMessageBox.warning(self, "错误", "设置模板失败")
-                else:
-                    QMessageBox.warning(self, "警告", "请先选择一个模板")
-            
-            def on_manage():
-                try:
-                    if hasattr(self._ai_manager, 'open_template_manager'):
-                        self._ai_manager.open_template_manager(self)
-                        dialog.close()
-                    else:
-                        QMessageBox.information(self, "提示", "当前版本不支持模板管理功能")
-                except Exception as e:
-                    QMessageBox.critical(self, "错误", f"打开模板管理器失败: {str(e)}")
-            
-            select_btn.clicked.connect(on_select)
-            cancel_btn.clicked.connect(dialog.reject)
-            manage_btn.clicked.connect(on_manage)
-            
-            button_layout.addWidget(manage_btn)
-            button_layout.addStretch()
-            button_layout.addWidget(select_btn)
-            button_layout.addWidget(cancel_btn)
-            
-            # 添加按钮布局到主布局
-            layout.addLayout(button_layout)
-            
-            # 显示对话框
-            dialog.exec()
-            
-        except Exception as e:
-            logger.error(f"创建增强版模板选择对话框失败: {e}")
-            import traceback
-            logger.error(f"错误详情: {traceback.format_exc()}")
-            QMessageBox.critical(self, "错误", f"创建模板选择对话框失败: {str(e)}")
+    # 复杂的模板选择器已被简化的AI写作设置替代
+    # 用户现在可以通过AI菜单访问简化的标签化界面
 
     def _show_project_settings(self):
         dialog = ProjectSettingsDialog(self, {})
@@ -1541,7 +1328,8 @@ class MainWindow(QMainWindow):
         elif action_id == "ai_config":
             self._show_ai_config_dialog()
         elif action_id == "template_selector":
-            self._show_template_selector_dialog()
+            # 模板选择器已被简化的AI写作设置替代
+            self._show_ai_writing_settings()
         elif action_id == "index_manager":
             self._show_index_manager()
         elif action_id == "batch_index":
@@ -1807,101 +1595,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"补全模式已切换为: {mode_name}", 3000)
         logger.info(f"补全模式切换为: {next_mode}")
     
-    def _show_prompt_manager(self):
-        """显示提示词管理对话框"""
-        if not self._ai_manager:
-            # 尝试重新初始化AI管理器
-            reply = QMessageBox.question(
-                self, "AI管理器未初始化", 
-                "AI管理器未正确初始化。是否尝试重新初始化？",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            if reply == QMessageBox.StandardButton.Yes:
-                self._try_reinit_ai_manager()
-                if not self._ai_manager:
-                    QMessageBox.critical(self, "初始化失败", "AI管理器重新初始化失败。")
-                    return
-            else:
-                return
-        
-        # 详细检查AI管理器类型和功能
-        ai_manager_type = type(self._ai_manager).__name__
-        logger.info(f"当前AI管理器类型: {ai_manager_type}")
-        
-        # 检查是否为增强型AI管理器
-        is_enhanced = 'Enhanced' in ai_manager_type or hasattr(self._ai_manager, 'prompt_manager')
-        logger.info(f"是否为增强型AI管理器: {is_enhanced}")
-        
-        # 检查是否有提示词管理方法
-        has_template_manager = hasattr(self._ai_manager, 'open_template_manager')
-        logger.info(f"是否有open_template_manager方法: {has_template_manager}")
-        
-        if has_template_manager:
-            try:
-                # 进一步检查提示词系统状态
-                if hasattr(self._ai_manager, 'prompt_manager'):
-                    if self._ai_manager.prompt_manager is None:
-                        reply = QMessageBox.question(
-                            self, "提示词系统未初始化", 
-                            "提示词系统未正确初始化。这可能是由于缺少依赖或配置问题。\n\n"
-                            "是否要重新初始化AI系统？",
-                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                        )
-                        if reply == QMessageBox.StandardButton.Yes:
-                            self._try_reinit_ai_manager()
-                            if not (self._ai_manager and hasattr(self._ai_manager, 'prompt_manager') and self._ai_manager.prompt_manager):
-                                QMessageBox.critical(self, "初始化失败", 
-                                                   "提示词系统重新初始化失败。\n请检查日志文件获取详细错误信息。")
-                                return
-                        else:
-                            return
-                
-                # 打开提示词管理对话框
-                logger.info("正在打开提示词管理对话框...")
-                self._ai_manager.open_template_manager(self)
-                logger.info("提示词管理对话框已打开")
-                
-            except Exception as e:
-                import traceback
-                error_details = traceback.format_exc()
-                logger.error(f"打开提示词管理对话框失败: {e}")
-                logger.error(f"错误堆栈: {error_details}")
-                
-                QMessageBox.critical(self, "错误", 
-                                   f"无法打开提示词管理对话框:\n\n{str(e)}\n\n"
-                                   f"AI管理器类型: {ai_manager_type}\n"
-                                   f"请检查日志文件获取详细信息。")
-        else:
-            # 提供更详细的诊断信息
-            diagnostic_info = []
-            diagnostic_info.append(f"AI管理器类型: {ai_manager_type}")
-            diagnostic_info.append(f"是否为增强型: {is_enhanced}")
-            
-            if hasattr(self._ai_manager, '__dict__'):
-                available_methods = [method for method in dir(self._ai_manager) if not method.startswith('_')]
-                diagnostic_info.append(f"可用方法: {', '.join(available_methods[:10])}...")
-            
-            # 尝试重新初始化为增强型管理器
-            reply = QMessageBox.question(
-                self, "提示词管理功能不可用", 
-                f"当前AI管理器不支持提示词管理功能。\n\n"
-                f"诊断信息:\n" + "\n".join(diagnostic_info) + "\n\n"
-                f"是否要尝试重新初始化为增强型AI管理器？",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-            
-            if reply == QMessageBox.StandardButton.Yes:
-                self._try_reinit_ai_manager()
-                # 递归调用自己，重新检查
-                if self._ai_manager:
-                    self._show_prompt_manager()
-            else:
-                QMessageBox.information(self, "功能说明", 
-                                      "提示词管理功能需要增强型AI管理器支持。\n"
-                                      "如果问题持续存在，请检查以下内容:\n\n"
-                                      "1. 确保所有提示词工程模块已正确安装\n"
-                                      "2. 检查应用程序日志获取详细错误信息\n"
-                                      "3. 重启应用程序尝试重新初始化")
+    # _show_prompt_manager 已被统一的 _show_ai_prompt_settings 替代
     
     def _show_ai_control_panel(self):
         """显示AI补全设置（跳转到配置中心的补全设置页面）"""

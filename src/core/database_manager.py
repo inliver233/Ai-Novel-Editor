@@ -77,6 +77,41 @@ class DatabaseManager:
                         )
                     """)
 
+                    # Codex知识库表
+                    conn.execute("""
+                        CREATE TABLE IF NOT EXISTS codex_entries (
+                            id TEXT PRIMARY KEY,
+                            title TEXT NOT NULL,
+                            entry_type TEXT NOT NULL DEFAULT 'OTHER',
+                            description TEXT,
+                            is_global BOOLEAN DEFAULT FALSE,
+                            track_references BOOLEAN DEFAULT TRUE,
+                            aliases TEXT,
+                            relationships TEXT,
+                            progression TEXT,
+                            created_at TEXT,
+                            updated_at TEXT,
+                            metadata TEXT
+                        )
+                    """)
+
+                    # Codex引用追踪表
+                    conn.execute("""
+                        CREATE TABLE IF NOT EXISTS codex_references (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            codex_id TEXT NOT NULL,
+                            document_id TEXT NOT NULL,
+                            reference_text TEXT NOT NULL,
+                            position_start INTEGER NOT NULL,
+                            position_end INTEGER NOT NULL,
+                            context_before TEXT,
+                            context_after TEXT,
+                            created_at TEXT,
+                            FOREIGN KEY (codex_id) REFERENCES codex_entries (id),
+                            FOREIGN KEY (document_id) REFERENCES documents (id)
+                        )
+                    """)
+
                     conn.commit()
                 logger.info("Database schema verified/created successfully.")
             except sqlite3.Error as e:
@@ -154,6 +189,139 @@ class DatabaseManager:
             except json.JSONDecodeError as e:
                 logger.error(f"Error decoding JSON from database: {e}")
                 return {}
+
+    def save_codex_data(self, codex_entries: list, codex_references: list = None):
+        """
+        保存Codex条目和引用数据。
+        
+        Args:
+            codex_entries (list): Codex条目列表
+            codex_references (list): Codex引用列表，可选
+        """
+        with self._lock:
+            try:
+                with self._get_connection() as conn:
+                    # 保存Codex条目
+                    if codex_entries:
+                        # 先清空旧数据
+                        conn.execute("DELETE FROM codex_entries")
+                        for entry in codex_entries:
+                            entry_copy = entry.copy()
+                            # 将列表/字典字段序列化为JSON
+                            for field in ['aliases', 'relationships', 'progression', 'metadata']:
+                                if field in entry_copy:
+                                    entry_copy[field] = json.dumps(entry_copy[field] if entry_copy[field] else [])
+                            
+                            conn.execute("""
+                                INSERT INTO codex_entries (
+                                    id, title, entry_type, description, is_global, 
+                                    track_references, aliases, relationships, progression,
+                                    created_at, updated_at, metadata
+                                ) VALUES (
+                                    :id, :title, :entry_type, :description, :is_global,
+                                    :track_references, :aliases, :relationships, :progression,
+                                    :created_at, :updated_at, :metadata
+                                )
+                            """, entry_copy)
+                    
+                    # 保存Codex引用（如果提供）
+                    if codex_references:
+                        conn.execute("DELETE FROM codex_references")
+                        for ref in codex_references:
+                            conn.execute("""
+                                INSERT INTO codex_references (
+                                    codex_id, document_id, reference_text, position_start,
+                                    position_end, context_before, context_after, created_at
+                                ) VALUES (
+                                    :codex_id, :document_id, :reference_text, :position_start,
+                                    :position_end, :context_before, :context_after, :created_at
+                                )
+                            """, ref)
+
+                    conn.commit()
+                    logger.info(f"Codex data saved successfully: {len(codex_entries)} entries")
+
+            except sqlite3.Error as e:
+                logger.error(f"Error saving codex data: {e}")
+                raise
+
+    def load_codex_data(self) -> Dict[str, Any]:
+        """从数据库加载Codex数据"""
+        with self._lock:
+            codex_data = {'entries': [], 'references': []}
+            try:
+                with self._get_connection() as conn:
+                    # 加载Codex条目
+                    cursor = conn.execute("SELECT * FROM codex_entries")
+                    entries = [dict(row) for row in cursor.fetchall()]
+                    for entry in entries:
+                        # 反序列化JSON字段
+                        for field in ['aliases', 'relationships', 'progression', 'metadata']:
+                            if entry.get(field):
+                                try:
+                                    entry[field] = json.loads(entry[field])
+                                except json.JSONDecodeError:
+                                    entry[field] = []
+                            else:
+                                entry[field] = []
+                    codex_data['entries'] = entries
+
+                    # 加载Codex引用
+                    cursor = conn.execute("SELECT * FROM codex_references")
+                    references = [dict(row) for row in cursor.fetchall()]
+                    codex_data['references'] = references
+
+                logger.info(f"Codex data loaded: {len(entries)} entries, {len(references)} references")
+                return codex_data
+
+            except sqlite3.Error as e:
+                logger.error(f"Error loading codex data: {e}")
+                return {'entries': [], 'references': []}
+
+    def get_codex_entries_by_type(self, entry_type: str) -> list:
+        """根据类型获取Codex条目"""
+        with self._lock:
+            try:
+                with self._get_connection() as conn:
+                    cursor = conn.execute(
+                        "SELECT * FROM codex_entries WHERE entry_type = ?", 
+                        (entry_type,)
+                    )
+                    entries = [dict(row) for row in cursor.fetchall()]
+                    for entry in entries:
+                        # 反序列化JSON字段
+                        for field in ['aliases', 'relationships', 'progression', 'metadata']:
+                            if entry.get(field):
+                                try:
+                                    entry[field] = json.loads(entry[field])
+                                except json.JSONDecodeError:
+                                    entry[field] = []
+                    return entries
+            except sqlite3.Error as e:
+                logger.error(f"Error getting codex entries by type {entry_type}: {e}")
+                return []
+
+    def get_global_codex_entries(self) -> list:
+        """获取标记为全局的Codex条目"""
+        with self._lock:
+            try:
+                with self._get_connection() as conn:
+                    cursor = conn.execute(
+                        "SELECT * FROM codex_entries WHERE is_global = 1"
+                    )
+                    entries = [dict(row) for row in cursor.fetchall()]
+                    for entry in entries:
+                        # 反序列化JSON字段
+                        for field in ['aliases', 'relationships', 'progression', 'metadata']:
+                            if entry.get(field):
+                                try:
+                                    entry[field] = json.loads(entry[field])
+                                except json.JSONDecodeError:
+                                    entry[field] = []
+                    return entries
+            except sqlite3.Error as e:
+                logger.error(f"Error getting global codex entries: {e}")
+                return []
 
     def close(self):
         """关闭数据库连接"""

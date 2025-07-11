@@ -40,11 +40,8 @@ except ImportError as e:
     logger.warning(f"literary_formatter导入失败: {e}")
     literary_formatter = None
 
-try:
-    from .prompt_editor_dialog import PromptManagerDialog
-except ImportError as e:
-    logger.warning(f"PromptManagerDialog导入失败: {e}")
-    PromptManagerDialog = None
+# 移除复杂的PromptManagerDialog，使用简化界面替代
+PromptManagerDialog = None
 
 # 导入新的提示词系统（添加错误处理）
 PROMPT_SYSTEM_AVAILABLE = False
@@ -74,27 +71,18 @@ except ImportError as e:
     class ContextVariableBuilder:
         def __init__(self, analyzer): pass
 
-# 导入高级提示词引擎（七层混合架构）
-try:
-    from core.advanced_prompt_engine import (
-        AdvancedPromptEngine, PromptContext, LayerPriority,
-        PromptMode as AdvancedPromptMode, CompletionType as AdvancedCompletionType
-    )
-    ADVANCED_PROMPT_AVAILABLE = True
-    logger.info("高级提示词引擎模块导入成功")
-except ImportError as e:
-    logger.error(f"高级提示词引擎模块导入失败: {e}")
-    # 创建空的替代类
-    class AdvancedPromptEngine:
-        def __init__(self): pass
-    class PromptContext:
-        def __init__(self): pass
-    class AdvancedPromptMode:
-        FAST = "fast"
-        BALANCED = "balanced"
-        FULL = "full"
-    class AdvancedCompletionType:
-        TEXT = "text"
+# 移除复杂的高级提示词引擎（七层混合架构），使用简化系统替代
+ADVANCED_PROMPT_AVAILABLE = False
+class AdvancedPromptEngine:
+    def __init__(self): pass
+class PromptContext:
+    def __init__(self): pass
+class AdvancedPromptMode:
+    FAST = "fast"
+    BALANCED = "balanced"
+    FULL = "full"
+class AdvancedCompletionType:
+    TEXT = "text"
 
 # 导入AI客户端
 try:
@@ -161,6 +149,23 @@ class EnhancedAIManager(QObject):
         self.current_template_id = "novel_general_completion"
         self.custom_template_overrides = {}
         self.use_advanced_engine = False  # 默认为False，只有在系统可用时才设为True
+        
+        # 添加分模式的模板ID管理 - 修复unified_ai_config_dialog错误
+        self._current_template_ids = {
+            'fast': 'ai_fast_completion',
+            'balanced': 'ai_balanced_completion', 
+            'full': 'ai_full_completion'
+        }
+        
+        # 从配置文件加载现有的模板配置
+        try:
+            template_config = self.config._config_data.get('ai_templates', {})
+            for mode, template_id in template_config.items():
+                if mode in self._current_template_ids:
+                    self._current_template_ids[mode] = template_id
+                    logger.debug(f"从配置加载模式 {mode} 的模板: {template_id}")
+        except Exception as e:
+            logger.warning(f"加载模板配置失败: {e}")
         
         try:
             if not PROMPT_SYSTEM_AVAILABLE:
@@ -347,26 +352,35 @@ class EnhancedAIManager(QObject):
             }
         return None
     
-    def open_template_manager(self, parent_widget=None):
-        """打开模板管理对话框"""
-        if not PROMPT_SYSTEM_AVAILABLE:
-            logger.error("提示词工程系统不可用")
-            raise ImportError("提示词工程系统模块未正确导入")
+    def get_current_template_id(self, mode: str) -> str:
+        """获取指定模式的当前模板ID - 修复unified_ai_config_dialog错误"""
+        return self._current_template_ids.get(mode, f'ai_{mode}_completion')
+    
+    def set_template_for_mode(self, mode: str, template_id: str):
+        """设置指定模式的模板ID"""
+        if mode in self._current_template_ids:
+            self._current_template_ids[mode] = template_id
+            logger.info(f"设置模式 {mode} 的模板ID为: {template_id}")
             
-        if not self.prompt_manager:
-            logger.warning("提示词系统未初始化")
-            raise RuntimeError("提示词管理器未初始化，请检查系统配置")
-        
-        if not PromptManagerDialog:
-            logger.error("PromptManagerDialog类不可用")
-            raise ImportError("提示词管理对话框组件未正确导入")
-        
-        try:
-            dialog = PromptManagerDialog(self.prompt_manager, parent_widget)
-            dialog.exec()
-        except Exception as e:
-            logger.error(f"创建或显示提示词管理对话框失败: {e}")
-            raise
+            # 保存到配置文件
+            try:
+                template_config = self.config._config_data.get('ai_templates', {})
+                template_config[mode] = template_id
+                self.config._config_data['ai_templates'] = template_config
+                self.config.save()
+                
+                # 发出模板变化信号
+                self.templateChanged.emit(template_id)
+            except Exception as e:
+                logger.error(f"保存模板配置失败: {e}")
+        else:
+            logger.warning(f"不支持的模式: {mode}")
+    
+    def open_template_manager(self, parent_widget=None):
+        """打开简化的提示词管理对话框（已重定向到主窗口）"""
+        logger.info("提示词管理已移至主菜单 - 使用简化界面替代复杂系统")
+        # 复杂的提示词管理界面已被简化的标签化界面替代
+        # 用户现在可以通过主菜单访问简化的AI写作设置
     
     def quick_customize_template(self, template_id: str, customizations: Dict[str, Any]) -> bool:
         """快速自定义模板（临时覆盖）"""

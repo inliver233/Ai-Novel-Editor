@@ -1781,15 +1781,15 @@ class TemplateManagementWidget(QWidget):
             return
         
         try:
-            # 打开提示词编辑器
-            from .prompt_editor_dialog import PromptEditorDialog
-            dialog = PromptEditorDialog(self, template_id=template['id'])
+            # 使用简化的提示词设置界面替代复杂编辑器
+            from .simplified_prompt_dialog import SimplifiedPromptDialog
+            dialog = SimplifiedPromptDialog(self)
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 self._load_templates()  # 重新加载模板列表
                 
         except Exception as e:
-            logger.error(f"打开模板编辑器失败: {e}")
-            QMessageBox.warning(self, "错误", f"无法打开模板编辑器：{str(e)}")
+            logger.error(f"打开简化提示词设置失败: {e}")
+            QMessageBox.warning(self, "错误", f"无法打开提示词设置：{str(e)}")
     
     def _duplicate_template(self):
         """复制模板"""
@@ -1818,8 +1818,9 @@ class TemplateManagementWidget(QWidget):
     def _new_template(self):
         """新建模板"""
         try:
-            from .prompt_editor_dialog import PromptEditorDialog
-            dialog = PromptEditorDialog(self)
+            # 使用简化的提示词设置界面替代复杂编辑器
+            from .simplified_prompt_dialog import SimplifiedPromptDialog
+            dialog = SimplifiedPromptDialog(self)
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 self._load_templates()  # 重新加载模板列表
                 
