@@ -6,8 +6,8 @@
 import logging
 from enum import Enum
 from typing import Optional
-from PyQt6.QtWidgets import QWidget, QLabel, QHBoxLayout, QGraphicsOpacityEffect
-from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtSignal, QRect
+from PyQt6.QtWidgets import QWidget, QLabel, QHBoxLayout, QGraphicsOpacityEffect, QMainWindow, QApplication
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtSignal, QRect, QPoint
 from PyQt6.QtGui import QPainter, QBrush, QColor, QPen, QFont
 
 logger = logging.getLogger(__name__)
@@ -42,11 +42,19 @@ class ModernAIStatusIndicator(QWidget):
         # 设置基本属性
         self.setFixedSize(180, 36)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool)
+        # 不再设置窗口标志，作为普通子widget
+        # self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool)
         
         # 初始化UI和动画
         self._init_ui()
         self._init_animations()
+        
+        # 监听父编辑器的大小变化以调整位置
+        if self._parent_editor:
+            self._parent_editor.resizeEvent = self._on_editor_resize_wrapper
+        
+        # 确保始终在最上层
+        self.setAttribute(Qt.WidgetAttribute.WA_AlwaysStackOnTop, True)
         
         # 默认隐藏
         self.hide()
@@ -59,6 +67,9 @@ class ModernAIStatusIndicator(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(8)
+        
+        # 设置背景颜色和边框
+        self.setAutoFillBackground(True)
         
         # 状态指示点
         self._status_dot = QWidget()
@@ -85,13 +96,7 @@ class ModernAIStatusIndicator(QWidget):
         layout.addStretch()
         
         # 设置整体样式 - 现代玻璃效果
-        self.setStyleSheet("""
-            ModernAIStatusIndicator {
-                background-color: rgba(30, 41, 59, 0.95);
-                border: 1px solid rgba(148, 163, 184, 0.2);
-                border-radius: 18px;
-            }
-        """)
+        self._update_widget_style()
     
     def _init_animations(self):
         """初始化动画系统"""
@@ -220,13 +225,7 @@ class ModernAIStatusIndicator(QWidget):
         """)
         
         # 更新整体样式
-        self.setStyleSheet(f"""
-            ModernAIStatusIndicator {{
-                background-color: {config["bg_color"]};
-                border: 1px solid {config["border_color"]};
-                border-radius: 18px;
-            }}
-        """)
+        self._update_widget_style_with_config(config)
     
     def _manage_animations(self):
         """管理动画状态"""
@@ -309,7 +308,13 @@ class ModernAIStatusIndicator(QWidget):
             return
         
         self._is_visible = True
+        
+        # 更新位置（作为子widget，只需设置相对位置）
         self._update_position()
+        
+        # 先显示widget，但透明度为0
+        self.show()
+        self._opacity_effect.setOpacity(0.0)
         
         # 淡入动画
         self._fade_animation.setStartValue(0.0)
@@ -324,7 +329,6 @@ class ModernAIStatusIndicator(QWidget):
         
         self._fade_animation.start()
         
-        self.show()
         self.raise_()
         
         logger.debug("AI状态指示器显示")
@@ -360,16 +364,17 @@ class ModernAIStatusIndicator(QWidget):
         if not self._parent_editor:
             return
         
-        # 获取编辑器几何信息
-        editor_rect = self._parent_editor.geometry()
-        editor_global_pos = self._parent_editor.mapToGlobal(editor_rect.topLeft())
+        # 作为子widget，使用相对位置
+        editor_size = self._parent_editor.size()
         
         # 计算指示器位置（右下角，留出边距）
         margin = 20
-        x = editor_global_pos.x() + editor_rect.width() - self.width() - margin
-        y = editor_global_pos.y() + editor_rect.height() - self.height() - margin
+        x = editor_size.width() - self.width() - margin
+        y = editor_size.height() - self.height() - margin
         
+        # 设置相对位置
         self.move(x, y)
+        logger.debug(f"更新指示器相对位置到: ({x}, {y})")
     
     def paintEvent(self, event):
         """自定义绘制事件"""
@@ -401,6 +406,35 @@ class ModernAIStatusIndicator(QWidget):
     def get_current_status(self) -> AIStatus:
         """获取当前状态"""
         return self._current_status
+    
+    def _on_editor_resize_wrapper(self, event):
+        """编辑器大小变化时的包装器"""
+        # 调用原始的resizeEvent
+        super(type(self._parent_editor), self._parent_editor).resizeEvent(event)
+        
+        # 更新位置
+        if self._is_visible:
+            self._update_position()
+    
+    def _update_widget_style(self):
+        """更新widget样式"""
+        self.setStyleSheet("""
+            ModernAIStatusIndicator {
+                background-color: rgba(30, 41, 59, 0.95);
+                border: 1px solid rgba(148, 163, 184, 0.2);
+                border-radius: 18px;
+            }
+        """)
+    
+    def _update_widget_style_with_config(self, config):
+        """根据配置更新widget样式"""
+        self.setStyleSheet(f"""
+            ModernAIStatusIndicator {{
+                background-color: {config["bg_color"]};
+                border: 1px solid {config["border_color"]};
+                border-radius: 18px;
+            }}
+        """)
 
 
 class AIStatusManager:

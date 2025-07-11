@@ -14,7 +14,7 @@ from .completion_engine import CompletionEngine, CompletionSuggestion
 from .completion_widget import CompletionWidget
 from .inline_completion import InlineCompletionManager
 from .ghost_text_completion import ModernGhostTextCompletion
-from .completion_status_indicator import FloatingStatusIndicator
+# from .completion_status_indicator import FloatingStatusIndicator  # 已移除，避免状态指示器冲突
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,8 @@ class SmartCompletionManager(QObject):
         self._popup_widget = CompletionWidget(text_editor)
         self._inline_manager = InlineCompletionManager(text_editor)
         self._ghost_completion = ModernGhostTextCompletion(text_editor)
-        self._status_indicator = FloatingStatusIndicator(text_editor)
+        # 移除FloatingStatusIndicator以避免状态指示器冲突
+        # self._status_indicator = FloatingStatusIndicator(text_editor)
         
         # 补全状态
         self._is_completing = False
@@ -47,13 +48,8 @@ class SmartCompletionManager(QObject):
         
         self._init_connections()
         
-        # 彻底禁用浮动状态指示器，防止黄色横杆出现
-        self._status_indicator.hide()
-        self._status_indicator.setVisible(False)
-        if hasattr(self._status_indicator, '_force_hide'):
-            self._status_indicator._force_hide()
-        
-        logger.info("SmartCompletionManager initialized with FloatingStatusIndicator disabled")
+        # FloatingStatusIndicator已被移除，状态显示由ModernAIStatusIndicator负责
+        logger.info("SmartCompletionManager initialized without FloatingStatusIndicator")
         
     def _init_connections(self):
         """初始化信号连接"""
@@ -65,8 +61,8 @@ class SmartCompletionManager(QObject):
         self._inline_manager._completion_widget.suggestionAccepted.connect(self._on_inline_suggestion_accepted)
         self._inline_manager._completion_widget.suggestionRejected.connect(self._on_inline_suggestion_rejected)
 
-        # 状态指示器信号
-        self._status_indicator.modeChangeRequested.connect(self.set_completion_mode)
+        # 移除状态指示器信号连接，因为不再使用FloatingStatusIndicator
+        # self._status_indicator.modeChangeRequested.connect(self.set_completion_mode)
 
         # 文本编辑器信号
         self._text_editor.textChanged.connect(self._on_text_changed)
@@ -80,13 +76,8 @@ class SmartCompletionManager(QObject):
         self._completion_mode = mode
         logger.info(f"补全模式设置为: {mode}")
 
-        # 更新状态指示器（但保持隐藏）
-        self._status_indicator.set_completion_mode(mode)
-
-        # 彻底禁用浮动状态指示器，防止黄色横杆出现
-        # 状态指示器功能已被嵌入式指示器替代
-        if hasattr(self._status_indicator, '_force_hide'):
-            self._status_indicator._force_hide()
+        # FloatingStatusIndicator已被移除
+        # 状态显示由ModernAIStatusIndicator和嵌入式指示器负责
         
         # 向父窗口发送模式变更通知，用于同步工具栏显示
         self._notify_mode_change(mode)
@@ -250,10 +241,8 @@ class SmartCompletionManager(QObject):
         if hasattr(self._text_editor, '_ai_status_manager'):
             self._text_editor._ai_status_manager.show_requesting("发送AI补全请求")
         
-        # 更新旧状态指示器（保持兼容，但不显示）
-        self._status_indicator.set_ai_status('thinking')
-        if hasattr(self._status_indicator, '_force_hide'):
-            self._status_indicator._force_hide()
+        # FloatingStatusIndicator已被移除
+        # 状态显示由ModernAIStatusIndicator负责
 
         # 构建AI提示
         context = self._build_ai_context(text, position)
@@ -329,10 +318,8 @@ class SmartCompletionManager(QObject):
         
     def show_ai_completion(self, suggestion: str):
         """显示AI补全建议"""
-        # 更新旧状态指示器（保持兼容，但不显示）
-        self._status_indicator.set_ai_status('idle')
-        if hasattr(self._status_indicator, '_force_hide'):
-            self._status_indicator._force_hide()
+        # FloatingStatusIndicator已被移除
+        # 状态显示由ModernAIStatusIndicator负责
 
         if suggestion and suggestion.strip():
             # 显示完成状态 - 使用现代状态指示器
@@ -347,10 +334,8 @@ class SmartCompletionManager(QObject):
             if hasattr(self._text_editor, '_ai_status_manager'):
                 self._text_editor._ai_status_manager.show_error("AI补全生成失败")
             
-            # 如果没有建议，设置AI状态为错误（但不显示旧指示器）
-            self._status_indicator.set_ai_status('error')
-            if hasattr(self._status_indicator, '_force_hide'):
-                self._status_indicator._force_hide()
+            # FloatingStatusIndicator已被移除
+            # 错误状态由ModernAIStatusIndicator显示
 
         self._is_completing = False
         
@@ -429,4 +414,6 @@ class SmartCompletionManager(QObject):
 
     def get_status_indicator(self):
         """获取状态指示器"""
-        return self._status_indicator
+        # FloatingStatusIndicator已被移除
+        # 状态显示由ModernAIStatusIndicator和EmbeddedStatusIndicator负责
+        return None

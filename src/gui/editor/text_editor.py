@@ -31,7 +31,7 @@ from .inline_completion import InlineCompletionManager
 from .smart_completion_manager import SmartCompletionManager
 from .completion_status_indicator import EmbeddedStatusIndicator
 from .ghost_text_completion import ModernGhostTextCompletion
-from .ai_status_indicator import FloatingAIStatusIndicator
+# from .ai_status_indicator import FloatingAIStatusIndicator  # 已移除，使用ModernAIStatusIndicator
 from .modern_ai_indicator import AIStatusManager
 
 
@@ -111,11 +111,9 @@ class IntelligentTextEditor(QPlainTextEdit):
         # 现代AI状态指示器 - 使用新的优雅设计
         self._ai_status_manager = AIStatusManager(self)
         
-        # 隐藏旧的状态指示器以防止冲突（保持向后兼容）
-        self._ai_status_indicator = FloatingAIStatusIndicator(self)
-        self._ai_status_indicator.hide()
-        self._ai_status_indicator.set_visible(False)
-        logger.debug("Modern AI status indicator initialized, old indicator disabled")
+        # 移除旧的FloatingAIStatusIndicator以防止冲突
+        # self._ai_status_indicator = FloatingAIStatusIndicator(self)
+        logger.debug("Modern AI status indicator initialized")
 
         # Ghost Text渲染属性
         self._ghost_text = ""
@@ -434,9 +432,10 @@ class IntelligentTextEditor(QPlainTextEdit):
         self.setExtraSelections([])
         
         # 确保AI状态指示器不会干扰显示
-        if hasattr(self, '_ai_status_indicator'):
-            self._ai_status_indicator.hide()
-            self._ai_status_indicator.set_visible(False)
+        # FloatingAIStatusIndicator已被移除
+        # if hasattr(self, '_ai_status_indicator'):
+        #     self._ai_status_indicator.hide()
+        #     self._ai_status_indicator.set_visible(False)
         
         # 触发重绘
         self.viewport().update()
@@ -466,22 +465,11 @@ class IntelligentTextEditor(QPlainTextEdit):
 
     def _create_status_bar(self):
         """创建状态栏"""
-        # 创建状态指示器
+        # 创建嵌入式状态指示器
         self._status_indicator = EmbeddedStatusIndicator()
 
-        # 连接智能补全管理器的状态指示器
-        if hasattr(self._smart_completion, '_status_indicator'):
-            # 彻底禁用浮动状态指示器，防止黄色横杆出现
-            self._smart_completion._status_indicator.hide()
-            self._smart_completion._status_indicator.setVisible(False)
-            if hasattr(self._smart_completion._status_indicator, '_force_hide'):
-                self._smart_completion._status_indicator._force_hide()
-            # 使用嵌入式指示器替换浮动指示器
-            self._smart_completion._status_indicator = self._status_indicator
-
-        # 彻底隐藏AI状态指示器，使用统一的状态指示器
-        self._ai_status_indicator.hide()
-        self._ai_status_indicator.set_visible(False)
+        # FloatingStatusIndicator已从SmartCompletionManager中移除
+        # 所有状态显示由EmbeddedStatusIndicator和ModernAIStatusIndicator负责
         
         logger.info("All floating status indicators disabled, using embedded status bar")
 
