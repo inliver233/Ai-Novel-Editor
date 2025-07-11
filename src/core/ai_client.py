@@ -85,15 +85,6 @@ class AIClient:
         """设置专用日志"""
         self.logger = logging.getLogger(f'ai.{self.config.provider.value}')
         self.logger.setLevel(logging.DEBUG)
-        
-        # 如果没有处理器，添加一个
-        if not self.logger.handlers:
-            handler = logging.StreamHandler()
-            formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - [%(funcName)s:%(lineno)d] - %(message)s'
-            )
-            handler.setFormatter(formatter)
-            self.logger.addHandler(handler)
     
     def _get_headers(self) -> Dict[str, str]:
         """获取请求头"""
