@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QTextEdit, QMessageBox, QTabWidget, QWidget,
     QCheckBox, QSpinBox, QDoubleSpinBox
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject
 import json
 import asyncio
 import aiohttp
@@ -15,6 +15,97 @@ from typing import Dict, Any, Optional
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+class TestConnectionWorker(QThread):
+    """测试连接的工作线程"""
+    
+    resultReady = pyqtSignal(str)
+    finished = pyqtSignal()
+    
+    def __init__(self, config: Dict[str, Any], parent=None):
+        super().__init__(parent)
+        self.config = config
+        
+    def run(self):
+        """在线程中运行异步测试"""
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            result = loop.run_until_complete(self._test_connection_async())
+            self.resultReady.emit(result)
+        except Exception as e:
+            self.resultReady.emit(f"测试失败: {str(e)}")
+        finally:
+            try:
+                loop.close()
+            except:
+                pass
+            self.finished.emit()
+    
+    async def _test_connection_async(self) -> str:
+        """异步测试连接"""
+        results = []
+        
+        # 准备测试配置
+        api_key = self.config.get('api_key', '').strip()
+        if not api_key:
+            return "✗ 请先填写API密钥"
+            
+        base_url = self.config.get('base_url', '').strip()
+        if not base_url:
+            return "✗ 请先填写API基础URL"
+            
+        # 测试embedding API
+        embedding_model = self.config.get('embedding', {}).get('model')
+        if embedding_model:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    url = f"{base_url}/embeddings"
+                    headers = {"Authorization": f"Bearer {api_key}"}
+                    data = {
+                        "model": embedding_model,
+                        "input": "测试文本"
+                    }
+                    
+                    async with session.post(url, headers=headers, json=data) as response:
+                        if response.status == 200:
+                            result = await response.json()
+                            if 'data' in result and result['data']:
+                                embedding_dim = len(result['data'][0]['embedding'])
+                                results.append(f"✓ Embedding API连接成功 (维度: {embedding_dim})")
+                            else:
+                                results.append("✗ Embedding API返回格式错误")
+                        else:
+                            results.append(f"✗ Embedding API连接失败: {response.status}")
+            except Exception as e:
+                results.append(f"✗ Embedding API连接异常: {str(e)}")
+                
+        # 测试rerank API
+        rerank_enabled = self.config.get('rerank', {}).get('enabled', False)
+        rerank_model = self.config.get('rerank', {}).get('model')
+        
+        if rerank_enabled and rerank_model:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    url = f"{base_url}/rerank"
+                    headers = {"Authorization": f"Bearer {api_key}"}
+                    data = {
+                        "model": rerank_model,
+                        "query": "测试查询",
+                        "documents": ["文档1", "文档2"]
+                    }
+                    
+                    async with session.post(url, headers=headers, json=data) as response:
+                        if response.status == 200:
+                            results.append("✓ Rerank API连接成功")
+                        else:
+                            results.append(f"✗ Rerank API连接失败: {response.status}")
+            except Exception as e:
+                results.append(f"✗ Rerank API连接异常: {str(e)}")
+                
+        return "\n".join(results) if results else "测试完成"
+
 
 class RAGConfigWidget(QWidget):
     """RAG配置组件"""
@@ -357,95 +448,30 @@ class RAGConfigWidget(QWidget):
             if api_key:
                 self.api_key_edit.setText(api_key)
         
-    async def _test_connection_async(self):
-        """异步测试连接"""
-        config = self.get_config()
-        results = []
-        
-        # 获取API密钥
-        api_key = self.api_key_edit.text()
-        if not api_key:
-            self.test_result.setText("❌ 请先设置API密钥")
-            return
-        
-        async with aiohttp.ClientSession() as session:
-            # 测试Embedding API
-            try:
-                headers = {
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json"
-                }
-                
-                # 测试向量模型
-                embedding_url = f"{config['base_url']}/embeddings"
-                embedding_data = {
-                    "model": config['embedding']['model'],
-                    "input": "测试文本"
-                }
-                
-                async with session.post(
-                    embedding_url, 
-                    headers=headers, 
-                    json=embedding_data
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        embedding_len = len(data.get('data', [{}])[0].get('embedding', []))
-                        results.append(f"✓ Embedding API连接成功")
-                        results.append(f"  模型: {config['embedding']['model']}")
-                        results.append(f"  向量维度: {embedding_len}")
-                    else:
-                        error_text = await resp.text()
-                        results.append(f"✗ Embedding API连接失败: {resp.status}")
-                        results.append(f"  错误: {error_text}")
-                        
-            except Exception as e:
-                results.append(f"✗ Embedding API连接异常: {str(e)}")
-                
-            # 测试Rerank API
-            if config['rerank']['enabled']:
-                try:
-                    rerank_url = f"{config['base_url']}/rerank"
-                    rerank_data = {
-                        "model": config['rerank']['model'],
-                        "query": "测试查询",
-                        "documents": ["文档1", "文档2"]
-                    }
-                    
-                    async with session.post(
-                        rerank_url, 
-                        headers=headers, 
-                        json=rerank_data
-                    ) as resp:
-                        if resp.status == 200:
-                            data = await resp.json()
-                            results.append(f"\n✓ Rerank API连接成功")
-                            results.append(f"  模型: {config['rerank']['model']}")
-                        else:
-                            error_text = await resp.text()
-                            results.append(f"\n✗ Rerank API连接失败: {resp.status}")
-                            results.append(f"  错误: {error_text}")
-                            
-                except Exception as e:
-                    results.append(f"\n✗ Rerank API连接异常: {str(e)}")
-                    
-        return "\n".join(results)
-        
     def _test_connection(self):
-        """测试连接"""
+        """测试连接（非阻塞版本）"""
         self.test_btn.setEnabled(False)
         self.test_result.setText("正在测试连接...")
         
-        try:
-            # 运行异步测试
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            result = loop.run_until_complete(self._test_connection_async())
-            self.test_result.setText(result)
-        except Exception as e:
-            self.test_result.setText(f"测试失败: {str(e)}")
-        finally:
-            self.test_btn.setEnabled(True)
+        # 获取当前配置
+        config = self.get_config()
+        
+        # 创建并启动工作线程
+        self.test_worker = TestConnectionWorker(config, self)
+        self.test_worker.resultReady.connect(self._on_test_result)
+        self.test_worker.finished.connect(self._on_test_finished)
+        self.test_worker.start()
+    
+    def _on_test_result(self, result: str):
+        """处理测试结果"""
+        self.test_result.setText(result)
+    
+    def _on_test_finished(self):
+        """测试完成"""
+        self.test_btn.setEnabled(True)
+        if hasattr(self, 'test_worker'):
+            self.test_worker.deleteLater()
+            self.test_worker = None
 
 
 class RAGConfigDialog(QDialog):

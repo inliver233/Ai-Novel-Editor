@@ -9,7 +9,9 @@ from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 from enum import Enum
 
-from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtCore import QObject, pyqtSignal, QThread
+
+from .concurrent_io import FileIOWorker, get_concurrent_io
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -116,44 +118,56 @@ class ExportManager(QObject):
         return documents
     
     def _export_to_text(self, project: Any, options: ExportOptions) -> bool:
-        """导出为纯文本"""
+        """导出为纯文本（非阻塞版本）"""
         try:
             documents = self._collect_documents(project)
             total = len(documents)
             
-            with open(options.output_path, 'w', encoding=options.encoding) as f:
-                # 写入标题和作者信息
-                if options.include_metadata:
-                    title = options.title or project.name
-                    author = options.author or project.author
-                    f.write(f"{title}\n")
-                    f.write(f"作者：{author}\n")
-                    f.write("\n" + "="*50 + "\n\n")
-                
-                # 写入文档内容
-                for i, doc in enumerate(documents):
-                    self.exportProgress.emit(i + 1, total)
-                    
-                    # 写入章节标题
-                    if doc.doc_type.value == 'act':
-                        f.write(f"\n第{doc.order + 1}幕 {doc.name}\n")
-                        f.write("="*30 + "\n\n")
-                    elif doc.doc_type.value == 'chapter':
-                        f.write(f"\n第{doc.order + 1}章 {doc.name}\n")
-                        f.write("-"*30 + "\n\n")
-                    elif doc.doc_type.value == 'scene':
-                        f.write(f"\n场景{doc.order + 1}：{doc.name}\n\n")
-                    
-                    # 写入内容
-                    if doc.content:
-                        f.write(doc.content)
-                        f.write("\n")
-                    
-                    # 章节分隔
-                    if doc.doc_type.value in ['act', 'chapter']:
-                        f.write(options.chapter_break)
+            # 准备内容
+            content_parts = []
             
-            self.exportCompleted.emit(str(options.output_path))
+            # 添加标题和作者信息
+            if options.include_metadata:
+                title = options.title or project.name
+                author = options.author or project.author
+                content_parts.append(f"{title}\n")
+                content_parts.append(f"作者：{author}\n")
+                content_parts.append("\n" + "="*50 + "\n\n")
+            
+            # 生成文档内容
+            for i, doc in enumerate(documents):
+                self.exportProgress.emit(i + 1, total)
+                
+                # 添加章节标题
+                if doc.doc_type.value == 'act':
+                    content_parts.append(f"\n第{doc.order + 1}幕 {doc.name}\n")
+                    content_parts.append("="*30 + "\n\n")
+                elif doc.doc_type.value == 'chapter':
+                    content_parts.append(f"\n第{doc.order + 1}章 {doc.name}\n")
+                    content_parts.append("-"*30 + "\n\n")
+                elif doc.doc_type.value == 'scene':
+                    content_parts.append(f"\n场景{doc.order + 1}：{doc.name}\n\n")
+                
+                # 添加内容
+                if doc.content:
+                    content_parts.append(doc.content)
+                    content_parts.append("\n")
+                
+                # 章节分隔
+                if doc.doc_type.value in ['act', 'chapter']:
+                    content_parts.append(options.chapter_break)
+            
+            # 合并所有内容
+            full_content = ''.join(content_parts)
+            
+            # 使用非阻塞写入
+            worker = FileIOWorker('write', options.output_path, 
+                                data=full_content, encoding=options.encoding, 
+                                parent=self)
+            worker.finished.connect(lambda: self.exportCompleted.emit(str(options.output_path)))
+            worker.error.connect(lambda e: self.exportError.emit(f"导出文本失败: {e}"))
+            worker.start()
+            
             return True
             
         except Exception as e:

@@ -6,7 +6,9 @@ import json
 import asyncio
 import hashlib
 import time
-from typing import List, Dict, Any, Optional, Tuple
+import threading
+from concurrent.futures import ThreadPoolExecutor, Future
+from typing import List, Dict, Any, Optional, Tuple, Callable
 from dataclasses import dataclass
 
 # 尝试导入可选依赖
@@ -100,7 +102,14 @@ class RAGService:
             logger.info("RAG智能缓存已启用")
         else:
             self._cache = None
-            logger.info("RAG缓存已禁用")
+        
+        # 初始化线程池用于非阻塞操作
+        self._thread_pool = ThreadPoolExecutor(
+            max_workers=4,
+            thread_name_prefix="RAGService"
+        )
+        self._loop_lock = threading.Lock()
+        self._loop = None
         
         # 向量存储引用
         self._vector_store = None
@@ -930,9 +939,108 @@ class RAGService:
             import traceback
             logger.error(traceback.format_exc())
             return ""
+    
+    # ========== 线程安全的非阻塞方法 ==========
+    
+    def _get_or_create_event_loop(self):
+        """获取或创建事件循环（线程安全）"""
+        with self._loop_lock:
+            if self._loop is None or self._loop.is_closed():
+                self._loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(self._loop)
+            return self._loop
+    
+    def _run_async_in_thread(self, coro) -> Future:
+        """在线程池中运行异步协程，返回Future对象"""
+        def run_coro():
+            loop = self._get_or_create_event_loop()
+            try:
+                return loop.run_until_complete(coro)
+            except Exception as e:
+                logger.error(f"异步操作失败: {e}")
+                raise
+        
+        return self._thread_pool.submit(run_coro)
+    
+    def create_embedding_threaded(self, text: str, callback: Optional[Callable] = None) -> Future:
+        """线程安全的创建嵌入向量（非阻塞）
+        
+        Args:
+            text: 要创建嵌入的文本
+            callback: 可选的回调函数，将在操作完成后调用
+            
+        Returns:
+            Future对象，可以用于获取结果或检查状态
+        """
+        future = self._run_async_in_thread(self.create_embedding_async(text))
+        
+        if callback:
+            future.add_done_callback(lambda f: callback(f.result() if not f.exception() else None))
+        
+        return future
+    
+    def create_embeddings_batch_threaded(self, texts: List[str], callback: Optional[Callable] = None) -> Future:
+        """线程安全的批量创建嵌入向量（非阻塞）"""
+        future = self._run_async_in_thread(self.create_embeddings_batch_async(texts))
+        
+        if callback:
+            future.add_done_callback(lambda f: callback(f.result() if not f.exception() else None))
+        
+        return future
+    
+    def search_threaded(self, query: str, chunks: List[TextChunk], 
+                       chunk_embeddings: List[Optional[List[float]]],
+                       max_results: int = 10, min_similarity: float = 0.5,
+                       callback: Optional[Callable] = None) -> Future:
+        """线程安全的搜索（非阻塞）"""
+        future = self._run_async_in_thread(
+            self.search_async(query, chunks, chunk_embeddings, max_results, min_similarity)
+        )
+        
+        if callback:
+            future.add_done_callback(lambda f: callback(f.result() if not f.exception() else None))
+        
+        return future
+    
+    def rerank_threaded(self, query: str, documents: List[str], top_k: int = 5,
+                       callback: Optional[Callable] = None) -> Future:
+        """线程安全的重排序（非阻塞）"""
+        future = self._run_async_in_thread(self.rerank_async(query, documents, top_k))
+        
+        if callback:
+            future.add_done_callback(lambda f: callback(f.result() if not f.exception() else None))
+        
+        return future
+    
+    def search_with_context_threaded(self, query: str, context_mode: str = 'balanced',
+                                   callback: Optional[Callable] = None) -> Future:
+        """线程安全的上下文搜索（非阻塞）"""
+        def search_in_thread():
+            # 这个方法本身是同步的，直接在线程池中运行
+            return self.search_with_context(query, context_mode)
+        
+        future = self._thread_pool.submit(search_in_thread)
+        
+        if callback:
+            future.add_done_callback(lambda f: callback(f.result() if not f.exception() else None))
+        
+        return future
 
     def close(self):
         """关闭RAG服务"""
+        # 关闭线程池
+        if hasattr(self, '_thread_pool'):
+            self._thread_pool.shutdown(wait=True)
+            logger.info("RAG线程池已关闭")
+        
+        # 关闭事件循环
+        if hasattr(self, '_loop') and self._loop:
+            with self._loop_lock:
+                if not self._loop.is_closed():
+                    self._loop.close()
+            logger.info("RAG事件循环已关闭")
+        
+        # 关闭缓存
         if self._cache:
             self._cache.close()
             logger.info("RAG缓存已关闭")

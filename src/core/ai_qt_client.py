@@ -106,14 +106,21 @@ class AIWorkerThread(QThread):
         try:
             logger.debug("开始流式AI请求")
             
-            # 创建新的事件循环
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+            # 使用现有的或创建新的事件循环
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_closed():
+                    raise RuntimeError("Event loop is closed")
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
             
             try:
+                # 在当前线程中运行异步任务
                 loop.run_until_complete(self._async_stream_request())
-            finally:
-                loop.close()
+            except Exception as e:
+                if not self._cancelled:
+                    raise
                 
         except Exception as e:
             if not self._cancelled:

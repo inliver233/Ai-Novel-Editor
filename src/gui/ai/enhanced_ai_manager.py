@@ -122,6 +122,9 @@ class EnhancedAIManager(QObject):
     templateSystemInitialized = pyqtSignal()
     templateChanged = pyqtSignal(str)  # 模板ID
     
+    # RAG相关信号
+    ragContextReady = pyqtSignal(str, dict)  # RAG上下文准备好了
+    
     def __init__(self, config: Config, shared, concept_manager=None, 
                  rag_service=None, vector_store=None, parent=None):
         super().__init__(parent)
@@ -1051,12 +1054,20 @@ class EnhancedAIManager(QObject):
         return context
     
     def _get_rag_context(self, text: str, cursor_position: int) -> str:
-        """获取RAG上下文（保持原有逻辑，优化超时处理）"""
-        logger.info("[RAG] Starting RAG context retrieval...")
+        """获取RAG上下文（同步版本，用于兼容现有代码）"""
+        # 对于同步调用，暂时返回空字符串，实际处理在异步版本中
+        # 这避免了阻塞GUI线程
+        logger.info("[RAG] Sync RAG context called, returning empty for non-blocking")
+        self._start_rag_context_async(text, cursor_position)
+        return ""
+    
+    def _start_rag_context_async(self, text: str, cursor_position: int):
+        """异步启动RAG上下文获取（非阻塞）"""
+        logger.info("[RAG] Starting async RAG context retrieval...")
         
         if not self.rag_service or self._rag_failure_count >= self._max_rag_failures:
             logger.info(f"[SKIP] RAG service unavailable or too many failures: service={bool(self.rag_service)}, failures={self._rag_failure_count}/{self._max_rag_failures}")
-            return ""
+            return
         
         try:
             # 构建查询文本
@@ -1066,7 +1077,7 @@ class EnhancedAIManager(QObject):
             
             if len(query_text) < 3:
                 logger.info("[SHORT] Query text too short, skipping RAG")
-                return ""
+                return
             
             logger.info(f"[SUCCESS] Query text built: length={len(query_text)}")
             
@@ -1075,92 +1086,65 @@ class EnhancedAIManager(QObject):
             cache_key = hashlib.md5(query_text.encode()).hexdigest()
             if cache_key in self._rag_cache:
                 logger.info("[HIT] Cache hit!")
-                return self._rag_cache[cache_key]
+                # 通过信号发送缓存的结果
+                self.ragContextReady.emit(self._rag_cache[cache_key], {'from_cache': True, 'query': query_text})
+                return
             logger.info("[MISS] Cache miss, proceeding with search")
             
-            # 快速检查：如果正在其他线程中处理RAG，直接返回空
+            # 快速检查：如果正在其他线程中处理RAG，直接返回
             if hasattr(self, '_rag_processing') and self._rag_processing:
                 logger.info("[BUSY] RAG already processing in another thread, skipping")
-                return ""
+                return
             
             # 设置处理标志
             logger.info("[FLAG] Setting RAG processing flag...")
             self._rag_processing = True
             
-            try:
-                # 搜索相关内容（带超时保护）
-                logger.info("[THREAD] Starting threaded RAG search with timeout...")
-                import concurrent.futures
-                import time
-                
-                def rag_search_with_timeout():
-                    logger.info("[SEARCH] RAG search function started")
-                    try:
-                        result = self.rag_service.search_with_context(query_text, self._context_mode)
-                        logger.info(f"[SUCCESS] RAG search completed, result length: {len(result) if result else 0}")
-                        if result:
-                            logger.info(f"[RAG_CONTENT] RAG检索到的内容预览: {result[:100]}..." if len(result) > 100 else f"[RAG_CONTENT] RAG检索内容: {result}")
-                        return result
-                    except Exception as e:
-                        logger.error(f"[ERROR] RAG search failed: {e}")
-                        return ""
-                
-                # 使用线程池和更短的超时来避免阻塞
-                start_time = time.time()
-                logger.info("[EXEC] Starting ThreadPoolExecutor with 1 second timeout...")
-                
+            def handle_rag_result(result):
+                """处理RAG搜索结果的回调函数"""
                 try:
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                        logger.info("[SUBMIT] Submitting RAG search task...")
-                        future = executor.submit(rag_search_with_timeout)
+                    if result:
+                        logger.info(f"[SUCCESS] RAG search completed, result length: {len(result)}")
                         
-                        logger.info("[WAIT] Waiting for result with 1s timeout...")
-                        results = future.result(timeout=1.0)  # 缩短到1秒超时
+                        # 缓存结果
+                        logger.info("[CACHE] Caching results...")
+                        if len(self._rag_cache) >= self._max_cache_size:
+                            # 清理最旧的缓存项
+                            oldest_key = next(iter(self._rag_cache))
+                            del self._rag_cache[oldest_key]
+                            logger.info("[CLEAN] Cleaned oldest cache entry")
                         
-                        search_time = time.time() - start_time
-                        logger.info(f"[SUCCESS] RAG search completed in {search_time:.2f}s")
+                        self._rag_cache[cache_key] = result
+                        logger.info(f"[SUCCESS] Results cached successfully")
                         
-                        if search_time > 0.5:
-                            logger.warning(f"[WARNING] RAG搜索耗时过长: {search_time:.2f}秒")
+                        # 发送信号通知结果
+                        self.ragContextReady.emit(result, {'from_cache': False, 'query': query_text})
+                    else:
+                        logger.warning("[EMPTY] RAG search returned empty result")
+                        self._rag_failure_count += 1
                         
-                except concurrent.futures.TimeoutError:
-                    logger.warning(f"[TIMEOUT] RAG搜索超时(1秒): {query_text[:30]}...")
-                    self._rag_failure_count += 1
-                    logger.warning(f"[COUNT] RAG failure count: {self._rag_failure_count}/{self._max_rag_failures}")
-                    return ""
-                    
                 except Exception as e:
-                    logger.error(f"[ERROR] RAG搜索执行失败: {e}")
-                    import traceback
-                    logger.error(f"RAG search error details: {traceback.format_exc()}")
+                    logger.error(f"[ERROR] Error handling RAG result: {e}")
                     self._rag_failure_count += 1
-                    logger.warning(f"[COUNT] RAG failure count: {self._rag_failure_count}/{self._max_rag_failures}")
-                    return ""
-                
-                # 缓存结果
-                logger.info("[CACHE] Caching results...")
-                if len(self._rag_cache) >= self._max_cache_size:
-                    # 清理最旧的缓存项
-                    oldest_key = next(iter(self._rag_cache))
-                    del self._rag_cache[oldest_key]
-                    logger.info("[CLEAN] Cleaned oldest cache entry")
-                
-                self._rag_cache[cache_key] = results
-                logger.info(f"[SUCCESS] Results cached successfully, final result length: {len(results) if results else 0}")
-                return results
+                finally:
+                    # 清除处理标志
+                    logger.info("[FLAG] Clearing RAG processing flag...")
+                    self._rag_processing = False
             
-            finally:
-                # 清除处理标志
-                logger.info("[FLAG] Clearing RAG processing flag...")
-                self._rag_processing = False
+            # 使用线程安全的方法启动RAG搜索
+            logger.info("[ASYNC] Starting non-blocking RAG search...")
+            future = self.rag_service.search_with_context_threaded(
+                query_text, 
+                self._context_mode,
+                callback=handle_rag_result
+            )
             
         except Exception as e:
-            logger.error(f"[ERROR] RAG上下文获取失败: {e}")
+            logger.error(f"[ERROR] RAG上下文启动失败: {e}")
             import traceback
             logger.error(f"RAG context error details: {traceback.format_exc()}")
             self._rag_failure_count += 1
-            logger.warning(f"[COUNT] RAG failure count after error: {self._rag_failure_count}/{self._max_rag_failures}")
-            return ""
+            self._rag_processing = False
     
     def _get_project_info(self) -> Optional[Dict[str, Any]]:
         """获取项目信息（增强版本 - 添加详细调试）"""
