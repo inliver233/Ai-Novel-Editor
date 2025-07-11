@@ -458,7 +458,7 @@ class ModernGhostTextCompletion(QObject):
         self._text_editor.set_ghost_text(completion, cursor_pos)
 
         # 设置自动隐藏（30秒，给用户足够时间审视和接受补全）
-        self._hide_timer.start(30000)
+        # self._hide_timer.start(30000)  # 禁用自动隐藏，保持无限长时间
 
         logger.info(f"Ghost text shown: '{completion[:30]}...' at trigger position {cursor_pos}")
         
@@ -621,7 +621,7 @@ class ModernGhostTextCompletion(QObject):
         elif key == Qt.Key.Key_Space:
             # 不立即隐藏，而是重置定时器给用户更多时间
             self._hide_timer.stop()
-            self._hide_timer.start(10000)  # 空格后给10秒时间
+            # self._hide_timer.start(10000)  # 空格后给10秒时间 - 禁用自动隐藏
             logger.debug("Space key pressed, extending completion display time")
             return False  # 不拦截空格键
 
@@ -632,7 +632,7 @@ class ModernGhostTextCompletion(QObject):
             # 如果用户在补全范围内输入，保持显示
             if self._trigger_cursor_position <= current_pos <= self._trigger_cursor_position + len(self._current_completion) + 5:
                 self._hide_timer.stop()
-                self._hide_timer.start(20000)  # 重置为20秒
+                # self._hide_timer.start(20000)  # 重置为20秒 - 禁用自动隐藏
                 logger.debug("Character typed within completion range, extending display time")
             else:
                 self.hide_completion()
