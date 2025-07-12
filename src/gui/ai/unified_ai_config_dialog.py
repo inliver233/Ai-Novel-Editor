@@ -18,6 +18,8 @@ from PyQt6.QtGui import QFont, QIcon, QTextCharFormat, QColor
 
 from core.ai_client import AIClient, AIConfig, AIProvider, AIClientError
 from core.config import Config
+from .rag_config_widget import RAGConfigWidget
+from .enhanced_prompt_config_widget import EnhancedPromptConfigWidget
 
 logger = logging.getLogger(__name__)
 
@@ -1062,10 +1064,13 @@ class UnifiedAIConfigDialog(QDialog):
         self._completion_widget = CompletionSettingsWidget()
         self._tabs.addTab(self._completion_widget, "⚡ 补全设置")
         
-        # RAG配置页 (简化版本暂不提供单独RAG配置)
-        # TODO: 实现简化的RAG配置界面
-        # self._rag_widget = RAGConfigWidget()
-        # self._tabs.addTab(self._rag_widget, "🔍 RAG向量搜索")
+        # RAG配置页
+        self._rag_widget = RAGConfigWidget()
+        self._tabs.addTab(self._rag_widget, "🔍 RAG向量搜索")
+        
+        # 增强提示词配置页
+        self._prompt_config_widget = EnhancedPromptConfigWidget()
+        self._tabs.addTab(self._prompt_config_widget, "✨ 智能提示词")
         
         # 大纲AI配置页 (简化版本暂不提供)
         # TODO: 实现简化的大纲AI配置界面  
@@ -1227,8 +1232,24 @@ class UnifiedAIConfigDialog(QDialog):
             self._completion_widget.set_settings(completion_settings)
             
             # 加载RAG配置
-            rag_config = self._config._config_data.get('rag', self._rag_widget._get_default_config())
+            rag_config = self._config.get_section('rag')
+            if not rag_config:
+                rag_config = self._rag_widget._get_default_config()
             self._rag_widget.set_config(rag_config)
+            
+            # 加载增强提示词配置
+            prompt_config = self._config.get_section('prompt')
+            if not prompt_config:
+                prompt_config = {
+                    "context_mode": "balanced",
+                    "style_tags": [],
+                    "custom_prefix": "",
+                    "preferred_length": 200,
+                    "creativity": 0.7,
+                    "context_length": 800,
+                    "preset": "默认设置"
+                }
+            self._prompt_config_widget.set_config(prompt_config)
             
             # 加载大纲AI配置
             if hasattr(self, '_outline_widget') and hasattr(self._outline_widget, 'set_config'):
@@ -1255,6 +1276,9 @@ class UnifiedAIConfigDialog(QDialog):
             # 获取RAG配置
             rag_config = self._rag_widget.get_config()
             
+            # 获取增强提示词配置
+            prompt_config = self._prompt_config_widget.get_config()
+            
             # 获取大纲AI配置
             outline_config = {}
             if hasattr(self, '_outline_widget') and hasattr(self._outline_widget, 'get_config'):
@@ -1270,6 +1294,7 @@ class UnifiedAIConfigDialog(QDialog):
                 'api': api_config,
                 'completion': completion_settings,
                 'rag': rag_config,
+                'prompt': prompt_config,
                 'outline': outline_config
             }
             
@@ -1333,7 +1358,10 @@ class UnifiedAIConfigDialog(QDialog):
                 self._config.set('ai', 'show_confidence', completion_settings.get('show_confidence', True))
                 
                 # 保存RAG配置
-                self._config._config_data['rag'] = rag_config
+                self._config.set_section('rag', rag_config)
+                
+                # 保存增强提示词配置
+                self._config.set_section('prompt', prompt_config)
                 
                 # 保存大纲AI配置
                 if outline_config:
@@ -1357,14 +1385,44 @@ class UnifiedAIConfigDialog(QDialog):
             # 发送配置保存信号
             self.configSaved.emit(full_config)
             
+            # 通知AI管理器重新加载配置
+            self._notify_ai_manager_config_changed()
+            
             # 显示成功消息
-            QMessageBox.information(self, "成功", "AI配置已保存！")
+            QMessageBox.information(self, "成功", "AI配置已保存并应用！")
             
             self.accept()
             
         except Exception as e:
             logger.error(f"Failed to save config: {e}")
             QMessageBox.critical(self, "错误", f"保存配置失败：{str(e)}")
+    
+    def _notify_ai_manager_config_changed(self):
+        """通知AI管理器配置已更改"""
+        try:
+            # 尝试从父窗口获取AI管理器
+            parent = self.parent()
+            if parent and hasattr(parent, '_ai_manager'):
+                ai_manager = parent._ai_manager
+                if ai_manager and hasattr(ai_manager, 'reload_config'):
+                    ai_manager.reload_config()
+                    logger.info("AI管理器配置重新加载成功")
+                else:
+                    logger.warning("AI管理器不支持配置重新加载")
+            else:
+                logger.warning("无法找到AI管理器实例")
+                
+            # 同时尝试通过shared对象通知
+            if parent and hasattr(parent, '_shared'):
+                shared = parent._shared
+                if shared and hasattr(shared, 'ai_manager'):
+                    ai_manager = shared.ai_manager
+                    if ai_manager and hasattr(ai_manager, 'reload_config'):
+                        ai_manager.reload_config()
+                        logger.info("通过shared对象重新加载AI管理器配置成功")
+                        
+        except Exception as e:
+            logger.error(f"通知AI管理器配置更改失败: {e}")
             
     def _reset_to_defaults(self):
         """重置为默认设置"""
@@ -1407,6 +1465,18 @@ class UnifiedAIConfigDialog(QDialog):
             
             # 重置RAG配置
             self._rag_widget.set_config(self._rag_widget._get_default_config())
+            
+            # 重置增强提示词配置
+            default_prompt_config = {
+                "context_mode": "balanced",
+                "style_tags": [],
+                "custom_prefix": "",
+                "preferred_length": 200,
+                "creativity": 0.7,
+                "context_length": 800,
+                "preset": "默认设置"
+            }
+            self._prompt_config_widget.set_config(default_prompt_config)
             
     def _test_full_config(self):
         """测试完整配置"""

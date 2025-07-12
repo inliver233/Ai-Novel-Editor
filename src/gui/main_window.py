@@ -67,12 +67,12 @@ class MainWindow(QMainWindow):
         self._ai_control_panel = None
         
         try:
-            logger.info("初始化简化AI管理器...")
-            from gui.ai.simple_ai_manager import SimpleAIManager
+            logger.info("初始化增强AI管理器...")
+            from gui.ai.enhanced_ai_manager import EnhancedAIManager
             
-            # 创建简化的AI管理器
-            self._ai_manager = SimpleAIManager(self._config, self)
-            logger.info("简化AI管理器已初始化")
+            # 创建增强的AI管理器
+            self._ai_manager = EnhancedAIManager(self._config, self._shared, self)
+            logger.info("增强AI管理器已初始化")
             
             # 初始化AI控制面板（如果可用）
             try:
@@ -1126,10 +1126,10 @@ class MainWindow(QMainWindow):
             self._ai_manager = None
             self._ai_control_panel = None
             
-            # 重新初始化简化AI管理器
-            from gui.ai.simple_ai_manager import SimpleAIManager
-            self._ai_manager = SimpleAIManager(self._config, self)
-            logger.info("简化AI管理器重新初始化成功")
+            # 重新初始化增强AI管理器
+            from gui.ai.enhanced_ai_manager import EnhancedAIManager
+            self._ai_manager = EnhancedAIManager(self._config, self._shared, self)
+            logger.info("增强AI管理器重新初始化成功")
             
             # 重新初始化控制面板
             if self._ai_manager:

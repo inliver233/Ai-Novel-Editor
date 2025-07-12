@@ -132,19 +132,34 @@ class Config:
             
             # RAG设置
             "rag": {
+                "enabled": True,
                 "api_key": "",
                 "base_url": "https://api.siliconflow.cn/v1",
                 "embedding": {
+                    "enabled": True,
                     "model": "BAAI/bge-large-zh-v1.5",
-                    "enabled": True
+                    "batch_size": 32
                 },
                 "rerank": {
+                    "enabled": True,
                     "model": "BAAI/bge-reranker-v2-m3",
-                    "enabled": True
+                    "top_k": 10
+                },
+                "vector_store": {
+                    "similarity_threshold": 0.3,
+                    "search_limits": {
+                        "fast": 5,
+                        "balanced": 10,
+                        "full": 20
+                    },
+                    "chunk_size": 250,
+                    "chunk_overlap": 50
                 },
                 "network": {
                     "max_retries": 3,
-                    "enable_fallback": True
+                    "timeout": 30,
+                    "enable_fallback": True,
+                    "max_concurrent": 5
                 },
                 "cache": {
                     "enabled": True,
@@ -152,6 +167,28 @@ class Config:
                     "ttl": 7200,
                     "max_memory_mb": 50
                 }
+            },
+            
+            # 提示词配置
+            "prompt": {
+                "context_mode": "balanced",
+                "style_tags": [],
+                "custom_prefix": "",
+                "preferred_length": 200,
+                "creativity": 0.7,
+                "context_length": 800,
+                "preset": "默认设置"
+            },
+            
+            # 补全配置
+            "completion": {
+                "completion_mode": "auto_ai",
+                "context_mode": "balanced",
+                "trigger_delay": 500,
+                "auto_trigger": True,
+                "streaming": True,
+                "temperature": 0.7,
+                "max_length": 200
             }
         }
         
@@ -232,6 +269,30 @@ class Config:
             logger.debug("Config saved successfully")
         except Exception as e:
             logger.error(f"Failed to save config: {e}")
+    
+    def get_rag_config(self) -> Dict[str, Any]:
+        """获取RAG配置"""
+        return self.get_section("rag")
+    
+    def set_rag_config(self, config: Dict[str, Any]):
+        """设置RAG配置"""
+        self.set_section("rag", config)
+    
+    def get_prompt_config(self) -> Dict[str, Any]:
+        """获取提示词配置"""
+        return self.get_section("prompt")
+    
+    def set_prompt_config(self, config: Dict[str, Any]):
+        """设置提示词配置"""
+        self.set_section("prompt", config)
+    
+    def get_completion_config(self) -> Dict[str, Any]:
+        """获取补全配置"""
+        return self.get_section("completion")
+    
+    def set_completion_config(self, config: Dict[str, Any]):
+        """设置补全配置"""
+        self.set_section("completion", config)
     
     def add_recent_project(self, project_path: str):
         """添加最近打开的项目"""
