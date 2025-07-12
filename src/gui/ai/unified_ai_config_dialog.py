@@ -1644,28 +1644,24 @@ class TemplateManagementWidget(QWidget):
             self._balanced_combo.clear()
             self._full_combo.clear()
             
-            # 获取每个模板的详细信息
+            # 处理从SimpleAIManager返回的模板数据
             templates = []
-            for template_id in template_ids:
-                # 尝试从prompt_manager获取模板详情
-                if hasattr(self._ai_manager, 'prompt_manager') and self._ai_manager.prompt_manager:
-                    template = self._ai_manager.prompt_manager.get_template(template_id)
-                    if template:
-                        template_info = {
-                            'id': template.id,
-                            'name': template.name,
-                            'description': template.description,
-                            'category': template.category,
-                            'is_builtin': template.is_builtin,
-                        }
-                        templates.append(template_info)
-            
-            # 如果没有获取到模板详情，使用简化的显示
-            if not templates:
-                for template_id in template_ids:
+            for template_data in template_ids:
+                if isinstance(template_data, dict):
+                    # SimpleAIManager返回的是字典格式
+                    template_info = {
+                        'id': template_data.get('id', ''),
+                        'name': template_data.get('name', ''),
+                        'description': template_data.get('description', ''),
+                        'category': template_data.get('category', 'Template'),
+                        'is_builtin': True,  # SimpleAIManager的模板都是内置的
+                    }
+                    templates.append(template_info)
+                else:
+                    # 兼容旧格式：字符串ID
                     templates.append({
-                        'id': template_id,
-                        'name': template_id.replace('_', ' ').title(),
+                        'id': template_data,
+                        'name': template_data.replace('_', ' ').title() if isinstance(template_data, str) else str(template_data),
                         'category': 'Template',
                         'is_builtin': True,
                         'description': ''

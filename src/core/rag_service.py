@@ -230,8 +230,8 @@ class RAGService:
         return min(final_score, 1.0)  # 确保不超过1.0
         
     def chunk_text(self, text: str, document_id: str, 
-                   chunk_size: int = 800,     # 增加块大小到800
-                   chunk_overlap: int = 120) -> List[TextChunk]:  # 增加重叠到120
+                   chunk_size: int = 250,     # 减小块大小以适应API token限制(512)
+                   chunk_overlap: int = 50) -> List[TextChunk]:   # 相应减小重叠
         """将文本分块"""
         chunks = []
         text_length = len(text)

@@ -1,5 +1,6 @@
 aiohttp==3.8.4
 cryptography==42.0.5
+jieba==0.42.1
 nltk==3.9.1
 numpy
 PyQt6
@@ -10,3 +11,4 @@ Requests==2.32.4
 urllib3==1.26.20
 weasyprint==65.1
 loguru==0.7.3
+openpyxl==3.1.2

@@ -11,7 +11,8 @@ from typing import Optional
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QSplitter, QMenuBar, QToolBar, QStatusBar,
-    QMessageBox, QApplication, QFileDialog, QDialog
+    QMessageBox, QApplication, QFileDialog, QDialog,
+    QTabWidget
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot
 from PyQt6.QtGui import QAction, QKeySequence, QCloseEvent, QShortcut
@@ -20,6 +21,7 @@ from core.shared import Shared
 from core.project import ProjectManager, DocumentType
 from gui.panels.project_panel import ProjectPanel
 from gui.panels.outline_panel import OutlinePanel
+from gui.panels.codex_panel import CodexPanel
 from gui.editor.editor_panel import EditorPanel
 from gui.editor.focus_mode import FocusMode
 from gui.menus import MenuBar, ToolBarManager
@@ -32,6 +34,7 @@ from gui.dialogs import (
     FindReplaceDialog, WordCountDialog, ShortcutsDialog,
     AutoReplaceDialog, ImportDialog, ExportDialog
 )
+from gui.dialogs.import_export_dialog import ImportExportDialog
 from gui.dialogs.simple_find_dialog import SimpleFindDialog
 from gui.dialogs.enhanced_find_dialog import EnhancedFindDialog
 
@@ -42,93 +45,62 @@ logger = logging.getLogger(__name__)
 class MainWindow(QMainWindow):
     """主窗口类"""
 
-    def __init__(self, config: Config, shared: Shared, project_manager: ProjectManager):
+    def __init__(self, config: Config, shared: Shared, project_manager: ProjectManager,
+                 codex_manager=None, reference_detector=None, prompt_function_registry=None):
         super().__init__()
 
         self._config = config
         self._shared = shared
         self._project_manager = project_manager
+        
+        # Codex系统组件（可选）
+        self._codex_manager = codex_manager
+        self._reference_detector = reference_detector
+        self._prompt_function_registry = prompt_function_registry
         self._project_controller = ProjectController(
             project_manager=self._project_manager,
             config=self._config,
             parent=self
         )
 
-        # 初始化AI管理器
+        # 初始化简化的AI管理器
         self._ai_manager = None
         self._ai_control_panel = None
         
         try:
-            # 优先尝试使用增强型AI管理器（支持提示词工程系统）
+            logger.info("初始化简化AI管理器...")
+            from gui.ai.simple_ai_manager import SimpleAIManager
+            
+            # 创建简化的AI管理器
+            self._ai_manager = SimpleAIManager(self._config, self)
+            logger.info("简化AI管理器已初始化")
+            
+            # 初始化AI控制面板（如果可用）
             try:
-                logger.info("开始初始化增强型AI管理器...")
-                
-                # 测试核心模块导入
-                try:
-                    from core.prompt_engineering import EnhancedPromptManager
-                    from core.builtin_templates import register_builtin_loader
-                    from core.context_variables import IntelligentContextAnalyzer
-                    logger.info("核心提示词模块导入成功")
-                except ImportError as import_error:
-                    logger.error(f"核心提示词模块导入失败: {import_error}")
-                    raise import_error
-                
-                # 导入增强型AI管理器
-                from gui.ai.enhanced_ai_manager import EnhancedAIManager
-                logger.info("EnhancedAIManager类导入成功")
-                
-                # 获取RAG服务和向量存储（如果可用）
-                rag_service = getattr(self._shared, 'rag_service', None)
-                vector_store = getattr(self._shared, 'vector_store', None)
-                logger.info(f"RAG服务: {'可用' if rag_service else '不可用'}, 向量存储: {'可用' if vector_store else '不可用'}")
-                
-                # 创建增强型AI管理器，传递所有必要参数
-                self._ai_manager = EnhancedAIManager(
-                    config=self._config,
-                    shared=self._shared,
-                    rag_service=rag_service,
-                    vector_store=vector_store,
-                    parent=self
-                )
-                
-                # 验证提示词系统是否正确初始化
-                if hasattr(self._ai_manager, 'prompt_manager') and self._ai_manager.prompt_manager:
-                    logger.info("增强型AI管理器已初始化，提示词系统正常")
-                else:
-                    logger.warning("增强型AI管理器初始化成功，但提示词系统未正确初始化")
-                
-                # 验证关键方法是否存在
-                if hasattr(self._ai_manager, 'open_template_manager'):
-                    logger.info("提示词管理方法验证成功")
-                else:
-                    logger.error("提示词管理方法不存在")
-                
-            except Exception as enhanced_error:
-                import traceback
-                logger.error(f"增强型AI管理器初始化失败，完整错误信息: {enhanced_error}")
-                logger.error(f"错误堆栈: {traceback.format_exc()}")
-                logger.warning("回退到基础AI管理器")
-                # 回退到基础AI管理器
-                from gui.ai.ai_manager import AIManager
-                self._ai_manager = AIManager(self._config, self)
-                logger.info("基础AI管理器已初始化")
+                from gui.ai.ai_completion_control import AICompletionControlPanel
+                self._ai_control_panel = AICompletionControlPanel(self)
+                logger.info("AI控制面板已初始化")
+            except ImportError:
+                logger.info("AI控制面板不可用，跳过初始化")
+                self._ai_control_panel = None
             
-            # 初始化AI控制面板（在AI管理器初始化成功后）
-            if self._ai_manager:
-                try:
-                    from gui.ai.ai_completion_control import AICompletionControlPanel
-                    self._ai_control_panel = AICompletionControlPanel(self)
-                    logger.info("AI控制面板已初始化")
-                except Exception as panel_error:
-                    logger.warning(f"AI控制面板初始化失败: {panel_error}")
-                    self._ai_control_panel = None
-                
-                # 注册AI管理器到共享对象，以便项目管理器可以访问
-                self._shared.ai_manager = self._ai_manager
-                logger.info("AI管理器已注册到共享对象")
+            # 注册AI管理器到共享对象
+            self._shared.ai_manager = self._ai_manager
+            logger.info("AI管理器已注册到共享对象")
             
+            # 注册其他组件到共享对象（如果可用）
+            if self._codex_manager:
+                self._shared.codex_manager = self._codex_manager
+                logger.info("Codex管理器已注册到共享对象")
+            if self._reference_detector:
+                self._shared.reference_detector = self._reference_detector
+                logger.info("引用检测器已注册到共享对象")
+            if self._prompt_function_registry:
+                self._shared.prompt_function_registry = self._prompt_function_registry
+                logger.info("提示词函数注册表已注册到共享对象")
+                
         except Exception as e:
-            logger.error(f"AI管理器初始化完全失败: {e}")
+            logger.error(f"AI管理器初始化失败: {e}")
             self._ai_manager = None
             self._ai_control_panel = None
 
@@ -145,6 +117,10 @@ class MainWindow(QMainWindow):
 
         self._init_ui()
         self._init_layout()
+        
+        # 在编辑器面板创建后集成Codex和AI系统
+        self._integrate_codex_with_ai()
+        
         self._init_focus_mode()
         self._init_menu_bar()
         self._init_tool_bar()
@@ -262,11 +238,66 @@ class MainWindow(QMainWindow):
         return self._editor_panel
 
     def _create_right_panel(self) -> QWidget:
-        """创建右侧面板 - 大纲面板"""
-        # 直接创建并返回大纲面板
-        self._outline_panel = OutlinePanel(self._config, self._shared, self._project_manager, self)
-        self._outline_panel.documentSelected.connect(self._on_document_selected)
-        return self._outline_panel
+        """创建右侧面板 - 大纲面板，如果Codex可用则创建标签容器"""
+        logger.info(f"开始创建右侧面板...")
+        logger.info(f"Codex系统可用性检查: codex_manager={self._codex_manager is not None}, reference_detector={self._reference_detector is not None}")
+        
+        # 检查是否有Codex系统
+        if (self._codex_manager is not None and self._reference_detector is not None):
+            logger.info("检测到Codex系统可用，创建标签容器...")
+            # 有Codex系统时创建标签容器
+            from PyQt6.QtWidgets import QTabWidget
+            tab_widget = QTabWidget()
+            tab_widget.setTabPosition(QTabWidget.TabPosition.South)
+            
+            # 创建大纲面板
+            logger.info("创建大纲面板...")
+            self._outline_panel = OutlinePanel(self._config, self._shared, self._project_manager, self)
+            self._outline_panel.documentSelected.connect(self._on_document_selected)
+            tab_widget.addTab(self._outline_panel, "大纲")
+            logger.info("大纲面板创建完成")
+            
+            # 创建Codex面板
+            logger.info("开始创建Codex面板...")
+            try:
+                from gui.panels.codex_panel import CodexPanel
+                logger.info("CodexPanel类导入成功")
+                self._codex_panel = CodexPanel(
+                    self._config, 
+                    self._shared, 
+                    self._codex_manager, 
+                    self._reference_detector, 
+                    self
+                )
+                logger.info("CodexPanel实例创建成功")
+                
+                # 连接Codex面板信号
+                self._codex_panel.entrySelected.connect(self._on_codex_entry_selected)
+                self._codex_panel.entryCreated.connect(self._on_codex_entry_created)
+                self._codex_panel.entryUpdated.connect(self._on_codex_entry_updated)
+                logger.info("Codex面板信号连接完成")
+                
+                tab_widget.addTab(self._codex_panel, "📚 Codex")
+                logger.info("Codex面板标签页添加成功")
+                logger.info("Codex面板已添加到右侧标签容器")
+                return tab_widget
+                
+            except Exception as e:
+                logger.error(f"创建Codex面板失败: {e}")
+                logger.error(f"异常详细信息: {str(e)}")
+                import traceback
+                logger.error(f"错误堆栈:\n{traceback.format_exc()}")
+                # 如果Codex面板创建失败，仍然返回带大纲面板的标签容器
+                self._codex_panel = None
+                logger.info("Codex面板创建失败，返回仅包含大纲面板的标签容器")
+                return tab_widget
+        else:
+            # 没有Codex系统时，直接返回大纲面板（保持原有行为）
+            self._outline_panel = OutlinePanel(self._config, self._shared, self._project_manager, self)
+            self._outline_panel.documentSelected.connect(self._on_document_selected)
+            self._codex_panel = None
+            logger.info("仅创建大纲面板（Codex系统不可用）")
+            return self._outline_panel
 
     def _init_focus_mode(self):
         """初始化专注模式管理器"""
@@ -362,6 +393,9 @@ class MainWindow(QMainWindow):
             
         # 连接AI管理器信号到编辑器
         self._connect_ai_manager_signals()
+        
+        # 连接Codex相关信号
+        self._connect_codex_signals()
 
     def _connect_ai_manager_signals(self):
         """连接AI管理器信号到编辑器智能补全管理器"""
@@ -413,6 +447,152 @@ class MainWindow(QMainWindow):
                 
         except Exception as e:
             logger.error(f"处理AI补全响应失败: {e}")
+
+    def _connect_codex_signals(self):
+        """连接Codex相关信号"""
+        if not self._codex_panel:
+            return
+            
+        try:
+            # 连接文档变更信号到引用检测
+            if hasattr(self._shared, 'documentChanged'):
+                self._shared.documentChanged.connect(self._on_document_changed_for_codex)
+            
+            # 连接编辑器文档修改信号到引用检测
+            if hasattr(self._editor_panel, 'documentModified'):
+                self._editor_panel.documentModified.connect(self._on_document_modified_for_codex)
+            
+            # 连接Codex面板的信号
+            if hasattr(self._codex_panel, 'entrySelected'):
+                self._codex_panel.entrySelected.connect(self._on_codex_entry_selected)
+            if hasattr(self._codex_panel, 'entryCreated'):
+                self._codex_panel.entryCreated.connect(self._on_codex_entry_created)
+            if hasattr(self._codex_panel, 'entryUpdated'):
+                self._codex_panel.entryUpdated.connect(self._on_codex_entry_updated)
+                
+            logger.info("Codex信号连接已建立")
+        except Exception as e:
+            logger.error(f"连接Codex信号失败: {e}")
+
+    @pyqtSlot(str)
+    def _on_codex_entry_selected(self, entry_id: str):
+        """处理Codex条目选择事件"""
+        if self._codex_manager:
+            entry = self._codex_manager.get_entry(entry_id)
+            if entry:
+                self._status_bar.show_message(f"选中Codex条目: {entry.title}", 2000)
+                logger.info(f"Codex entry selected: {entry.title} ({entry_id})")
+
+    @pyqtSlot(str)
+    def _on_codex_entry_created(self, entry_id: str):
+        """处理Codex条目创建事件"""
+        if self._codex_manager:
+            entry = self._codex_manager.get_entry(entry_id)
+            if entry:
+                self._status_bar.show_message(f"创建Codex条目: {entry.title}", 2000)
+                logger.info(f"Codex entry created: {entry.title} ({entry_id})")
+
+    @pyqtSlot(str)
+    def _on_codex_entry_updated(self, entry_id: str):
+        """处理Codex条目更新事件"""
+        if self._codex_manager:
+            entry = self._codex_manager.get_entry(entry_id)
+            if entry:
+                self._status_bar.show_message(f"更新Codex条目: {entry.title}", 2000)
+                logger.info(f"Codex entry updated: {entry.title} ({entry_id})")
+
+    @pyqtSlot(str)
+    def _on_document_changed_for_codex(self, document_id: str):
+        """文档变更时触发Codex引用检测"""
+        if not (self._reference_detector and self._codex_panel):
+            return
+            
+        try:
+            # 获取当前文档内容
+            current_editor = self._editor_panel.get_current_editor() if self._editor_panel else None
+            if current_editor and current_editor.get_current_document_id() == document_id:
+                content = current_editor.toPlainText()
+                
+                # 触发引用检测
+                if hasattr(self._reference_detector, 'detect_references'):
+                    references = self._reference_detector.detect_references(content)
+                    
+                    # 通知Codex面板刷新
+                    if hasattr(self._codex_panel, 'refresh_for_document'):
+                        self._codex_panel.refresh_for_document(document_id)
+                    
+                    logger.debug(f"检测到文档 {document_id} 中的 {len(references)} 个引用")
+                        
+        except Exception as e:
+            logger.error(f"文档引用检测失败: {e}")
+
+    @pyqtSlot(str, bool)
+    def _on_document_modified_for_codex(self, document_id: str, is_modified: bool):
+        """文档修改时触发Codex引用检测（仅在修改时）"""
+        if not is_modified or not (self._reference_detector and self._codex_panel):
+            return
+            
+        # 延迟触发检测，避免频繁调用
+        if not hasattr(self, '_codex_detection_timer'):
+            from PyQt6.QtCore import QTimer
+            self._codex_detection_timer = QTimer()
+            self._codex_detection_timer.setSingleShot(True)
+            self._codex_detection_timer.timeout.connect(self._do_codex_detection)
+        
+        # 存储文档ID以供延迟执行
+        self._pending_codex_document_id = document_id
+        self._codex_detection_timer.stop()
+        self._codex_detection_timer.start(2000)  # 2秒延迟
+    
+    def _do_codex_detection(self):
+        """执行Codex引用检测"""
+        if not hasattr(self, '_pending_codex_document_id'):
+            return
+            
+        document_id = self._pending_codex_document_id
+        try:
+            self._on_document_changed_for_codex(document_id)
+        except Exception as e:
+            logger.error(f"Codex引用检测失败: {e}")
+
+    def _integrate_codex_with_ai(self):
+        """集成Codex系统与AI系统的提示词功能"""
+        if not (self._ai_manager and self._codex_manager and self._prompt_function_registry):
+            logger.info("Codex与AI系统集成跳过：组件不完整")
+            return
+            
+        try:
+            # 检查AI管理器是否支持Codex集成
+            if hasattr(self._ai_manager, 'integrate_codex_system'):
+                self._ai_manager.integrate_codex_system(
+                    codex_manager=self._codex_manager,
+                    reference_detector=self._reference_detector,
+                    prompt_function_registry=self._prompt_function_registry
+                )
+                logger.info("Codex系统已成功集成到AI管理器")
+            elif hasattr(self._ai_manager, 'prompt_manager'):
+                # 如果是增强型AI管理器，注册Codex相关的提示词函数
+                prompt_manager = self._ai_manager.prompt_manager
+                if hasattr(prompt_manager, 'register_context_provider'):
+                    # 注册Codex作为上下文提供者
+                    prompt_manager.register_context_provider('codex', self._codex_manager)
+                    logger.info("Codex已注册为AI提示词上下文提供者")
+                    
+                # 注册提示词函数
+                if hasattr(prompt_manager, 'register_function_registry'):
+                    prompt_manager.register_function_registry(self._prompt_function_registry)
+                    logger.info("Codex提示词函数注册表已注册")
+            else:
+                logger.info("AI管理器不支持Codex集成，使用基础功能")
+            
+            # 设置编辑器的Codex组件（用于实时高亮）
+            if self._editor_panel and hasattr(self._editor_panel, 'set_codex_components'):
+                self._editor_panel.set_codex_components(self._codex_manager, self._reference_detector)
+                logger.info("Codex组件已设置到编辑器面板（用于引用高亮）")
+                
+        except Exception as e:
+            logger.error(f"Codex与AI系统集成失败: {e}")
+            # 不阻止应用启动，仅记录错误
 
     def _restore_window_state(self):
         try:
@@ -483,30 +663,78 @@ class MainWindow(QMainWindow):
                 self._editor_panel.documentModified.emit(document_id, False)
             logger.info(f"Document saved: {document_id}")
             
-            # 自动更新RAG索引（如果启用）
+            # 延迟自动更新RAG索引（避免阻塞保存操作）
             if self._ai_manager and hasattr(self._ai_manager, 'index_document'):
                 try:
-                    self._ai_manager.index_document(document_id, content)
-                    logger.info(f"Document indexed for RAG: {document_id}")
+                    # 使用定时器延迟索引，避免阻塞UI
+                    from PyQt6.QtCore import QTimer
+                    QTimer.singleShot(1000, lambda: self._delayed_index_document(document_id, content))
+                    logger.debug(f"Document indexing scheduled: {document_id}")
                 except Exception as e:
-                    logger.error(f"Failed to index document: {e}")
+                    logger.error(f"Failed to schedule document indexing: {e}")
                     # 不影响保存操作，只记录错误
         else:
             QMessageBox.critical(self, "错误", "文档保存失败")
+    
+    def _delayed_index_document(self, document_id: str, content: str):
+        """延迟执行文档索引（完全异步，避免UI阻塞）"""
+        try:
+            if self._ai_manager and hasattr(self._ai_manager, 'index_document'):
+                # 使用线程池避免阻塞主线程
+                from PyQt6.QtCore import QThreadPool, QRunnable, QObject, pyqtSignal
+                
+                class IndexWorker(QRunnable):
+                    def __init__(self, ai_manager, document_id, content):
+                        super().__init__()
+                        self.ai_manager = ai_manager
+                        self.document_id = document_id
+                        self.content = content
+                    
+                    def run(self):
+                        try:
+                            # 优先使用同步版本（为PyQt线程优化）
+                            if hasattr(self.ai_manager, 'index_document_sync'):
+                                success = self.ai_manager.index_document_sync(self.document_id, self.content)
+                                if success:
+                                    logger.info(f"Document indexed for RAG (async): {self.document_id}")
+                                else:
+                                    logger.warning(f"Document indexing failed (async): {self.document_id}")
+                            else:
+                                # 回退到普通版本
+                                self.ai_manager.index_document(self.document_id, self.content)
+                                logger.info(f"Document indexed for RAG (async fallback): {self.document_id}")
+                        except Exception as e:
+                            logger.error(f"Failed to index document in background: {e}")
+                
+                # 在后台线程中执行索引
+                worker = IndexWorker(self._ai_manager, document_id, content)
+                QThreadPool.globalInstance().start(worker)
+                logger.debug(f"Document indexing started in background thread: {document_id}")
+                
+        except Exception as e:
+            logger.error(f"Failed to start background indexing: {e}")
+            # 如果线程池失败，回退到简单的延迟执行
+            if self._ai_manager and hasattr(self._ai_manager, 'index_document'):
+                try:
+                    self._ai_manager.index_document(document_id, content)
+                    logger.info(f"Document indexed for RAG (fallback): {document_id}")
+                except Exception as fallback_error:
+                    logger.error(f"Fallback indexing also failed: {fallback_error}")
 
     @pyqtSlot(str, str)
     def _on_document_saved_auto_index(self, document_id: str, content: str):
         """文档保存后自动索引处理（从项目管理器触发）"""
-        logger.debug(f"收到文档保存信号，准备自动索引: {document_id}")
+        logger.debug(f"收到文档保存信号，准备异步索引: {document_id}")
         
-        # 自动更新RAG索引
-        if self._ai_manager and hasattr(self._ai_manager, 'index_document'):
-            try:
-                self._ai_manager.index_document(document_id, content)
-                logger.info(f"文档自动索引完成: {document_id}")
-            except Exception as e:
-                logger.error(f"文档自动索引失败: {e}")
-                # 不影响其他操作，只记录错误
+        # 使用延迟异步索引，避免阻塞UI
+        try:
+            from PyQt6.QtCore import QTimer
+            # 延迟2秒，让保存操作完全完成
+            QTimer.singleShot(2000, lambda: self._delayed_index_document(document_id, content))
+            logger.debug(f"Auto indexing scheduled for document: {document_id}")
+        except Exception as e:
+            logger.error(f"Failed to schedule auto indexing: {e}")
+            # 不影响其他操作，只记录错误
 
     @pyqtSlot(str)
     def _on_document_selected(self, document_id: str):
@@ -563,6 +791,7 @@ class MainWindow(QMainWindow):
             "import_project": lambda: self._show_import_dialog(project_mode=True),
             "export_text": self._show_export_dialog,
             "export_pdf": lambda: self._show_export_dialog(pdf_mode=True),
+            "import_export_codex": self._show_import_export_codex_dialog,
 
             # Editor Actions
             "undo": lambda: self._editor_panel.get_current_editor().undo() if self._editor_panel.get_current_editor() else None,
@@ -581,6 +810,7 @@ class MainWindow(QMainWindow):
             "fullscreen": self._toggle_fullscreen,
             "toggle_project_panel": self._toggle_left_panel,
             "toggle_outline_panel": self._toggle_outline_panel,
+            "toggle_codex_panel": self._toggle_codex_panel,
 
             # Focus Mode Actions
             "focus_typewriter": self._toggle_typewriter_mode,
@@ -608,6 +838,8 @@ class MainWindow(QMainWindow):
             "word_count": self._show_word_count,
             "about": self._show_about,
             "auto_replace_settings": self._show_auto_replace_settings,
+            "concept_manager": self._show_concept_manager,
+            "codex_manager": self._show_codex_manager,
             
             # Toolbar Actions
             "toggle_ai_toolbar": self._toggle_ai_toolbar,
@@ -651,6 +883,26 @@ class MainWindow(QMainWindow):
         """切换大纲面板显示"""
         # 右侧面板就是大纲面板，直接切换可见性
         self._toggle_right_panel()
+        
+        # 统一同步菜单状态
+        self._sync_panel_menu_states()
+    
+    def _toggle_codex_panel(self):
+        """切换Codex面板显示"""
+        # 如果右侧面板不可见，先显示右侧面板
+        if not self._right_panel.isVisible():
+            self._toggle_right_panel()
+        
+        # 如果有Codex面板，切换到Codex标签页
+        if hasattr(self._right_panel, 'widget') and self._codex_panel:
+            # 获取标签容器
+            tab_widget = self._right_panel
+            if isinstance(tab_widget, QTabWidget):
+                # 查找Codex标签页的索引
+                for i in range(tab_widget.count()):
+                    if tab_widget.tabText(i) == "Codex":
+                        tab_widget.setCurrentIndex(i)
+                        break
         
         # 统一同步菜单状态
         self._sync_panel_menu_states()
@@ -726,6 +978,27 @@ class MainWindow(QMainWindow):
     def _show_about(self):
         dialog = AboutDialog(self)
         dialog.exec()
+
+    def _show_concept_manager(self):
+        """显示概念管理器"""
+        # 概念管理功能暂时通过右侧面板中的大纲面板来处理
+        # 切换到大纲面板显示
+        self._toggle_outline_panel()
+        if self._status_bar:
+            self._status_bar.show_message("概念管理功能集成在大纲面板中", 3000)
+
+    def _show_codex_manager(self):
+        """显示Codex知识库管理器"""
+        if self._codex_panel:
+            # 如果有Codex面板，切换到Codex面板
+            self._toggle_codex_panel()
+            if self._status_bar:
+                self._status_bar.show_message("已切换到Codex知识库面板", 3000)
+        else:
+            # 如果没有Codex面板，显示消息
+            if self._status_bar:
+                self._status_bar.show_message("Codex知识库系统未启用", 3000)
+            logger.warning("Codex管理器不可用 - Codex系统未初始化")
 
     def _show_ai_prompt_settings(self):
         """显示AI写作提示词设置对话框"""
@@ -920,6 +1193,15 @@ class MainWindow(QMainWindow):
                     from gui.ai.ai_completion_control import AICompletionControlPanel
                     self._ai_control_panel = AICompletionControlPanel(self)
                     self._shared.ai_manager = self._ai_manager
+                    
+                    # 重新注册Codex组件到共享对象（如果可用）
+                    if self._codex_manager:
+                        self._shared.codex_manager = self._codex_manager
+                    if self._reference_detector:
+                        self._shared.reference_detector = self._reference_detector
+                    if self._prompt_function_registry:
+                        self._shared.prompt_function_registry = self._prompt_function_registry
+                    
                     logger.info("AI控制面板和共享对象重新初始化成功")
                 except Exception as panel_error:
                     logger.warning(f"AI控制面板重新初始化失败: {panel_error}")
@@ -1016,6 +1298,22 @@ class MainWindow(QMainWindow):
             dialog._format_combo.setCurrentIndex(3)  # PDF是第4个选项
         
         dialog.exec()
+    
+    def _show_import_export_codex_dialog(self):
+        """显示Codex数据导入导出对话框"""
+        if not self._codex_manager:
+            QMessageBox.warning(self, "警告", "Codex管理器未初始化")
+            return
+        
+        try:
+            dialog = ImportExportDialog(self._codex_manager, self)
+            dialog.exec()
+        except Exception as e:
+            logger.error(f"Failed to show import/export dialog: {e}")
+            QMessageBox.critical(
+                self, "错误", 
+                f"无法打开导入导出对话框：\n{str(e)}\n\n请检查是否安装了所有必要的依赖包。"
+            )
     
     def _show_auto_replace_settings(self):
         """显示自动替换设置对话框"""
@@ -1297,6 +1595,15 @@ class MainWindow(QMainWindow):
             self._concept_panel.refresh_concepts()
         if hasattr(self, '_outline_panel'):
             self._outline_panel._load_outline()
+            
+        # 刷新Codex面板
+        if hasattr(self, '_codex_panel') and self._codex_panel:
+            try:
+                if hasattr(self._codex_panel, '_refresh_entries'):
+                    self._codex_panel._refresh_entries()
+                logger.debug("Codex面板已刷新")
+            except Exception as e:
+                logger.error(f"刷新Codex面板失败: {e}")
 
     @pyqtSlot(str)
     def _on_theme_manager_changed(self, theme: str): pass
@@ -1334,6 +1641,8 @@ class MainWindow(QMainWindow):
             self._show_index_manager()
         elif action_id == "batch_index":
             self._show_batch_index_dialog()
+        elif action_id == "codex_manager":
+            self._show_codex_manager()
         else:
             logger.warning(f"Unknown AI toolbar action: {action_id}")
     
@@ -1664,16 +1973,8 @@ class MainWindow(QMainWindow):
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
             if reply == QMessageBox.StandardButton.Yes:
-                # 打开统一配置对话框的RAG页面
-                try:
-                    from .ai.unified_ai_config_dialog import UnifiedAIConfigDialog
-                    config_dialog = UnifiedAIConfigDialog(self, self._config)
-                    config_dialog._tabs.setCurrentIndex(2)  # RAG配置页面
-                    config_dialog.configSaved.connect(self._ai_manager._on_unified_config_saved)
-                    config_dialog.exec()
-                except Exception as e:
-                    logger.error(f"打开RAG配置失败: {e}")
-                    QMessageBox.critical(self, "错误", f"无法打开RAG配置: {str(e)}")
+                # 使用简化的AI配置对话框
+                self._ai_manager.show_config_dialog(parent=self)
             return
         
         try:
@@ -1706,16 +2007,8 @@ class MainWindow(QMainWindow):
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
             if reply == QMessageBox.StandardButton.Yes:
-                # 打开统一配置对话框的RAG页面
-                try:
-                    from .ai.unified_ai_config_dialog import UnifiedAIConfigDialog
-                    config_dialog = UnifiedAIConfigDialog(self, self._config)
-                    config_dialog._tabs.setCurrentIndex(2)  # RAG配置页面
-                    config_dialog.configSaved.connect(self._ai_manager._on_unified_config_saved)
-                    config_dialog.exec()
-                except Exception as e:
-                    logger.error(f"打开RAG配置失败: {e}")
-                    QMessageBox.critical(self, "错误", f"无法打开RAG配置: {str(e)}")
+                # 使用简化的AI配置对话框
+                self._ai_manager.show_config_dialog(parent=self)
             return
         
         try:

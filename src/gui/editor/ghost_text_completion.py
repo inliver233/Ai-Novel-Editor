@@ -536,8 +536,7 @@ class ModernGhostTextCompletion(QObject):
     def _trigger_next_completion(self):
         """触发下一次AI补全"""
         try:
-            # 通过AI管理器触发新的补全
-            from ..ai.ai_manager import AIManager
+            # 通过简化AI管理器触发新的补全
             ai_manager = None
 
             # 查找AI管理器实例
@@ -548,8 +547,14 @@ class ModernGhostTextCompletion(QObject):
                     break
                 parent = parent.parent()
 
-            if ai_manager:
-                ai_manager.request_completion('smart')
+            if ai_manager and hasattr(ai_manager, 'request_completion'):
+                # 获取当前文本和光标位置
+                cursor = self._text_editor.textCursor()
+                context = self._text_editor.toPlainText()
+                cursor_pos = cursor.position()
+                
+                # 使用新的SimpleAIManager接口
+                ai_manager.request_completion(context, cursor_pos)
                 logger.debug("Triggered next AI completion after acceptance")
             else:
                 logger.warning("Could not find AI manager to trigger next completion")

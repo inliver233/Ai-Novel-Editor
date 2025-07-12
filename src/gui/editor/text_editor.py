@@ -126,6 +126,15 @@ class IntelligentTextEditor(QPlainTextEdit):
         # 自动替换引擎
         self._auto_replace_engine = get_auto_replace_engine()
 
+        # Codex高亮器（可选）
+        self._codex_highlighter = None
+        try:
+            from .codex_highlighter import CodexHighlighter
+            self._codex_highlighter = CodexHighlighter(self, parent=self)
+            logger.info("Codex highlighter initialized")
+        except ImportError:
+            logger.debug("Codex highlighter not available")
+
         # 当前文档信息
         self._current_document_id: Optional[str] = None
         self._project_manager = None
@@ -1048,6 +1057,22 @@ class IntelligentTextEditor(QPlainTextEdit):
         """设置项目管理器"""
         self._project_manager = project_manager
         logger.info("Project manager set for text editor")
+    
+    def set_codex_components(self, codex_manager, reference_detector):
+        """设置Codex组件（用于引用高亮）"""
+        if self._codex_highlighter:
+            self._codex_highlighter.set_codex_manager(codex_manager)
+            self._codex_highlighter.set_reference_detector(reference_detector)
+            logger.info("Codex components set for text editor")
+            
+            # 如果已有文本，立即执行高亮
+            if self.toPlainText():
+                self._codex_highlighter.refresh()
+    
+    def set_codex_highlight_enabled(self, enabled: bool):
+        """启用/禁用Codex引用高亮"""
+        if self._codex_highlighter:
+            self._codex_highlighter.set_highlight_enabled(enabled)
 
     def load_document(self, document_id: str) -> bool:
         """加载文档内容"""

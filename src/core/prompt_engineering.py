@@ -1,15 +1,19 @@
 """
 增强型提示词模板系统 - 支持变量替换、条件逻辑和三层模式
 整合现有系统，提供简化但强大的提示词工程能力
+集成动态函数系统，支持NovelCrafter风格的函数调用
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any, Union, Callable
+from typing import Dict, List, Optional, Any, Union, Callable, TYPE_CHECKING
 from enum import Enum
 import re
 import json
 from pathlib import Path
 import logging
+
+if TYPE_CHECKING:
+    from .prompt_functions import PromptFunctionRegistry, PromptContext
 
 logger = logging.getLogger(__name__)
 
@@ -111,11 +115,12 @@ class PromptTemplate:
 
 class PromptRenderer:
     """
-    提示词渲染器 - 处理变量替换和条件逻辑
+    提示词渲染器 - 处理变量替换、条件逻辑和动态函数调用
     使用简化的模板语法，易于理解和维护
+    集成NovelCrafter风格的函数系统
     """
     
-    def __init__(self):
+    def __init__(self, function_registry: Optional['PromptFunctionRegistry'] = None):
         # 变量替换模式: {variable_name}
         self.variable_pattern = re.compile(r'\{([^}]+)\}')
         
@@ -124,21 +129,32 @@ class PromptRenderer:
             r'\{if\s+([^}]+)\}(.*?)(?:\{else\}(.*?))?\{endif\}', 
             re.DOTALL
         )
+        
+        # 函数调用模式: {namespace.function(args)}
+        self.function_pattern = re.compile(r'\{(\w+)\.(\w+)\(([^}]*)\)\}')
+        
+        # 函数注册表
+        self.function_registry = function_registry
     
-    def render(self, template: str, context: Dict[str, Any]) -> str:
+    def render(self, template: str, context: Dict[str, Any], 
+               prompt_context: Optional['PromptContext'] = None) -> str:
         """
-        渲染模板，支持变量替换和条件逻辑
+        渲染模板，支持变量替换、条件逻辑和函数调用
         
         支持的语法：
         - {variable_name} - 简单变量替换
         - {if variable_name}...{endif} - 条件显示
         - {if variable_name}...{else}...{endif} - 条件分支
+        - {namespace.function(args)} - 动态函数调用
         """
         try:
-            # 1. 处理条件逻辑
-            rendered = self._process_conditions(template, context)
+            # 1. 处理函数调用（优先级最高）
+            rendered = self._process_functions(template, prompt_context or self._create_default_context(context))
             
-            # 2. 处理变量替换
+            # 2. 处理条件逻辑
+            rendered = self._process_conditions(rendered, context)
+            
+            # 3. 处理变量替换
             rendered = self._process_variables(rendered, context)
             
             return rendered.strip()
@@ -146,6 +162,47 @@ class PromptRenderer:
         except Exception as e:
             logger.error(f"提示词渲染失败: {e}")
             return template  # 出错时返回原模板
+    
+    def _create_default_context(self, context: Dict[str, Any]) -> 'PromptContext':
+        """从传统上下文创建PromptContext"""
+        from .prompt_functions import PromptContext
+        return PromptContext(
+            current_text=context.get('current_text', ''),
+            story_so_far=context.get('story_so_far', ''),
+            document_id=context.get('document_id', ''),
+            project_metadata=context.get('project_metadata', {})
+        )
+    
+    def _process_functions(self, template: str, prompt_context: 'PromptContext') -> str:
+        """处理函数调用"""
+        if not self.function_registry:
+            return template
+        
+        def replace_function(match):
+            namespace = match.group(1)
+            function_name = match.group(2) 
+            args_str = match.group(3).strip()
+            
+            # 解析参数
+            args = []
+            kwargs = {}
+            
+            if args_str:
+                # 简单的参数解析
+                for arg in args_str.split(','):
+                    arg = arg.strip()
+                    if '=' in arg:
+                        key, value = arg.split('=', 1)
+                        kwargs[key.strip()] = value.strip().strip('"\'')
+                    else:
+                        args.append(arg.strip().strip('"\''))
+            
+            # 执行函数
+            return self.function_registry.execute_function(
+                namespace, function_name, prompt_context, *args, **kwargs
+            )
+        
+        return self.function_pattern.sub(replace_function, template)
     
     def _process_conditions(self, template: str, context: Dict[str, Any]) -> str:
         """处理条件逻辑"""
@@ -216,7 +273,7 @@ class EnhancedPromptManager:
     整合现有系统，提供统一的模板管理接口
     """
     
-    def __init__(self, config_dir: Optional[Path] = None):
+    def __init__(self, config_dir: Optional[Path] = None, function_registry: Optional['PromptFunctionRegistry'] = None):
         self.config_dir = config_dir or Path.home() / ".config" / "ai-novel-editor"
         self.templates_dir = self.config_dir / "prompt_templates"
         self.custom_templates_file = self.templates_dir / "custom_templates.json"
@@ -228,12 +285,23 @@ class EnhancedPromptManager:
         self.builtin_templates: Dict[str, PromptTemplate] = {}
         self.custom_templates: Dict[str, PromptTemplate] = {}
         
-        # 渲染器
-        self.renderer = PromptRenderer()
+        # 函数注册表
+        self.function_registry = function_registry
+        
+        # 渲染器 - 集成函数注册表
+        self.renderer = PromptRenderer(function_registry=function_registry)
         
         # 初始化
         self._load_builtin_templates()
         self._load_custom_templates()
+        
+        logger.info(f"EnhancedPromptManager初始化完成，函数注册表: {'可用' if function_registry else '不可用'}")
+    
+    def register_function_registry(self, function_registry: 'PromptFunctionRegistry'):
+        """注册函数注册表 - 支持运行时设置"""
+        self.function_registry = function_registry
+        self.renderer.function_registry = function_registry
+        logger.info("PromptFunctionRegistry已注册到EnhancedPromptManager")
     
     def get_template(self, template_id: str) -> Optional[PromptTemplate]:
         """获取模板"""
@@ -264,8 +332,8 @@ class EnhancedPromptManager:
         return templates
     
     def render_template(self, template_id: str, mode: PromptMode, 
-                       context: Dict[str, Any]) -> Optional[str]:
-        """渲染指定模板"""
+                       context: Dict[str, Any], prompt_context: Optional['PromptContext'] = None) -> Optional[str]:
+        """渲染指定模板 - 支持函数化提示词"""
         template = self.get_template(template_id)
         if not template:
             logger.warning(f"模板不存在: {template_id}")
@@ -282,13 +350,32 @@ class EnhancedPromptManager:
             if template.system_prompt:
                 context['system_prompt'] = template.system_prompt
             
-            # 渲染模板
-            rendered = self.renderer.render(template_content, context)
+            # 创建PromptContext（如果没有提供）
+            if prompt_context is None and self.function_registry:
+                prompt_context = self._create_prompt_context_from_dict(context)
+            
+            # 渲染模板 - 支持函数调用
+            rendered = self.renderer.render(template_content, context, prompt_context)
             return rendered
             
         except Exception as e:
             logger.error(f"渲染模板失败 {template_id}: {e}")
             return None
+    
+    def _create_prompt_context_from_dict(self, context: Dict[str, Any]) -> 'PromptContext':
+        """从字典上下文创建PromptContext对象"""
+        from .prompt_functions import PromptContext
+        
+        return PromptContext(
+            document_id=context.get('document_id', ''),
+            current_text=context.get('current_text', ''),
+            cursor_position=context.get('cursor_position', 0),
+            story_so_far=context.get('story_so_far', ''),
+            current_scene=context.get('current_scene', ''),
+            active_characters=context.get('active_characters', []),
+            detected_codex_entries=context.get('detected_codex_entries', []),
+            project_metadata=context.get('project_metadata', {})
+        )
     
     def save_custom_template(self, template: PromptTemplate) -> bool:
         """保存自定义模板"""
@@ -330,8 +417,149 @@ class EnhancedPromptManager:
         return sorted(list(categories))
     
     def _load_builtin_templates(self):
-        """加载内置模板 - 稍后实现具体模板"""
-        pass
+        """加载内置模板 - 包含函数化提示词示例"""
+        
+        # 小说续写模板 - 展示函数调用功能
+        novel_completion_template = PromptTemplate(
+            id="novel_completion_enhanced",
+            name="增强小说续写模板",
+            description="使用函数化提示词的小说续写模板",
+            category="小说创作",
+            mode_templates={
+                PromptMode.FAST: """你是专业的小说创作助手。根据以下信息继续创作：
+
+当前上下文：{context.wordsBefore(200)}
+
+请继续创作，风格自然流畅。""",
+                
+                PromptMode.BALANCED: """你是专业的小说创作助手。请基于以下信息继续创作小说内容：
+
+**小说信息**：
+{novel.metadata(all)}
+
+**当前上下文**：
+{context.wordsBefore(300)}
+
+**检测到的角色和地点**：
+{codex.detected(list)}
+
+**场景信息**：
+{context.scene(summary)}
+
+请根据以上信息，以{novel.metadata(author)}的写作风格，自然流畅地续写故事内容。""",
+
+                PromptMode.FULL: """你是专业的小说创作助手，精通各种文学创作技巧。请基于以下详细信息继续创作小说内容：
+
+**小说基本信息**：
+{novel.metadata(all)}
+
+**小说设定**：
+{novel.settings(all)}
+
+**故事发展到目前**：
+{context.storySoFar(medium)}
+
+**当前章节**：
+{context.chapter(title)} - {context.scene(content)}
+
+**当前写作上下文**（前500字）：
+{context.wordsBefore(500)}
+
+**相关角色信息**：
+{codex.characters(detailed)}
+
+**相关地点信息**：
+{codex.locations(detailed)}
+
+**全局设定**：
+{codex.global(xml)}
+
+**编辑器状态**：
+{editor.cursor(stats)}
+
+**当前时间**：{utils.time(chinese)}
+
+请基于以上完整信息，严格遵循{novel.settings(style)}的写作风格，创作{utils.count(words)}字的后续内容。要求：
+1. 保持人物性格一致性
+2. 遵循已建立的世界观设定
+3. 推进情节发展
+4. 语言优美流畅"""
+            },
+            completion_types=[CompletionType.TEXT, CompletionType.CHARACTER, CompletionType.PLOT],
+            max_tokens={
+                PromptMode.FAST: 100,
+                PromptMode.BALANCED: 300,
+                PromptMode.FULL: 600
+            },
+            is_builtin=True
+        )
+        
+        # 角色描写模板
+        character_template = PromptTemplate(
+            id="character_description",
+            name="角色描写模板",
+            description="专门用于角色描写的函数化模板",
+            category="角色塑造",
+            mode_templates={
+                PromptMode.BALANCED: """你是专业的角色描写专家。请基于以下信息描写角色：
+
+**当前场景**：{context.scene(content)}
+**相关角色**：{codex.characters(detected)}
+**上下文**：{context.wordsBefore(200)}
+
+请生成生动的角色描写，突出人物特点和情感状态。"""
+            },
+            completion_types=[CompletionType.CHARACTER, CompletionType.DESCRIPTION],
+            is_builtin=True
+        )
+        
+        # 场景描写模板  
+        scene_template = PromptTemplate(
+            id="scene_description",
+            name="场景描写模板", 
+            description="专门用于场景和环境描写的模板",
+            category="环境描写",
+            mode_templates={
+                PromptMode.BALANCED: """你是专业的场景描写专家。请基于以下信息描写场景：
+
+**当前地点**：{codex.locations(detected)}
+**场景上下文**：{context.scene(content)}
+**相关设定**：{novel.settings(worldview)}
+
+请生成详细的场景描写，营造恰当的氛围。"""
+            },
+            completion_types=[CompletionType.LOCATION, CompletionType.DESCRIPTION],
+            is_builtin=True
+        )
+        
+        # 对话创作模板
+        dialogue_template = PromptTemplate(
+            id="dialogue_creation",
+            name="对话创作模板",
+            description="专门用于对话创作的模板", 
+            category="对话创作",
+            mode_templates={
+                PromptMode.BALANCED: """你是专业的对话创作专家。请基于以下信息创作对话：
+
+**对话角色**：{codex.characters(detected)}
+**当前情境**：{context.wordsBefore(150)}
+**后续发展**：{context.wordsAfter(50)}
+
+请创作自然流畅的对话，体现角色个性和推进情节。"""
+            },
+            completion_types=[CompletionType.DIALOGUE],
+            is_builtin=True
+        )
+        
+        # 注册内置模板
+        self.builtin_templates = {
+            "novel_completion_enhanced": novel_completion_template,
+            "character_description": character_template,
+            "scene_description": scene_template,
+            "dialogue_creation": dialogue_template
+        }
+        
+        logger.info(f"加载了 {len(self.builtin_templates)} 个内置模板（包含函数化提示词）")
     
     def _load_custom_templates(self):
         """加载自定义模板"""

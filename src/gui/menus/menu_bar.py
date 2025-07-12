@@ -123,6 +123,15 @@ class MenuBar(QMenuBar):
         )
         import_menu.addAction(import_project_action)
         
+        import_menu.addSeparator()
+        
+        # Codex数据导入导出
+        import_export_codex_action = self._create_action(
+            "import_export_codex", "Codex数据管理", "",
+            "导入导出Codex数据（JSON、CSV、Excel等格式）"
+        )
+        import_menu.addAction(import_export_codex_action)
+        
         # 导出
         export_menu = file_menu.addMenu("导出(&E)")
         
@@ -137,6 +146,15 @@ class MenuBar(QMenuBar):
             "导出项目为PDF文件"
         )
         export_menu.addAction(export_pdf_action)
+        
+        export_menu.addSeparator()
+        
+        # 在导出菜单中也添加Codex数据管理的快捷入口
+        export_codex_action = self._create_action(
+            "import_export_codex", "Codex数据管理", "",
+            "导入导出Codex数据（JSON、CSV、Excel等格式）"
+        )
+        export_menu.addAction(export_codex_action)
         
         file_menu.addSeparator()
         
@@ -276,6 +294,14 @@ class MenuBar(QMenuBar):
         outline_panel_action.setCheckable(True)
         outline_panel_action.setChecked(False)  # 默认隐藏
         panels_menu.addAction(outline_panel_action)
+        
+        codex_panel_action = self._create_action(
+            "toggle_codex_panel", "知识库面板", "Ctrl+4",
+            "显示/隐藏Codex知识库面板"
+        )
+        codex_panel_action.setCheckable(True)
+        codex_panel_action.setChecked(False)  # 默认隐藏
+        panels_menu.addAction(codex_panel_action)
 
         view_menu.addSeparator()
         
@@ -504,6 +530,13 @@ class MenuBar(QMenuBar):
             "打开概念管理器"
         )
         tools_menu.addAction(concept_manager_action)
+        
+        # Codex知识库管理
+        codex_manager_action = self._create_action(
+            "codex_manager", "知识库管理(&K)", "",
+            "打开Codex知识库管理器"
+        )
+        tools_menu.addAction(codex_manager_action)
         
         tools_menu.addSeparator()
         

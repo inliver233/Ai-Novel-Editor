@@ -4,6 +4,7 @@ SQLite向量存储管理器
 import sqlite3
 import json
 import logging
+import hashlib
 # import pickle  # 移除pickle，使用JSON序列化
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
@@ -793,8 +794,6 @@ class SQLiteVectorStore:
             logger.error(f"Chunks and embeddings count mismatch: {len(chunks)} vs {len(embeddings)}")
             return
         
-        import hashlib
-        
         # 计算内容哈希
         content_hash = None
         if content:
@@ -804,8 +803,12 @@ class SQLiteVectorStore:
             cursor = conn.cursor()
             
             for chunk, embedding in zip(chunks, embeddings):
-                # 序列化嵌入向量
-                embedding_blob = pickle.dumps(np.array(embedding))
+                # 序列化嵌入向量（使用JSON代替pickle）
+                if NUMPY_AVAILABLE:
+                    embedding_list = np.array(embedding).tolist()
+                else:
+                    embedding_list = list(embedding)
+                embedding_blob = json.dumps(embedding_list)
                 
                 # 准备元数据
                 metadata = {}
@@ -852,8 +855,6 @@ class SQLiteVectorStore:
     
     def has_document_changed(self, document_id: str, content: str) -> bool:
         """检查文档内容是否发生变化"""
-        import hashlib
-        
         # 计算当前内容哈希
         current_hash = hashlib.md5(content.encode()).hexdigest()
         
@@ -865,8 +866,6 @@ class SQLiteVectorStore:
     
     def update_document_hash(self, document_id: str, content: str):
         """更新文档内容哈希值"""
-        import hashlib
-        
         content_hash = hashlib.md5(content.encode()).hexdigest()
         
         with sqlite3.connect(self.db_path) as conn:

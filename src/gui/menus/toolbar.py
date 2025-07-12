@@ -247,6 +247,11 @@ class AIToolBar(QToolBar):
         # API配置按钮
         self._add_api_config_button()
         
+        self.addSeparator()
+        
+        # Codex知识库按钮
+        self._add_codex_button()
+        
         # 弹性空间
         spacer = QWidget()
         from PyQt6.QtWidgets import QSizePolicy
@@ -308,6 +313,16 @@ class AIToolBar(QToolBar):
         
         # 复杂的模板选择器已被简化的AI写作设置替代
         # 用户可通过AI菜单访问简化的标签化界面
+    
+    def _add_codex_button(self):
+        """添加Codex知识库按钮"""
+        codex_btn = QPushButton("知识库")
+        codex_btn.setToolTip("打开Codex知识库管理器")
+        codex_btn.setMaximumHeight(28)  # 与深色模式保持一致
+        codex_btn.clicked.connect(
+            lambda: self.aiActionTriggered.emit("codex_manager", {})
+        )
+        self.addWidget(codex_btn)
     
     def _add_ai_status(self):
         """添加AI状态显示（在AI工具栏最右边）"""

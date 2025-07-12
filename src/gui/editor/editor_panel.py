@@ -158,6 +158,10 @@ class EditorPanel(QWidget):
     def _create_default_editor(self, tabs: QTabWidget):
         """创建默认编辑器"""
         editor = IntelligentTextEditor(self._config, self._shared)
+        
+        # 如果已有Codex组件，立即设置
+        if hasattr(self, '_codex_manager') and hasattr(self, '_reference_detector'):
+            editor.set_codex_components(self._codex_manager, self._reference_detector)
 
         # 暂不连接编辑器信号，等UI初始化完成后再连接
         
@@ -448,6 +452,18 @@ class EditorPanel(QWidget):
             return current_widget
         return None
     
+    def set_codex_components(self, codex_manager, reference_detector):
+        """设置Codex组件到所有编辑器"""
+        self._codex_manager = codex_manager
+        self._reference_detector = reference_detector
+        
+        # 设置到所有现有编辑器
+        for editor in self._document_tabs.values():
+            if hasattr(editor, 'set_codex_components'):
+                editor.set_codex_components(codex_manager, reference_detector)
+        
+        logger.info(f"Codex components set to {len(self._document_tabs)} editors")
+    
     def create_new_document(self, document_id: str, title: str = "新建文档", content: str = "") -> bool:
         """创建新文档"""
         if document_id in self._document_tabs:
@@ -456,6 +472,10 @@ class EditorPanel(QWidget):
         # 创建新编辑器
         editor = IntelligentTextEditor(self._config, self._shared)
         self._connect_editor_signals(editor)
+        
+        # 如果已有Codex组件，立即设置
+        if hasattr(self, '_codex_manager') and hasattr(self, '_reference_detector'):
+            editor.set_codex_components(self._codex_manager, self._reference_detector)
         
         # 设置内容
         editor.set_document_content(content, document_id)

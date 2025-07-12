@@ -36,7 +36,7 @@ class ReferenceDetector:
         # 检测配置
         self.min_word_length = 2  # 最小词长
         self.context_window = 50  # 上下文窗口大小
-        self.confidence_threshold = 0.7  # 置信度阈值
+        self.confidence_threshold = 0.75  # 置信度阈值（平衡准确率和召回率）
         
         # 中文名字检测模式
         self.chinese_name_patterns = [
@@ -79,9 +79,9 @@ class ReferenceDetector:
         exact_matches = self._detect_exact_matches(text)
         references.extend(exact_matches)
         
-        # 2. 模糊匹配潜在的引用
-        fuzzy_matches = self._detect_fuzzy_matches(text, exact_matches)
-        references.extend(fuzzy_matches)
+        # 2. 暂时禁用模糊匹配，专注于修复精确匹配
+        # fuzzy_matches = self._detect_fuzzy_matches(text, exact_matches)
+        # references.extend(fuzzy_matches)
         
         # 3. 去重和排序
         references = self._deduplicate_references(references)
@@ -117,31 +117,220 @@ class ReferenceDetector:
         return references
 
     def _find_text_matches(self, text: str, search_term: str, entry: CodexEntry) -> List[DetectedReference]:
-        """查找特定词汇在文本中的匹配"""
+        """查找特定词汇在文本中的匹配 - 改进的中文词边界检测版本"""
         if len(search_term) < self.min_word_length:
             return []
         
         references = []
-        
-        # 创建词边界正则模式
-        pattern = r'\b' + re.escape(search_term) + r'\b'
+        escaped_term = re.escape(search_term)
         
         try:
-            for match in re.finditer(pattern, text, re.IGNORECASE):
-                reference = DetectedReference(
-                    entry_id=entry.id,
-                    entry_title=entry.title,
-                    entry_type=entry.entry_type,
-                    matched_text=match.group(),
-                    start_position=match.start(),
-                    end_position=match.end(),
-                    confidence=1.0  # 精确匹配的置信度为100%
-                )
-                references.append(reference)
+            # 先进行简单匹配找到所有可能的位置
+            for match in re.finditer(escaped_term, text, re.IGNORECASE):
+                start_pos = match.start()
+                end_pos = match.end()
+                matched_text = match.group()
+                
+                # 进行词边界验证和上下文检查
+                if self._is_valid_match(text, search_term, start_pos, end_pos, entry):
+                    confidence = self._calculate_confidence(text, search_term, start_pos, end_pos, entry)
+                    
+                    if confidence >= self.confidence_threshold:
+                        reference = DetectedReference(
+                            entry_id=entry.id,
+                            entry_title=entry.title,
+                            entry_type=entry.entry_type,
+                            matched_text=matched_text,
+                            start_position=start_pos,
+                            end_position=end_pos,
+                            confidence=confidence
+                        )
+                        references.append(reference)
+                        
         except re.error as e:
             logger.warning(f"Regex error for term '{search_term}': {e}")
         
         return references
+
+    def _is_valid_match(self, text: str, search_term: str, start_pos: int, end_pos: int, entry: CodexEntry) -> bool:
+        """
+        验证匹配是否为有效的词边界匹配
+        
+        Args:
+            text: 原文本
+            search_term: 搜索词
+            start_pos: 匹配开始位置
+            end_pos: 匹配结束位置
+            entry: Codex条目
+            
+        Returns:
+            bool: 是否为有效匹配
+        """
+        # 获取匹配词的前后字符
+        char_before = text[start_pos - 1] if start_pos > 0 else ""
+        char_after = text[end_pos] if end_pos < len(text) else ""
+        
+        # 中文词边界检测规则
+        if self._is_chinese_char(search_term[0]):
+            # 对于中文词汇的边界检测
+            return self._is_chinese_word_boundary(char_before, char_after, search_term, text, start_pos, end_pos)
+        else:
+            # 对于英文词汇的边界检测
+            return self._is_english_word_boundary(char_before, char_after)
+
+    def _is_chinese_word_boundary(self, char_before: str, char_after: str, search_term: str, 
+                                text: str, start_pos: int, end_pos: int) -> bool:
+        """检测中文词边界"""
+        
+        # 规则1: 如果前后都是中文字符，需要进行更细致的检查
+        if self._is_chinese_char(char_before) and self._is_chinese_char(char_after):
+            # 检查是否为否定语境（如"不是张三"、"没有张三"）
+            if self._is_negative_context(text, start_pos, search_term):
+                return False
+                
+            # 检查是否为组合词的一部分（如"张三丰"中的"张三"）
+            if self._is_part_of_compound_word(text, start_pos, end_pos, search_term):
+                return False
+        
+        # 规则2: 前后有标点符号或空白符，通常是好的边界
+        if (not char_before or self._is_delimiter(char_before)) and \
+           (not char_after or self._is_delimiter(char_after)):
+            return True
+            
+        # 规则3: 前面是数字、英文，后面是中文或标点，可能是有效匹配
+        if (not self._is_chinese_char(char_before)) and \
+           (not char_after or not self._is_chinese_char(char_after) or self._is_delimiter(char_after)):
+            return True
+            
+        # 规则4: 对于2字中文名，如果前后都是中文，需要更严格的检查
+        if len(search_term) == 2 and self._is_chinese_char(char_before) and self._is_chinese_char(char_after):
+            return False
+            
+        # 默认情况下，如果没有明显的边界问题，认为是有效的
+        return True
+
+    def _is_english_word_boundary(self, char_before: str, char_after: str) -> bool:
+        """检测英文词边界"""
+        # 英文词边界：前后不能是字母或数字
+        if char_before and char_before.isalnum():
+            return False
+        if char_after and char_after.isalnum():
+            return False
+        return True
+
+    def _is_negative_context(self, text: str, start_pos: int, search_term: str) -> bool:
+        """检测否定语境"""
+        # 检查前面是否有否定词
+        context_before = text[max(0, start_pos - 15):start_pos]
+        context_after = text[start_pos + len(search_term):min(len(text), start_pos + len(search_term) + 10)]
+        
+        negative_patterns = ['不是', '没有', '不叫', '非', '并非', '绝非', '不认识', '不知道', '不在']
+        
+        # 检查前面的否定词
+        for pattern in negative_patterns:
+            if pattern in context_before:
+                return True
+                
+        # 检查特殊的否定句式，如"但没有张三"
+        full_context = context_before + search_term + context_after
+        if '但没有' + search_term in full_context or '但不是' + search_term in full_context:
+            return True
+            
+        return False
+
+    def _is_part_of_compound_word(self, text: str, start_pos: int, end_pos: int, search_term: str) -> bool:
+        """检测是否为组合词的一部分"""
+        # 检查是否为三字人名的一部分
+        if len(search_term) == 2:  # 对于2字名字，如"张三"
+            # 检查是否为"张三丰"、"张三疯"等3字名的一部分
+            if end_pos < len(text) and self._is_chinese_char(text[end_pos]):
+                next_char = text[end_pos]
+                # 只对明确的三字名后缀才判断为组合词
+                if self._is_common_three_char_name_suffix(next_char):
+                    return True
+                    
+        # 检查是否为地名组合词的一部分，如"天山雪莲"中的"天山"
+        if end_pos < len(text):
+            next_char = text[end_pos]
+            # 如果后面紧跟着中文字符，检查是否为明确的组合词
+            if self._is_chinese_char(next_char):
+                # 只对明确的组合词后缀才判断
+                common_compound_suffixes = ['雪', '派', '门', '宗', '教', '帮', '会', '堂', '阁', '楼', '院', '宫', '莲', '花', '草', '树']
+                if next_char in common_compound_suffixes:
+                    return True
+                    
+                # 检查是否为明确的三字或四字组合词
+                if end_pos + 1 < len(text) and self._is_chinese_char(text[end_pos + 1]):
+                    # 获取后续2个字符
+                    next_two_chars = text[end_pos:end_pos + 2]
+                    # 如果形成了明显的组合词，如"雪莲"、"大侠"等
+                    known_compound_endings = ['雪莲', '大侠', '公子', '先生', '夫人', '大人', '将军', '长老']
+                    if next_two_chars in known_compound_endings:
+                        return True
+                    
+        return False
+
+    def _is_common_three_char_name_suffix(self, char: str) -> bool:
+        """检测是否为常见的三字名后缀"""
+        common_suffixes = ['丰', '疯', '君', '公', '生', '老', '师', '哥', '姐', '妹', '弟']
+        return char in common_suffixes
+
+    def _is_chinese_char(self, char: str) -> bool:
+        """判断是否为中文字符"""
+        if not char:
+            return False
+        return '\u4e00' <= char <= '\u9fff'
+
+    def _is_delimiter(self, char: str) -> bool:
+        """判断是否为分隔符"""
+        delimiters = '，。！？；：、""''（）【】《》〈〉「」『』 \t\n\r.!?;:,-()[]<>{}"\'`~'
+        return char in delimiters
+
+    def _calculate_confidence(self, text: str, search_term: str, start_pos: int, end_pos: int, entry: CodexEntry) -> float:
+        """
+        计算匹配的置信度
+        
+        Args:
+            text: 原文本
+            search_term: 搜索词
+            start_pos: 匹配开始位置 
+            end_pos: 匹配结束位置
+            entry: Codex条目
+            
+        Returns:
+            float: 置信度 (0.0-1.0)
+        """
+        confidence = 1.0
+        
+        # 获取前后字符
+        char_before = text[start_pos - 1] if start_pos > 0 else ""
+        char_after = text[end_pos] if end_pos < len(text) else ""
+        
+        # 基于边界质量调整置信度
+        if self._is_delimiter(char_before) or not char_before:
+            confidence += 0.1
+        if self._is_delimiter(char_after) or not char_after:
+            confidence += 0.1
+            
+        # 如果是精确的标题匹配，提高置信度
+        if search_term == entry.title:
+            confidence += 0.2
+            
+        # 基于词长调整置信度（更长的词通常更准确）
+        if len(search_term) >= 3:
+            confidence += 0.1
+        elif len(search_term) == 2:
+            confidence -= 0.1
+            
+        # 如果周围有否定语境，大幅降低置信度
+        if self._is_negative_context(text, start_pos, search_term):
+            confidence -= 0.5
+            
+        # 如果可能是组合词的一部分，降低置信度
+        if self._is_part_of_compound_word(text, start_pos, end_pos, search_term):
+            confidence -= 0.4
+            
+        return max(0.0, min(1.0, confidence))
 
     def _detect_fuzzy_matches(self, text: str, exact_matches: List[DetectedReference]) -> List[DetectedReference]:
         """检测模糊匹配的潜在引用"""
@@ -186,7 +375,7 @@ class ReferenceDetector:
                     matched_text = match.group()
                     
                     # 计算置信度
-                    confidence = self._calculate_confidence(matched_text, entry_type, base_confidence)
+                    confidence = self._calculate_fuzzy_confidence(matched_text, entry_type, base_confidence)
                     
                     if confidence >= self.confidence_threshold:
                         reference = DetectedReference(
@@ -208,8 +397,8 @@ class ReferenceDetector:
         
         return references
 
-    def _calculate_confidence(self, text: str, entry_type: CodexEntryType, base_confidence: float) -> float:
-        """计算匹配置信度"""
+    def _calculate_fuzzy_confidence(self, text: str, entry_type: CodexEntryType, base_confidence: float) -> float:
+        """计算模糊匹配的置信度"""
         confidence = base_confidence
         
         # 根据长度调整置信度

@@ -2162,6 +2162,39 @@ class EnhancedAIManager(QObject):
             logger.error(f"索引文档失败: {document_id}, 错误: {e}")
             return False
     
+    def _truncate_text_for_embedding(self, text: str, max_tokens: int = 500) -> str:
+        """截断文本以符合嵌入API的token限制"""
+        if not text:
+            return text
+        
+        # 粗略估算：中文1字符约等于1-2个token，英文1词约等于1个token
+        # 为安全起见，使用更保守的估算
+        
+        # 先按字符长度快速判断
+        if len(text) <= max_tokens // 2:  # 保守估算，字符数是token数的一半
+            return text
+        
+        # 如果可能超过限制，进行更精确的处理
+        # 简单的截断策略：保留前max_tokens//2个字符，确保不超过token限制
+        max_chars = max_tokens // 2
+        
+        if len(text) > max_chars:
+            # 尝试在句号或换行符处截断，保持语义完整性
+            truncated = text[:max_chars]
+            
+            # 寻找最后一个句号或换行符
+            last_period = truncated.rfind('。')
+            last_newline = truncated.rfind('\n')
+            last_stop = max(last_period, last_newline)
+            
+            if last_stop > max_chars * 0.7:  # 如果句号/换行符位置不太靠前，就在此处截断
+                truncated = truncated[:last_stop + 1]
+            
+            logger.info(f"[TRUNCATE] 文本截断以适应API限制: {len(text)} -> {len(truncated)} 字符 (保留 {len(truncated)/len(text)*100:.1f}%)")
+            return truncated
+        
+        return text
+    
     def _create_embedding_sync_direct(self, text: str) -> Optional[List[float]]:
         """直接同步创建嵌入向量（完全避免asyncio，专为PyQt线程设计）"""
         try:
@@ -2169,6 +2202,12 @@ class EnhancedAIManager(QObject):
             import json
             import hashlib
             import time
+            
+            # 检查文本长度，确保不超过API限制
+            text = self._truncate_text_for_embedding(text)
+            if not text or not text.strip():
+                logger.warning("[DIRECT] 文本为空或截断后为空，跳过嵌入向量创建")
+                return None
             
             # 使用缓存机制
             cache_key = f"embedding:{self.rag_service.embedding_model}:{hashlib.md5(text.encode()).hexdigest()}"
@@ -2239,7 +2278,18 @@ class EnhancedAIManager(QObject):
                     return None
                 
             else:
-                logger.error(f"[DIRECT] API请求失败: {response.status_code}, {response.text}")
+                # 特殊处理413错误（Payload Too Large）
+                if response.status_code == 413:
+                    try:
+                        error_detail = response.json()
+                        if "input must have less than 512 tokens" in error_detail.get("message", ""):
+                            logger.error(f"[DIRECT] 文本超过API token限制(512): 长度={len(text)}字符, 建议检查分块策略")
+                        else:
+                            logger.error(f"[DIRECT] 请求数据过大(413): {error_detail}")
+                    except:
+                        logger.error(f"[DIRECT] 请求数据过大(413): {response.text}")
+                else:
+                    logger.error(f"[DIRECT] API请求失败: {response.status_code}, {response.text}")
                 return None
                 
         except requests.exceptions.RequestException as e:
@@ -2317,7 +2367,12 @@ class EnhancedAIManager(QObject):
                 logger.error(f"[PYQT_INDEX] 所有嵌入向量创建失败: {document_id}")
                 return False
             
-            logger.info(f"[PYQT_INDEX] 成功创建 {len(valid_embeddings)}/{len(chunks)} 个嵌入向量")
+            success_rate = len(valid_embeddings) / len(chunks) * 100
+            logger.info(f"[PYQT_INDEX] 成功创建 {len(valid_embeddings)}/{len(chunks)} 个嵌入向量 (成功率: {success_rate:.1f}%)")
+            
+            # 如果成功率低于50%，记录警告但仍继续
+            if success_rate < 50:
+                logger.warning(f"[PYQT_INDEX] 嵌入向量创建成功率较低: {success_rate:.1f}%，可能是因为文本块过长或API限制")
             
             # 3. 存储索引
             if self.rag_service._vector_store:
