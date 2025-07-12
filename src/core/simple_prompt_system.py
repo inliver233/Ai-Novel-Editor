@@ -1,6 +1,6 @@
 """
 简化的提示词系统
-统一prompt_engineering.py和simple_prompt_core.py的功能
+整合简化的提示词核心功能，替代复杂的多层架构
 提供稳定可靠的提示词管理
 """
 

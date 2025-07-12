@@ -5,9 +5,7 @@ AI功能UI组件模块
 """
 
 from .completion_widget import CompletionWidget, CompletionSuggestionCard
-from .config_dialog import AIConfigDialog, AIProviderConfigWidget, CompletionConfigWidget
 from .stream_widget import StreamResponseWidget
-from .ai_manager import AIManager
 
 # 简化的NovelCrafter风格界面
 from .simplified_prompt_widget import SimplifiedPromptWidget
@@ -18,11 +16,7 @@ __all__ = [
     # 传统组件
     'CompletionWidget',
     'CompletionSuggestionCard',
-    'AIConfigDialog',
-    'AIProviderConfigWidget',
-    'CompletionConfigWidget',
     'StreamResponseWidget',
-    'AIManager',
     
     # 简化界面组件
     'SimplifiedPromptWidget',

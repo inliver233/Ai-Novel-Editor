@@ -25,7 +25,6 @@ from gui.panels.codex_panel import CodexPanel
 from gui.editor.editor_panel import EditorPanel
 from gui.editor.focus_mode import FocusMode
 from gui.menus import MenuBar, ToolBarManager
-from gui.ai import AIManager
 from gui.status import EnhancedStatusBar
 from gui.themes import ThemeManager, ThemeType
 from gui.controllers.project_controller import ProjectController
@@ -1097,29 +1096,15 @@ class MainWindow(QMainWindow):
                 return
             
         try:
-            # 检查AI管理器是否有配置对话框方法
+            # 显示AI配置对话框
             if hasattr(self._ai_manager, 'show_config_dialog'):
-                # 先检查AI状态（如果方法存在）
-                if hasattr(self._ai_manager, 'get_ai_status'):
-                    ai_status = self._ai_manager.get_ai_status()
-                    if not ai_status.get('ai_client_available', True):
-                        logger.warning("AI客户端不可用，尝试恢复")
-                        if hasattr(self._ai_manager, 'force_reinit_ai'):
-                            recovery_success = self._ai_manager.force_reinit_ai()
-                            if not recovery_success:
-                                reply = QMessageBox.question(
-                                    self, "AI服务不可用", 
-                                    "AI客户端初始化失败，可能是配置问题。\n是否仍要打开配置对话框进行设置？",
-                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                                )
-                                if reply == QMessageBox.StandardButton.No:
-                                    return
-                
-                # 显示配置对话框
                 self._ai_manager.show_config_dialog(self)
             else:
-                # 回退：使用基础配置对话框
-                self._show_basic_ai_config()
+                # fallback: 直接使用统一配置对话框
+                from gui.ai.unified_ai_config_dialog import UnifiedAIConfigDialog
+                dialog = UnifiedAIConfigDialog(self, self._config)
+                if dialog.exec():
+                    self._try_reinit_ai_manager()
                 
         except Exception as e:
             logger.error(f"显示AI配置对话框失败: {e}")
@@ -1128,7 +1113,7 @@ class MainWindow(QMainWindow):
     def _try_reinit_ai_manager(self):
         """尝试重新初始化AI管理器"""
         try:
-            logger.info("开始重新初始化AI管理器")
+            logger.info("开始重新初始化简化AI管理器")
             
             # 清理现有的AI管理器
             if self._ai_manager:
@@ -1141,51 +1126,10 @@ class MainWindow(QMainWindow):
             self._ai_manager = None
             self._ai_control_panel = None
             
-            # 强制重新初始化 - 优先尝试增强型
-            try:
-                logger.info("尝试重新初始化增强型AI管理器...")
-                
-                # 重新测试核心模块导入
-                from core.prompt_engineering import EnhancedPromptManager
-                from core.builtin_templates import register_builtin_loader
-                from core.context_variables import IntelligentContextAnalyzer
-                logger.info("核心提示词模块重新导入成功")
-                
-                # 重新导入增强型AI管理器
-                from gui.ai.enhanced_ai_manager import EnhancedAIManager
-                logger.info("EnhancedAIManager类重新导入成功")
-                
-                rag_service = getattr(self._shared, 'rag_service', None)
-                vector_store = getattr(self._shared, 'vector_store', None)
-                
-                self._ai_manager = EnhancedAIManager(
-                    config=self._config,
-                    shared=self._shared,
-                    rag_service=rag_service,
-                    vector_store=vector_store,
-                    parent=self
-                )
-                
-                # 验证增强型功能
-                if (hasattr(self._ai_manager, 'prompt_manager') and 
-                    self._ai_manager.prompt_manager and
-                    hasattr(self._ai_manager, 'open_template_manager')):
-                    logger.info("增强型AI管理器重新初始化成功，提示词系统正常")
-                else:
-                    logger.warning("增强型AI管理器重新初始化成功，但提示词系统有问题")
-                    if hasattr(self._ai_manager, 'prompt_manager'):
-                        logger.warning(f"prompt_manager状态: {self._ai_manager.prompt_manager}")
-                
-            except Exception as enhanced_error:
-                import traceback
-                logger.error(f"增强型AI管理器重新初始化失败: {enhanced_error}")
-                logger.error(f"错误堆栈: {traceback.format_exc()}")
-                logger.warning("回退到基础AI管理器")
-                
-                # 回退到基础AI管理器
-                from gui.ai.ai_manager import AIManager
-                self._ai_manager = AIManager(self._config, self)
-                logger.info("基础AI管理器重新初始化成功")
+            # 重新初始化简化AI管理器
+            from gui.ai.simple_ai_manager import SimpleAIManager
+            self._ai_manager = SimpleAIManager(self._config, self)
+            logger.info("简化AI管理器重新初始化成功")
             
             # 重新初始化控制面板
             if self._ai_manager:
@@ -1210,24 +1154,12 @@ class MainWindow(QMainWindow):
                     
         except Exception as e:
             import traceback
-            logger.error(f"重新初始化AI管理器完全失败: {e}")
+            logger.error(f"重新初始化AI管理器失败: {e}")
             logger.error(f"错误堆栈: {traceback.format_exc()}")
             self._ai_manager = None
             self._ai_control_panel = None
             return False
     
-    def _show_basic_ai_config(self):
-        """显示基础AI配置对话框（回退方案）"""
-        try:
-            from gui.ai.unified_ai_config_dialog import UnifiedAIConfigDialog
-            dialog = UnifiedAIConfigDialog(self, self._config)
-            if dialog.exec():
-                # 配置保存后尝试重新初始化
-                self._try_reinit_ai_manager()
-        except Exception as e:
-            logger.error(f"显示基础AI配置对话框失败: {e}")
-            QMessageBox.critical(self, "错误", f"无法打开配置对话框: {str(e)}")
-
     # 复杂的模板选择器已被简化的AI写作设置替代
     # 用户现在可以通过AI菜单访问简化的标签化界面
 
@@ -1951,8 +1883,7 @@ class MainWindow(QMainWindow):
             
         except ImportError as e:
             logger.error(f"导入统一配置对话框失败: {e}")
-            # 回退到直接显示AI配置对话框
-            self._show_ai_config_dialog()
+            QMessageBox.critical(self, "错误", "无法加载AI配置对话框")
         except Exception as e:
             logger.error(f"显示AI补全设置失败: {e}")
             QMessageBox.critical(self, "错误", f"无法打开AI补全设置: {str(e)}")

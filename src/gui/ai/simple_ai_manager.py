@@ -323,8 +323,8 @@ class SimpleAIManager(QObject):
     def show_config_dialog(self, parent=None):
         """显示配置对话框"""
         try:
-            from .simple_ai_config_dialog import SimpleAIConfigDialog
-            dialog = SimpleAIConfigDialog(self._config, parent or self._parent)
+            from .unified_ai_config_dialog import UnifiedAIConfigDialog
+            dialog = UnifiedAIConfigDialog(parent or self._parent, self._config)
             if dialog.exec():
                 # 重新初始化AI客户端
                 self._init_ai_client()

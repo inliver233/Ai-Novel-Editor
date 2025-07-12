@@ -1062,18 +1062,19 @@ class UnifiedAIConfigDialog(QDialog):
         self._completion_widget = CompletionSettingsWidget()
         self._tabs.addTab(self._completion_widget, "⚡ 补全设置")
         
-        # RAG配置页
-        from .rag_config_dialog import RAGConfigWidget
-        self._rag_widget = RAGConfigWidget()
-        self._tabs.addTab(self._rag_widget, "🔍 RAG向量搜索")
+        # RAG配置页 (简化版本暂不提供单独RAG配置)
+        # TODO: 实现简化的RAG配置界面
+        # self._rag_widget = RAGConfigWidget()
+        # self._tabs.addTab(self._rag_widget, "🔍 RAG向量搜索")
         
-        # 大纲AI配置页
-        try:
-            self._outline_widget = self._create_outline_widget()
-            self._tabs.addTab(self._outline_widget, "📋 大纲AI")
-            logger.debug("Successfully added outline AI config tab")
-        except Exception as e:
-            logger.error(f"Failed to create outline AI config tab: {e}")
+        # 大纲AI配置页 (简化版本暂不提供)
+        # TODO: 实现简化的大纲AI配置界面  
+        # try:
+        #     self._outline_widget = self._create_outline_widget()
+        #     self._tabs.addTab(self._outline_widget, "📋 大纲AI")
+        #     logger.debug("Successfully added outline AI config tab")
+        # except Exception as e:
+        #     logger.error(f"Failed to create outline AI config tab: {e}")
             
         # 提示词模板管理页
         try:
@@ -1104,18 +1105,9 @@ class UnifiedAIConfigDialog(QDialog):
         pass
         
     def _create_outline_widget(self):
-        """创建大纲AI配置页面"""
-        try:
-            from .outline_ai_config_dialog import OutlineAIConfigWidget
-            widget = OutlineAIConfigWidget()
-            logger.debug("Successfully created OutlineAIConfigWidget")
-            return widget
-        except ImportError as e:
-            logger.error(f"Failed to import OutlineAIConfigWidget: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Failed to create OutlineAIConfigWidget: {e}")
-            raise
+        """创建大纲AI配置页面 (简化版本暂不实现)"""
+        # TODO: 实现简化的大纲AI配置界面
+        pass
     
     def _create_template_widget(self):
         """创建提示词模板管理页面"""

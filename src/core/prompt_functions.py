@@ -12,7 +12,6 @@ from dataclasses import dataclass
 if TYPE_CHECKING:
     from core.codex_manager import CodexManager
     from core.reference_detector import ReferenceDetector
-    from core.context_variables import ContextVariables
 
 logger = logging.getLogger(__name__)
 
