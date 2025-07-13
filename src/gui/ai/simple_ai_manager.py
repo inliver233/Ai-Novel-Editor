@@ -657,13 +657,33 @@ class SimpleAIManager(QObject):
             return None
     
     def show_index_manager(self, parent=None, project_manager=None):
-        """显示索引管理器（兼容性方法）"""
-        from PyQt6.QtWidgets import QMessageBox
-        QMessageBox.information(
-            parent or self._parent,
-            "索引管理",
-            "索引管理功能在简化AI系统中暂不可用。"
-        )
+        """显示索引管理器（基础版本）"""
+        try:
+            from ..dialogs.rag_index_dialog import RAGIndexDialog
+            
+            dialog = RAGIndexDialog(
+                ai_manager=self,
+                project_manager=project_manager,
+                parent=parent or self._parent
+            )
+            dialog.exec()
+            
+        except ImportError as e:
+            logger.error(f"导入索引管理对话框失败: {e}")
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(
+                parent or self._parent,
+                "索引管理",
+                "索引管理功能在简化AI系统中的完整版本暂不可用。"
+            )
+        except Exception as e:
+            logger.error(f"显示索引管理对话框失败: {e}")
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(
+                parent or self._parent,
+                "错误", 
+                f"无法打开索引管理对话框：{str(e)}"
+            )
     
     def show_batch_index_dialog(self, parent=None, project_manager=None):
         """显示批量索引对话框（兼容性方法）"""

@@ -39,7 +39,7 @@ class SmartCompletionManager(QObject):
         # 补全状态
         self._is_completing = False
         self._last_completion_pos = -1
-        self._completion_mode = 'manual_ai'  # manual_ai, disabled, auto_ai - 默认手动模式
+        self._completion_mode = 'auto_ai'  # manual_ai, disabled, auto_ai - 默认自动模式
         
         # 定时器
         self._auto_completion_timer = QTimer()

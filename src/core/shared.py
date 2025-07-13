@@ -31,7 +31,7 @@ class Shared(QObject):
         # 当前状态
         self._current_project_path: Optional[Path] = None
         self._current_document_id: Optional[str] = None
-        self._current_theme: str = self._config.get("app", "theme", "light")
+        self._current_theme: str = self._config.get("ui", "theme", "dark")
         
         # 项目相关数据
         self._project_data: Dict[str, Any] = {}
@@ -84,7 +84,7 @@ class Shared(QObject):
         """设置当前主题"""
         if self._current_theme != theme:
             self._current_theme = theme
-            self._config.set("app", "theme", theme)
+            self._config.set("ui", "theme", theme)
             self.themeChanged.emit(theme)
             logger.info(f"Theme changed to: {theme}")
     

@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
     QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QCheckBox,
     QPushButton, QLabel, QSlider, QTextEdit, QProgressBar,
-    QMessageBox, QTextBrowser, QFrame
+    QMessageBox, QTextBrowser, QFrame, QScrollArea
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QThread, pyqtSlot
 from PyQt6.QtGui import QFont
@@ -87,7 +87,22 @@ class RAGConfigWidget(QFrame):
         
     def _init_ui(self):
         """初始化UI"""
-        layout = QVBoxLayout(self)
+        # 主布局（只包含滚动区域）
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # 创建滚动区域
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        
+        # 创建内容widget
+        content_widget = QWidget()
+        scroll_area.setWidget(content_widget)
+        
+        # 内容布局
+        layout = QVBoxLayout(content_widget)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
         
@@ -124,6 +139,12 @@ class RAGConfigWidget(QFrame):
         
         # 连接测试
         self._create_connection_test(layout)
+        
+        # 添加弹性空间
+        layout.addStretch()
+        
+        # 将滚动区域添加到主布局
+        main_layout.addWidget(scroll_area)
         
     def _create_service_config(self, layout):
         """创建RAG服务配置"""

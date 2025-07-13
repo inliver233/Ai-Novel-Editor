@@ -878,24 +878,6 @@ class EnhancedAIManager(QObject):
             }
         }
     
-    def show_config_dialog(self, parent=None):
-        """显示配置对话框"""
-        try:
-            from .unified_ai_config_dialog import UnifiedAIConfigDialog
-            dialog = UnifiedAIConfigDialog(parent or self._parent, self._config)
-            if dialog.exec():
-                # 重新初始化所有组件
-                self._init_ai_client()
-                self._init_enhanced_components()
-                self.configChanged.emit()
-                logger.info("增强AI配置已更新")
-        except ImportError:
-            QMessageBox.information(
-                parent or self._parent,
-                "AI配置",
-                "AI配置功能暂时不可用。\n请检查配置文件或联系开发者。"
-            )
-    
     def cleanup(self):
         """清理资源"""
         self._completion_timer.stop()
@@ -1103,6 +1085,148 @@ class EnhancedAIManager(QObject):
         except Exception as e:
             logger.error(f"处理配置保存失败: {e}")
     
+    def show_index_manager(self, parent=None, project_manager=None):
+        """显示索引管理器"""
+        try:
+            from ..dialogs.rag_index_dialog import RAGIndexDialog
+            
+            # 使用传入的project_manager或从shared获取
+            if not project_manager and hasattr(self._shared, 'project_manager'):
+                project_manager = self._shared.project_manager
+                
+            dialog = RAGIndexDialog(
+                ai_manager=self,
+                project_manager=project_manager,
+                parent=parent or self._parent
+            )
+            dialog.exec()
+            
+        except ImportError as e:
+            logger.error(f"导入索引管理对话框失败: {e}")
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                parent or self._parent,
+                "索引管理",
+                "索引管理对话框不可用。\n请通过AI配置对话框中的'RAG向量搜索'页面进行基本配置。"
+            )
+        except Exception as e:
+            logger.error(f"显示索引管理对话框失败: {e}")
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(
+                parent or self._parent,
+                "错误",
+                f"无法打开索引管理对话框：{str(e)}"
+            )
+    
+    def get_available_templates(self) -> List[Dict[str, Any]]:
+        """获取可用模板列表"""
+        try:
+            # 如果有prompt_manager且支持模板，使用其功能
+            if self.prompt_manager and hasattr(self.prompt_manager, 'get_all_templates'):
+                return self.prompt_manager.get_all_templates()
+            
+            # 否则返回增强版的默认模板列表
+            return [
+                {
+                    'id': 'enhanced_creative',
+                    'name': '增强创意写作',
+                    'description': '集成Codex知识库的高级创意写作模板',
+                    'category': 'enhanced'
+                },
+                {
+                    'id': 'context_aware_dialogue',
+                    'name': '上下文感知对话',
+                    'description': '基于角色背景和情境的智能对话生成',
+                    'category': 'dialogue'
+                },
+                {
+                    'id': 'scene_continuation',
+                    'name': '场景续写',
+                    'description': '考虑前文情节和角色状态的场景续写',
+                    'category': 'continuation'
+                },
+                {
+                    'id': 'rag_enhanced_writing',
+                    'name': 'RAG增强写作',
+                    'description': '利用历史内容检索的智能写作助手',
+                    'category': 'rag'
+                }
+            ]
+        except Exception as e:
+            logger.error(f"获取模板列表失败: {e}")
+            return []
+    
+    def get_current_template_id(self, mode: str) -> str:
+        """获取当前模板ID"""
+        try:
+            if self.prompt_manager and hasattr(self.prompt_manager, 'get_current_template'):
+                return self.prompt_manager.get_current_template(mode)
+            
+            # 根据模式返回默认模板
+            mode_templates = {
+                'creative': 'enhanced_creative',
+                'dialogue': 'context_aware_dialogue', 
+                'continuation': 'scene_continuation',
+                'rag': 'rag_enhanced_writing'
+            }
+            return mode_templates.get(mode, 'enhanced_creative')
+        except Exception as e:
+            logger.error(f"获取当前模板ID失败: {e}")
+            return 'enhanced_creative'
+    
+    def open_template_manager(self, parent=None):
+        """打开模板管理器"""
+        from PyQt6.QtWidgets import QMessageBox
+        QMessageBox.information(
+            parent or self._parent,
+            "模板管理",
+            "增强AI系统的模板管理已集成到统一配置对话框中。\n"
+            "请通过AI配置对话框中的'智能提示词'页面管理模板。"
+        )
+    
+    def index_document_sync(self, document_id: str, content: str) -> bool:
+        """同步索引文档"""
+        try:
+            logger.info(f"增强AI管理器同步索引文档: {document_id}")
+            
+            # 检查RAG服务是否可用
+            if not self.rag_service:
+                logger.warning(f"RAG服务不可用，无法索引文档: {document_id}")
+                return False
+                
+            # 使用RAG服务的index_document方法
+            success = self.rag_service.index_document(document_id, content)
+            
+            if success:
+                logger.info(f"文档索引成功: {document_id}")
+            else:
+                logger.warning(f"文档索引失败: {document_id}")
+                
+            return success
+            
+        except Exception as e:
+            logger.error(f"同步索引文档异常 {document_id}: {e}")
+            return False
+    
+    def delete_document_index(self, document_id: str):
+        """删除文档索引"""
+        try:
+            logger.info(f"删除文档索引: {document_id}")
+            
+            if not self.rag_service or not self.rag_service._vector_store:
+                logger.warning(f"RAG服务或向量存储不可用，无法删除索引: {document_id}")
+                return
+                
+            # 如果向量存储有删除方法，使用它
+            if hasattr(self.rag_service._vector_store, 'delete_document'):
+                self.rag_service._vector_store.delete_document(document_id)
+                logger.info(f"文档索引删除成功: {document_id}")
+            else:
+                logger.warning(f"向量存储不支持文档删除: {document_id}")
+                
+        except Exception as e:
+            logger.error(f"删除文档索引异常 {document_id}: {e}")
+    
     def force_reinit_ai(self) -> bool:
         """强制重新初始化AI客户端"""
         try:
@@ -1251,4 +1375,11 @@ class EnhancedAIManager(QObject):
         """获取提示词管理器"""
         if self.prompt_generator and hasattr(self.prompt_generator, 'prompt_manager'):
             return self.prompt_generator.prompt_manager
+        return None
+    
+    @property
+    def rag_service(self):
+        """获取RAG服务（用于兼容性访问）"""
+        if self.context_builder and hasattr(self.context_builder, 'rag_service'):
+            return self.context_builder.rag_service
         return None
