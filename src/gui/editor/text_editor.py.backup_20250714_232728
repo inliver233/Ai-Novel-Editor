@@ -24,7 +24,6 @@ from PyQt6.QtGui import (
 )
 
 from typing import TYPE_CHECKING
-from datetime import datetime
 
 if TYPE_CHECKING:
     from core.config import Config
@@ -108,35 +107,21 @@ class IntelligentTextEditor(QPlainTextEdit):
         # 内联补全管理器
         self._inline_completion = InlineCompletionManager(self)
 
-        # Ghost Text系统 - 使用OptimalGhostText作为主要实现
+        # 深度集成Ghost Text系统 - 必须在 SmartCompletionManager 之前初始化
         try:
-            from .optimal_ghost_text import integrate_optimal_ghost_text
-            self._optimal_ghost_text = integrate_optimal_ghost_text(self)
-            if self._optimal_ghost_text is None:
-                logger.error("integrate_optimal_ghost_text returned None!")
-                raise ValueError("Optimal ghost text integration failed")
-            # 为了兼容性，将_ghost_completion指向OptimalGhostText系统
-            self._ghost_completion = self._optimal_ghost_text
-            self._use_optimal_ghost_text = True  # 启用OptimalGhostText系统
-            logger.info(f"✅ OptimalGhostText初始化成功: type={type(self._ghost_completion)}, has_show_completion={hasattr(self._ghost_completion, 'show_completion')}")
+            self._deep_ghost_text = integrate_with_text_editor(self)
+            if self._deep_ghost_text is None:
+                logger.error("integrate_with_text_editor returned None!")
+                raise ValueError("Ghost text integration failed")
+            # 为了兼容性，将 _ghost_completion 指向深度集成系统
+            self._ghost_completion = self._deep_ghost_text
+            self._use_deep_ghost_text = True  # 启用深度集成系统
+            logger.info(f"Ghost text initialized: type={type(self._ghost_completion)}, has_show_completion={hasattr(self._ghost_completion, 'show_completion')}")
         except Exception as e:
-            logger.error(f"OptimalGhostText初始化失败，尝试使用DeepIntegratedGhostText: {e}")
-            # 回退到DeepIntegratedGhostText系统
-            try:
-                self._deep_ghost_text = integrate_with_text_editor(self)
-                if self._deep_ghost_text is None:
-                    logger.error("integrate_with_text_editor returned None!")
-                    raise ValueError("Deep integrated ghost text integration failed")
-                # 为了兼容性，将_ghost_completion指向DeepIntegratedGhostText系统
-                self._ghost_completion = self._deep_ghost_text
-                self._use_optimal_ghost_text = False
-                logger.info(f"✅ DeepIntegratedGhostText回退成功: type={type(self._ghost_completion)}, has_show_completion={hasattr(self._ghost_completion, 'show_completion')}")
-            except Exception as fallback_error:
-                logger.error(f"所有Ghost Text系统初始化失败: {fallback_error}", exc_info=True)
-                self._optimal_ghost_text = None
-                self._deep_ghost_text = None
-                self._ghost_completion = None
-                self._use_optimal_ghost_text = False
+            logger.error(f"Failed to initialize ghost text: {e}", exc_info=True)
+            self._deep_ghost_text = None
+            self._ghost_completion = None
+            self._use_deep_ghost_text = False
 
         # 智能补全管理器（统一管理所有补全） - 在 ghost text 初始化之后
         self._smart_completion = SmartCompletionManager(self, self._completion_engine)
@@ -178,11 +163,37 @@ class IntelligentTextEditor(QPlainTextEdit):
         logger.info("Intelligent text editor initialized")
 
     def paintEvent(self, event: QPaintEvent):
-        """简化的paintEvent - OptimalGhostText无需特殊渲染"""
-        # OptimalGhostText直接在文档中插入格式化文本，无需额外渲染
+        """重写paintEvent以支持Ghost Text渲染"""
+        # 首先调用父类的paintEvent绘制正常文本
         super().paintEvent(event)
 
-    # Legacy ghost text methods removed - replaced with OptimalGhostText
+        # 优先使用深度集成Ghost Text系统
+        if self._use_deep_ghost_text and hasattr(self, '_deep_ghost_text') and self._deep_ghost_text:
+            if self._deep_ghost_text.has_active_ghost_text():
+                logger.debug("🎨 paintEvent: Ghost text is active, starting render")
+                painter = QPainter(self.viewport())
+                if painter.isActive():
+                    try:
+                        self._deep_ghost_text.render_ghost_text(painter)
+                        logger.debug("🎨 深度集成Ghost Text已在paintEvent中渲染")
+                    except Exception as e:
+                        logger.error(f"深度集成Ghost Text渲染失败: {e}")
+                    finally:
+                        if painter.isActive():
+                            painter.end()
+                return
+
+        # 传统Ghost Text已移除，仅使用深度集成系统
+
+    # _paint_ghost_text 方法已删除 - 使用深度集成系统
+    
+    # _split_ghost_text_properly 方法已删除 - 使用深度集成系统
+    
+    # _split_ghost_text_with_smart_wrapping 方法已删除 - 使用深度集成系统
+    
+    # _find_optimal_break_position 方法已删除 - 使用深度集成系统
+    
+    # _find_smart_break_point 方法已删除 - 使用深度集成系统
 
     def set_ghost_text(self, text: str, cursor_position: int):
         """设置Ghost Text内容和位置 - 仅使用深度集成系统"""
@@ -252,7 +263,7 @@ class IntelligentTextEditor(QPlainTextEdit):
         )
 
         # 设置初始状态
-        self._status_indicator.set_completion_mode('manual_ai')  # 修复：默认手动模式
+        self._status_indicator.set_completion_mode('auto_ai')
         self._status_indicator.set_ai_status('idle')
         self._status_indicator.set_ai_available(True)
     

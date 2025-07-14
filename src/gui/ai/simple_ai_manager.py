@@ -414,9 +414,21 @@ class SimpleAIManager(QObject):
             self._completion_timer.stop()
     
     def _on_ai_completion_requested(self, text: str, context: dict):
-        """处理AI补全请求"""
+        """处理AI补全请求 - 修复参数传递问题"""
         cursor_pos = context.get('cursor_position', -1)
-        self.request_completion(text, cursor_pos)
+        trigger_type = context.get('trigger_type', 'auto')
+        mode = context.get('mode', 'auto')
+        
+        # 根据mode和trigger_type确定调用方式
+        if trigger_type == 'manual':
+            # 手动触发：使用'manual'模式调用
+            self.request_completion('manual')
+        elif mode == 'manual':
+            # 手动模式：使用'manual'模式调用
+            self.request_completion('manual')
+        else:
+            # 其他情况：使用上下文调用
+            self.request_completion(text, cursor_pos)
     
     # 兼容性方法 - 为了支持原有接口
     def set_context_mode(self, mode: str):

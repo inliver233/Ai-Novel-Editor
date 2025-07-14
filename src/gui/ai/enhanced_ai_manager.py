@@ -479,7 +479,7 @@ class EnhancedAIManager(QObject):
         self._auto_trigger_enabled = True
         self._trigger_delay = 1000  # ms
         self._punctuation_assist_enabled = True
-        self._completion_mode = "auto_ai"
+        self._completion_mode = "manual_ai"  # 修复：默认为手动模式
         self._context_mode = "balanced"
         self._style_tags = []
         
@@ -949,7 +949,10 @@ class EnhancedAIManager(QObject):
     
     def _on_text_changed(self):
         """处理文本变化"""
-        if not self._auto_trigger_enabled or not self._current_editor:
+        # 修复：只有在自动AI模式下才允许自动触发
+        if (not self._auto_trigger_enabled or 
+            not self._current_editor or 
+            getattr(self, '_completion_mode', 'manual_ai') != 'auto_ai'):
             return
         
         # 获取当前文本和光标位置
@@ -1043,7 +1046,7 @@ class EnhancedAIManager(QObject):
     def set_completion_mode(self, mode: str):
         """设置补全模式"""
         if not hasattr(self, '_completion_mode'):
-            self._completion_mode = "auto_ai"
+            self._completion_mode = "manual_ai"  # 修复：默认为手动模式
         self._completion_mode = mode
         logger.debug(f"补全模式设置为: {mode}")
         self.configChanged.emit()

@@ -182,10 +182,10 @@ class Config:
             
             # 补全配置
             "completion": {
-                "completion_mode": "auto_ai",
+                "completion_mode": "manual_ai",  # 修复：默认为手动模式
                 "context_mode": "balanced",
                 "trigger_delay": 500,
-                "auto_trigger": True,
+                "auto_trigger": False,  # 修复：默认关闭自动触发
                 "streaming": True,
                 "temperature": 0.7,
                 "max_length": 200

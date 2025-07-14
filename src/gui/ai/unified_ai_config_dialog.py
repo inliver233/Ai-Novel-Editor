@@ -1211,7 +1211,7 @@ class UnifiedAIConfigDialog(QDialog):
             }
             
             mode_internal = self._config.get('ai', 'completion_mode', 'auto_ai')
-            mode_display = mode_reverse_mapping.get(mode_internal, '自动AI补全')
+            mode_display = mode_reverse_mapping.get(mode_internal, '手动AI补全')  # 修复：默认手动模式
             
             context_internal = self._config.get('ai', 'context_mode', 'balanced')
             context_display = context_reverse_mapping.get(context_internal, '平衡模式 (2-8K tokens)')
@@ -1339,7 +1339,7 @@ class UnifiedAIConfigDialog(QDialog):
                     '全局模式 (200K+ tokens)': 'full'
                 }
                 
-                mode_display = completion_settings.get('completion_mode', '自动AI补全')
+                mode_display = completion_settings.get('completion_mode', '手动AI补全')  # 修复：默认手动模式
                 mode_internal = mode_mapping.get(mode_display, 'auto_ai')
                 
                 context_display = completion_settings.get('context_mode', '平衡模式 (2-8K tokens)')
@@ -1453,7 +1453,7 @@ class UnifiedAIConfigDialog(QDialog):
                 'auto_trigger_enabled': True,
                 'punctuation_assist': True,
                 'trigger_delay': 500,
-                'completion_mode': '自动AI补全',
+                'completion_mode': '手动AI补全',  # 修复：默认手动模式
                 'context_mode': '平衡模式 (2-8K tokens)',  # 新增上下文模式默认值
                 'min_chars': 3,
                 'context_length': 500,
