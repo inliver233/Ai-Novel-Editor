@@ -15,6 +15,9 @@ import time
 from collections import OrderedDict
 import hashlib
 
+# 导入模板处理器
+from .template_processor import TemplateProcessor
+
 logger = logging.getLogger(__name__)
 
 
@@ -356,6 +359,7 @@ class SinglePromptManager(QObject):
         # 核心组件
         self.tag_system = TaggedPromptSystem()
         self.context_injector = AutoContextInjector(shared)
+        self.template_processor = TemplateProcessor()  # 新增模板处理器
         
         # 简化的缓存系统 - 仅保留最近的100个结果
         self._prompt_cache = OrderedDict()
@@ -363,6 +367,9 @@ class SinglePromptManager(QObject):
         
         # 基础模板
         self.base_template = self._load_base_template()
+        
+        # 验证模板
+        self._validate_base_template()
         
         logger.info("SinglePromptManager 初始化完成")
     
@@ -381,25 +388,29 @@ class SinglePromptManager(QObject):
         # 2. 构建基础提示词
         prompt = self.base_template
         
-        # 3. 应用标签修饰
+        # 3. 应用标签修饰 - 生成风格指导
+        style_guidance = []
         if context.selected_tags:
-            prompt = self.tag_system.apply_tags(prompt, context.selected_tags)
+            style_guidance = self._generate_style_guidance(context.selected_tags)
             logger.debug(f"已应用标签: {context.selected_tags}")
         
-        # 4. 注入智能上下文
-        prompt = self.context_injector.inject_context(prompt, context)
+        # 4. 构建模板上下文数据
+        template_context = self._build_template_context(context, style_guidance)
         
-        # 5. 添加自定义补充
+        # 5. 使用TemplateProcessor处理模板
+        prompt = self.template_processor.process_template(prompt, template_context)
+        
+        # 6. 添加自定义补充
         if context.custom_prompt:
             prompt += f"\n\n**附加要求**：\n{context.custom_prompt}"
         
-        # 6. 根据模式调整提示词长度和详细度
+        # 7. 根据模式调整提示词长度和详细度
         prompt = self._adjust_for_mode(prompt, context.prompt_mode)
         
-        # 7. 缓存结果
+        # 8. 缓存结果
         self._cache_prompt(cache_key, prompt)
         
-        # 8. 发出信号
+        # 9. 发出信号
         self.promptGenerated.emit(prompt)
         self.contextUpdated.emit({
             'tags': context.selected_tags,
@@ -518,6 +529,183 @@ class SinglePromptManager(QObject):
             'max_size': self._cache_max_size,
             'hit_rate': getattr(self, '_cache_hits', 0) / max(getattr(self, '_cache_requests', 1), 1)
         }
+    
+    def _validate_base_template(self):
+        """验证基础模板"""
+        try:
+            validation_result = self.template_processor.validate_template(self.base_template)
+            
+            if not validation_result['is_valid']:
+                logger.error(f"基础模板验证失败: {validation_result['errors']}")
+                return
+            
+            if validation_result['unknown_variables']:
+                logger.warning(f"模板包含未知变量: {validation_result['unknown_variables']}")
+            
+            logger.info(f"模板验证通过，包含变量: {validation_result['variables']}")
+            
+        except Exception as e:
+            logger.error(f"模板验证过程出错: {e}")
+    
+    def _generate_style_guidance(self, selected_tags: List[str]) -> List[str]:
+        """生成风格指导"""
+        style_guidance = []
+        
+        for tag in selected_tags:
+            # 处理风格标签
+            if tag in self.tag_system.genre_tags:
+                tag_data = self.tag_system.genre_tags[tag]
+                style_guidance.append(tag_data["style_prompt"])
+            
+            # 处理情节标签
+            elif tag in self.tag_system.plot_tags:
+                style_guidance.append(self.tag_system.plot_tags[tag])
+            
+            # 处理视角标签
+            elif tag in self.tag_system.perspective_tags:
+                style_guidance.append(self.tag_system.perspective_tags[tag])
+        
+        return style_guidance
+    
+    def _build_template_context(self, context: SimplePromptContext, 
+                               style_guidance: List[str]) -> Dict[str, Any]:
+        """构建模板上下文数据"""
+        
+        # 1. 基础变量
+        current_text = self._get_context_text(
+            context.text, context.cursor_position, context.context_size
+        )
+        
+        template_context = {
+            "current_text": current_text,
+            "word_count": context.word_count,
+            "completion_type": context.completion_type.value,
+            "cursor_context": self._get_cursor_context(context.text, context.cursor_position),
+            "style_guidance": style_guidance
+        }
+        
+        # 2. RAG上下文检索 (如果可用)
+        rag_context = self._get_rag_context(context.text, context.cursor_position)
+        template_context["rag_context"] = rag_context
+        
+        # 3. 实体检测
+        entities = self._detect_entities(context.text, context.cursor_position)
+        if entities:
+            template_context["detected_entities"] = entities
+            context.detected_entities = entities
+        else:
+            template_context["detected_entities"] = []
+        
+        # 4. 智能上下文分析
+        context_analysis = self._analyze_context(context.text, context.cursor_position)
+        template_context.update(context_analysis)
+        
+        return template_context
+    
+    def _get_context_text(self, text: str, cursor_pos: int, context_size: int) -> str:
+        """获取光标周围的上下文文本"""
+        start = max(0, cursor_pos - context_size)
+        end = min(len(text), cursor_pos + context_size // 2)
+        return text[start:end].strip()
+    
+    def _get_cursor_context(self, text: str, cursor_pos: int) -> str:
+        """获取光标附近的短上下文"""
+        start = max(0, cursor_pos - 50)
+        end = min(len(text), cursor_pos + 50)
+        context = text[start:end]
+        
+        # 标记光标位置
+        cursor_in_context = cursor_pos - start
+        if 0 <= cursor_in_context <= len(context):
+            context = context[:cursor_in_context] + "｜" + context[cursor_in_context:]
+        
+        return context
+    
+    def _get_rag_context(self, text: str, cursor_pos: int) -> str:
+        """获取RAG上下文（如果服务可用）"""
+        if not hasattr(self, 'shared') or not self.shared:
+            return ""
+        
+        if not hasattr(self.shared, 'rag_service') or not self.shared.rag_service:
+            return ""
+        
+        try:
+            # 提取查询文本
+            query_text = self._get_context_text(text, cursor_pos, 200)
+            
+            # RAG检索
+            results = self.shared.rag_service.search_with_context(query_text, "balanced")
+            
+            if results:
+                return results
+            
+        except Exception as e:
+            logger.warning(f"RAG上下文检索失败: {e}")
+        
+        return ""
+    
+    def _detect_entities(self, text: str, cursor_pos: int) -> List[str]:
+        """简化的实体检测 - 识别角色名、地点等"""
+        context_text = self._get_context_text(text, cursor_pos, 300)
+        
+        # 简单的中文姓名检测
+        name_pattern = r'[\u4e00-\u9fff]{2,4}(?=[\s，。！？：；""''（）]|$)'
+        potential_names = re.findall(name_pattern, context_text)
+        
+        # 过滤常见词汇，保留可能的人名
+        common_words = {'自己', '现在', '今天', '昨天', '明天', '时候', '地方', '东西', '事情'}
+        entities = [name for name in set(potential_names) 
+                   if name not in common_words and len(name) >= 2]
+        
+        return entities[:5]  # 最多返回5个实体
+    
+    def _analyze_context(self, text: str, cursor_pos: int) -> Dict[str, str]:
+        """智能上下文分析"""
+        context_text = self._get_context_text(text, cursor_pos, 200)
+        
+        analysis = {
+            "scene_type": self._detect_scene_type(context_text),
+            "emotional_tone": self._detect_emotional_tone(context_text),
+            "narrative_flow": self._detect_narrative_flow(context_text, cursor_pos)
+        }
+        
+        return analysis
+    
+    def _detect_scene_type(self, text: str) -> str:
+        """检测场景类型"""
+        dialogue_markers = ['"', '"', '"', '：', '道', '说', '问', '答']
+        action_markers = ['跑', '走', '飞', '打', '击', '抓', '推', '拉']
+        description_markers = ['阳光', '房间', '街道', '山', '水', '树', '花']
+        
+        if any(marker in text for marker in dialogue_markers):
+            return "对话场景"
+        elif any(marker in text for marker in action_markers):
+            return "动作场景"
+        elif any(marker in text for marker in description_markers):
+            return "描写场景"
+        else:
+            return "叙述场景"
+    
+    def _detect_emotional_tone(self, text: str) -> str:
+        """检测情感基调"""
+        positive_words = ['高兴', '开心', '快乐', '兴奋', '满意', '欣喜']
+        negative_words = ['伤心', '难过', '愤怒', '恐惧', '焦虑', '担心']
+        
+        if any(word in text for word in positive_words):
+            return "积极情感"
+        elif any(word in text for word in negative_words):
+            return "消极情感"
+        else:
+            return "中性情感"
+    
+    def _detect_narrative_flow(self, text: str, cursor_pos: int) -> str:
+        """检测叙述流向"""
+        if cursor_pos < len(text) * 0.1:
+            return "开篇阶段"
+        elif cursor_pos > len(text) * 0.9:
+            return "结尾阶段"
+        else:
+            return "发展阶段"
 
 
 # 向后兼容性接口
