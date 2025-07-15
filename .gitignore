@@ -209,3 +209,6 @@ dist/
 # 日志文件
 *.log
 logs/
+
+# Kiro 相关文件
+*.kiro

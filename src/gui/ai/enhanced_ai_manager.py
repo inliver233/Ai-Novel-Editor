@@ -68,16 +68,20 @@ class IntelligentContextBuilder:
         Returns:
             Dict containing comprehensive context data
         """
+        # 首先获取文档元数据以获得document_id
+        document_metadata = self._get_document_metadata()
+        document_id = document_metadata.get("document_id", "")
+        
         context_data = {
             "text_context": self._extract_text_context(text, cursor_pos, mode),
-            "codex_context": self._collect_codex_data(text, cursor_pos),
+            "codex_context": self._collect_codex_data(text, cursor_pos, document_id),
             "rag_context": self._search_rag_relevant(text, cursor_pos, mode),
             "user_preferences": self._get_user_style_preferences(),
-            "document_metadata": self._get_document_metadata(),
+            "document_metadata": document_metadata,
             "scene_analysis": self._analyze_scene_context(text, cursor_pos)
         }
         
-        logger.debug(f"上下文收集完成 - 模式: {mode}, Codex条目: {len(context_data['codex_context'])}")
+        logger.debug(f"上下文收集完成 - 模式: {mode}, Codex条目: {len(context_data['codex_context'])}, 文档ID: {document_id}")
         return context_data
     
     def _extract_text_context(self, text: str, cursor_pos: int, mode: str) -> Dict[str, str]:
@@ -106,7 +110,7 @@ class IntelligentContextBuilder:
             "cursor_line": self._get_current_line(text, cursor_pos)
         }
     
-    def _collect_codex_data(self, text: str, cursor_pos: int) -> List[Dict[str, Any]]:
+    def _collect_codex_data(self, text: str, cursor_pos: int, document_id: str = "") -> List[Dict[str, Any]]:
         """收集Codex系统数据"""
         if not self.codex_manager:
             return []
@@ -116,33 +120,43 @@ class IntelligentContextBuilder:
             detected_entries = []
             
             # 获取全局条目（始终包含）
-            global_entries = self.codex_manager.get_global_entries()
-            for entry in global_entries:
-                detected_entries.append({
-                    "id": entry.id,
-                    "title": entry.title,
-                    "type": entry.entry_type.value,
-                    "description": entry.description[:200],  # 截断描述
-                    "is_global": True
-                })
+            if hasattr(self.codex_manager, 'get_global_entries'):
+                global_entries = self.codex_manager.get_global_entries()
+                for entry in global_entries:
+                    detected_entries.append({
+                        "id": entry.id,
+                        "title": entry.title,
+                        "type": entry.entry_type.value,
+                        "description": entry.description[:200],  # 截断描述
+                        "is_global": True
+                    })
             
-            # 检测当前文本中提到的条目
+            # 检测当前文本中提到的条目 - 修复：添加document_id参数
             if hasattr(self.codex_manager, 'detect_references_in_text'):
-                references = self.codex_manager.detect_references_in_text(text)
-                for ref in references[:10]:  # 最多10个引用
-                    if hasattr(ref, 'entry_id'):
-                        entry = self.codex_manager.get_entry(ref.entry_id)
-                        if entry and not any(e['id'] == entry.id for e in detected_entries):
-                            detected_entries.append({
-                                "id": entry.id,
-                                "title": entry.title,
-                                "type": entry.entry_type.value,
-                                "description": entry.description[:200],
-                                "is_global": False,
-                                "reference_text": getattr(ref, 'reference_text', '')
-                            })
+                try:
+                    # 修复：使用正确的方法签名，传递text和document_id
+                    # 如果document_id为空，使用默认值
+                    effective_document_id = document_id if document_id else "default_document"
+                    references = self.codex_manager.detect_references_in_text(text, effective_document_id)
+                    
+                    for ref in references[:10]:  # 最多10个引用
+                        if hasattr(ref, 'entry_id'):
+                            entry = self.codex_manager.get_entry(ref.entry_id)
+                            if entry and not any(e['id'] == entry.id for e in detected_entries):
+                                detected_entries.append({
+                                    "id": entry.id,
+                                    "title": entry.title,
+                                    "type": entry.entry_type.value,
+                                    "description": entry.description[:200],
+                                    "is_global": False,
+                                    "reference_text": getattr(ref, 'reference_text', '')
+                                })
+                except Exception as e:
+                    # 记录错误但不中断流程
+                    logger.warning(f"Codex引用检测失败: {e}")
+                    # 继续处理，不影响其他功能
             
-            logger.debug(f"Codex数据收集完成: {len(detected_entries)}个条目")
+            logger.debug(f"Codex数据收集完成: {len(detected_entries)}个条目, 文档ID: {document_id}")
             return detected_entries
             
         except Exception as e:

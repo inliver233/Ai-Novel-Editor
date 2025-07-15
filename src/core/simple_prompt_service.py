@@ -235,8 +235,8 @@ class AutoContextInjector:
             # 提取查询文本
             query_text = self._get_context_text(text, cursor_pos, 200)
             
-            # RAG检索
-            results = self.rag_service.search_relevant_content(query_text, top_k=3)
+            # RAG检索 - 修复方法名称和参数格式
+            results = self.rag_service.search_with_context(query_text, "balanced")
             
             if results:
                 return f"相关背景信息：\n{results}"
