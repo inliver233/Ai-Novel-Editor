@@ -5,6 +5,7 @@
 
 import logging
 import re
+import time
 from typing import Optional, List, Dict, Any, Tuple
 from PyQt6.QtWidgets import QWidget, QLabel
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
@@ -13,6 +14,7 @@ from PyQt6.QtGui import QFont, QTextCursor, QKeyEvent
 from .completion_engine import CompletionEngine, CompletionSuggestion
 from .completion_widget import CompletionWidget
 from .inline_completion import InlineCompletionManager
+from .timeout_manager import TimeoutManager
 # Ghost text completion 通过 text_editor._ghost_completion 访问
 # from .completion_status_indicator import FloatingStatusIndicator  # 已移除，避免状态指示器冲突
 
@@ -69,6 +71,9 @@ class SmartCompletionManager(QObject):
         self._is_completing = False
         self._last_completion_pos = -1
         self._completion_mode = 'manual_ai'  # manual_ai, disabled, auto_ai - 修复：默认手动模式
+        
+        # 🔧 修复：初始化动态超时管理器
+        self._timeout_manager = TimeoutManager()
         
         # 定时器
         self._auto_completion_timer = QTimer()
@@ -302,17 +307,28 @@ class SmartCompletionManager(QObject):
 
         # 构建AI提示 - 传递trigger_type以正确设置模式
         context = self._build_ai_context(text, position, trigger_type)
+        
+        # 🔧 修复：保存上下文用于超时处理和记录
+        self._last_ai_context = context
 
         # 🔧 修复：记录AI请求时间，用于超时处理
-        import time
         self._ai_request_time = time.time()
+        self._ai_request_completed = False  # 重置完成标记
         
-        # 🔧 修复：设置超时定时器，防止AI请求hanging导致状态无法重置
+        # 🔧 修复：使用动态超时管理器计算超时时间
+        dynamic_timeout = self._timeout_manager.calculate_dynamic_timeout(context)
+        
+        # 🔧 修复：设置动态超时定时器，防止AI请求hanging导致状态无法重置
         if not hasattr(self, '_ai_timeout_timer'):
             self._ai_timeout_timer = QTimer()
             self._ai_timeout_timer.setSingleShot(True)
             self._ai_timeout_timer.timeout.connect(self._on_ai_timeout)
-        self._ai_timeout_timer.start(10000)  # 10秒超时
+        
+        # 使用动态计算的超时时间
+        timeout_ms = int(dynamic_timeout * 1000)  # 转换为毫秒
+        self._ai_timeout_timer.start(timeout_ms)
+        
+        logger.debug(f"🕐 设置动态超时: {dynamic_timeout:.1f}秒 ({timeout_ms}ms)")
 
         # 发出AI补全请求
         self.aiCompletionRequested.emit(text, context)
@@ -320,9 +336,23 @@ class SmartCompletionManager(QObject):
         # AI补全是异步的，_is_completing状态将在show_ai_completion或超时时重置
         
     def _on_ai_timeout(self):
-        """AI请求超时处理"""
-        logger.warning("⏰ AI补全请求超时，重置状态")
-        self._reset_completion_state(success=False)
+        """AI请求超时处理 - 增强版本，支持状态同步"""
+        # 🔧 修复：检查是否实际已经成功，避免状态冲突
+        if hasattr(self, '_ai_request_completed') and self._ai_request_completed:
+            logger.info("⏰ 超时触发但AI请求实际已完成，跳过超时处理")
+            return
+            
+        # 记录超时到动态超时管理器
+        if hasattr(self, '_ai_request_time'):
+            timeout_duration = time.time() - self._ai_request_time
+            # 构建上下文用于记录
+            context = getattr(self, '_last_ai_context', {})
+            self._timeout_manager.record_request_time(timeout_duration, context, success=False)
+            logger.warning(f"⏰ AI补全请求超时: {timeout_duration:.1f}秒")
+        else:
+            logger.warning("⏰ AI补全请求超时，无法获取请求时间")
+            
+        self._reset_completion_state(success=False, reason="timeout")
         if hasattr(self._text_editor, '_ai_status_manager'):
             self._text_editor._ai_status_manager.show_error("AI补全请求超时")
         
@@ -406,16 +436,27 @@ class SmartCompletionManager(QObject):
         self._popup_widget.show_suggestions(suggestions)
         
     def show_ai_completion(self, suggestion: str):
-        """显示AI补全建议 - 增强版本，支持多种显示模式"""
+        """显示AI补全建议 - 增强版本，支持多种显示模式和状态同步"""
+        # 🔧 修复：标记请求已完成，防止超时处理冲突
+        self._ai_request_completed = True
+        
         # 🔧 修复：停止超时定时器
         if hasattr(self, '_ai_timeout_timer'):
             self._ai_timeout_timer.stop()
+            
+        # 🔧 修复：记录请求完成时间到动态超时管理器
+        if hasattr(self, '_ai_request_time'):
+            request_duration = time.time() - self._ai_request_time
+            # 获取上下文用于记录
+            context = getattr(self, '_last_ai_context', {})
+            self._timeout_manager.record_request_time(request_duration, context, success=True)
+            logger.debug(f"📊 AI请求完成，耗时: {request_duration:.2f}秒")
             
         if not suggestion or not suggestion.strip():
             logger.warning("AI补全建议为空，跳过显示")
             if hasattr(self._text_editor, '_ai_status_manager'):
                 self._text_editor._ai_status_manager.show_error("AI补全生成失败")
-            self._reset_completion_state(success=False)
+            self._reset_completion_state(success=False, reason="empty_suggestion")
             return
 
         suggestion = suggestion.strip()
@@ -446,15 +487,64 @@ class SmartCompletionManager(QObject):
                 
         logger.error("所有AI补全显示方法都失败了")
         # 🔧 修复：失败时也要正确重置状态
-        self._reset_completion_state(success=False)
+        self._reset_completion_state(success=False, reason="display_failed")
     
-    def _reset_completion_state(self, success: bool = True):
-        """重置补全状态 - 统一的状态管理"""
+    def _reset_completion_state(self, success: bool = True, reason: str = ""):
+        """重置补全状态 - 统一的状态管理和同步
+        
+        Args:
+            success: 是否成功完成
+            reason: 重置原因，用于日志记录
+        """
+        # 🔧 修复：详细的状态变更日志记录
+        old_state = {
+            'is_completing': self._is_completing,
+            'has_timeout_timer': hasattr(self, '_ai_timeout_timer') and self._ai_timeout_timer.isActive(),
+            'request_completed': getattr(self, '_ai_request_completed', False)
+        }
+        
+        # 重置核心状态
         self._is_completing = False
+        self._ai_request_completed = False
+        
+        # 🔧 修复：确保超时定时器被正确停止
+        if hasattr(self, '_ai_timeout_timer') and self._ai_timeout_timer.isActive():
+            self._ai_timeout_timer.stop()
+            logger.debug("🛑 超时定时器已停止")
+        
+        # 🔧 修复：状态同步机制 - 以实际结果为准
         if not success:
             # 失败时清理所有补全状态
             self.hide_all_completions()
-        logger.debug(f"🔄 补全状态已重置: success={success}")
+            # 清理请求相关的临时状态
+            if hasattr(self, '_last_ai_context'):
+                delattr(self, '_last_ai_context')
+            if hasattr(self, '_ai_request_time'):
+                delattr(self, '_ai_request_time')
+        
+        # 详细的状态变更日志
+        new_state = {
+            'is_completing': self._is_completing,
+            'has_timeout_timer': hasattr(self, '_ai_timeout_timer') and self._ai_timeout_timer.isActive(),
+            'request_completed': getattr(self, '_ai_request_completed', False)
+        }
+        
+        logger.info(f"🔄 补全状态已重置: success={success}, reason='{reason}'")
+        logger.debug(f"   状态变更: {old_state} -> {new_state}")
+        
+        # 🔧 修复：通知状态管理器状态变更
+        if hasattr(self._text_editor, '_ai_status_manager'):
+            if success:
+                # 成功时不需要额外通知，因为已经在show_ai_completion中处理
+                pass
+            else:
+                # 失败时确保状态指示器显示正确状态
+                if reason == "timeout":
+                    self._text_editor._ai_status_manager.show_error("请求超时")
+                elif reason == "error":
+                    self._text_editor._ai_status_manager.show_error("请求失败")
+                else:
+                    self._text_editor._ai_status_manager.hide()
         
     def _try_ghost_text_display(self, suggestion: str) -> bool:
         """尝试使用Ghost Text显示补全"""
@@ -633,3 +723,187 @@ class SmartCompletionManager(QObject):
         # FloatingStatusIndicator已被移除
         # 状态显示由ModernAIStatusIndicator和EmbeddedStatusIndicator负责
         return None
+    
+    def _validate_state_consistency(self) -> bool:
+        """验证状态一致性 - 检查各个状态标记是否同步
+        
+        Returns:
+            bool: 状态是否一致
+        """
+        try:
+            # 检查核心状态
+            is_completing = self._is_completing
+            has_active_timer = hasattr(self, '_ai_timeout_timer') and self._ai_timeout_timer.isActive()
+            request_completed = getattr(self, '_ai_request_completed', False)
+            has_active_ghost = self._ghost_completion and self._ghost_completion.has_active_ghost_text() if self._ghost_completion else False
+            
+            # 状态一致性检查
+            inconsistencies = []
+            
+            # 如果请求已完成，不应该还有活跃的超时定时器
+            if request_completed and has_active_timer:
+                inconsistencies.append("请求已完成但超时定时器仍活跃")
+                
+            # 如果没有正在补全，不应该有活跃的超时定时器
+            if not is_completing and has_active_timer:
+                inconsistencies.append("未在补全但超时定时器活跃")
+                
+            # 如果有活跃的Ghost Text，应该标记为正在补全
+            if has_active_ghost and not is_completing:
+                inconsistencies.append("有活跃Ghost Text但未标记为补全中")
+            
+            if inconsistencies:
+                logger.warning(f"🚨 状态不一致检测到: {', '.join(inconsistencies)}")
+                logger.debug(f"   状态详情: completing={is_completing}, timer={has_active_timer}, "
+                           f"completed={request_completed}, ghost={has_active_ghost}")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            logger.error(f"状态一致性验证失败: {e}")
+            return False
+    
+    def _force_state_sync(self):
+        """强制状态同步 - 修复检测到的状态不一致问题"""
+        try:
+            logger.info("🔧 执行强制状态同步")
+            
+            # 检查是否有活跃的Ghost Text
+            has_active_ghost = False
+            if self._ghost_completion:
+                try:
+                    has_active_ghost = self._ghost_completion.has_active_ghost_text()
+                except:
+                    has_active_ghost = False
+            
+            # 检查是否有活跃的弹出补全
+            has_popup = self._popup_widget.isVisible()
+            
+            # 检查是否有活跃的内联补全
+            has_inline = self._inline_manager.is_showing()
+            
+            # 根据实际情况同步状态
+            should_be_completing = has_active_ghost or has_popup or has_inline
+            
+            if should_be_completing != self._is_completing:
+                logger.info(f"🔄 同步补全状态: {self._is_completing} -> {should_be_completing}")
+                self._is_completing = should_be_completing
+            
+            # 如果没有任何活跃补全，确保清理所有相关状态
+            if not should_be_completing:
+                if hasattr(self, '_ai_timeout_timer') and self._ai_timeout_timer.isActive():
+                    self._ai_timeout_timer.stop()
+                    logger.debug("🛑 强制停止超时定时器")
+                    
+                self._ai_request_completed = False
+                
+                # 清理临时状态
+                for attr in ['_last_ai_context', '_ai_request_time']:
+                    if hasattr(self, attr):
+                        delattr(self, attr)
+                        
+            logger.info("✅ 强制状态同步完成")
+            
+        except Exception as e:
+            logger.error(f"强制状态同步失败: {e}")
+    
+    def get_timeout_statistics(self) -> Dict[str, Any]:
+        """获取超时管理统计信息
+        
+        Returns:
+            Dict: 超时统计信息
+        """
+        try:
+            stats = self._timeout_manager.get_timeout_statistics()
+            
+            # 添加当前状态信息
+            stats.update({
+                'current_state': {
+                    'is_completing': self._is_completing,
+                    'has_active_timer': hasattr(self, '_ai_timeout_timer') and self._ai_timeout_timer.isActive(),
+                    'request_completed': getattr(self, '_ai_request_completed', False),
+                    'completion_mode': self._completion_mode
+                },
+                'state_consistent': self._validate_state_consistency()
+            })
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"获取超时统计信息失败: {e}")
+            return {'error': str(e)}
+    
+    def reset_timeout_history(self):
+        """重置超时历史记录 - 用于调试和维护"""
+        try:
+            self._timeout_manager.reset_history()
+            logger.info("📊 超时历史记录已重置")
+        except Exception as e:
+            logger.error(f"重置超时历史记录失败: {e}")
+    
+    def emergency_reset(self):
+        """紧急重置 - 清理所有状态，用于故障恢复"""
+        try:
+            logger.warning("🚨 执行紧急重置")
+            
+            # 停止所有定时器
+            if hasattr(self, '_ai_timeout_timer'):
+                self._ai_timeout_timer.stop()
+            if hasattr(self, '_auto_completion_timer'):
+                self._auto_completion_timer.stop()
+            
+            # 隐藏所有补全
+            self.hide_all_completions()
+            
+            # 重置所有状态标记
+            self._is_completing = False
+            self._ai_request_completed = False
+            self._last_completion_pos = -1
+            
+            # 清理临时状态
+            for attr in ['_last_ai_context', '_ai_request_time', '_last_trigger_time', '_last_auto_trigger_time']:
+                if hasattr(self, attr):
+                    delattr(self, attr)
+            
+            # 通知状态管理器
+            if hasattr(self._text_editor, '_ai_status_manager'):
+                self._text_editor._ai_status_manager.hide()
+            
+            logger.info("✅ 紧急重置完成")
+            
+        except Exception as e:
+            logger.error(f"紧急重置失败: {e}")
+    
+    def emergency_reset(self):
+        """紧急重置 - 清理所有状态，用于故障恢复"""
+        try:
+            logger.warning("🚨 执行紧急重置")
+            
+            # 停止所有定时器
+            if hasattr(self, '_ai_timeout_timer'):
+                self._ai_timeout_timer.stop()
+            if hasattr(self, '_auto_completion_timer'):
+                self._auto_completion_timer.stop()
+            
+            # 隐藏所有补全
+            self.hide_all_completions()
+            
+            # 重置所有状态标记
+            self._is_completing = False
+            self._ai_request_completed = False
+            self._last_completion_pos = -1
+            
+            # 清理临时状态
+            for attr in ['_last_ai_context', '_ai_request_time', '_last_trigger_time', '_last_auto_trigger_time']:
+                if hasattr(self, attr):
+                    delattr(self, attr)
+            
+            # 通知状态管理器
+            if hasattr(self._text_editor, '_ai_status_manager'):
+                self._text_editor._ai_status_manager.hide()
+            
+            logger.info("✅ 紧急重置完成")
+            
+        except Exception as e:
+            logger.error(f"紧急重置失败: {e}")
