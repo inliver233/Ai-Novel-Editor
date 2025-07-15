@@ -314,14 +314,37 @@ class SQLiteVectorStore:
                     if filtered_words:
                         keywords = filtered_words[:3]  # 最多取3个关键词
                     else:
-                        # 回退：将清理后的文本按长度分割
+                        # 修复代码 - 智能分割替换机械分割
                         if len(cleaned_query) >= 4:
-                            # 分成2-4字的片段
-                            for i in range(0, len(cleaned_query)-1, 2):
-                                segment = cleaned_query[i:i+3]
-                                if len(segment) >= 2:
-                                    keywords.append(segment)
-                            keywords = keywords[:3]
+                            # 使用基于词频和语义的分割
+                            try:
+                                # 尝试使用jieba分词
+                                import jieba
+                                logger.critical("🎯[JIEBA_DEBUG] sqlite_vector_store中jieba导入成功，准备分词处理")
+                                words = list(jieba.cut(cleaned_query))
+                                logger.critical("🎯[JIEBA_DEBUG] jieba分词结果: %s", words)
+                                # 扩展停用词列表
+                                stop_words = {'的', '是', '在', '有', '和', '与', '了', '着', '过', '等', '主题', '内容', '关于', '从', '被', '到',
+                                            '他', '她', '我', '你', '它', '这', '那', '这个', '那个', '一个', '什么', '怎么', '为什么',
+                                            '因为', '所以', '但是', '然后', '现在', '时候', '地方', '东西', '事情', '问题', '方面', '情况'}
+                                filtered_words = [w for w in words if len(w) >= 2 and w not in stop_words]
+                                if filtered_words:
+                                    keywords = filtered_words[:3]
+                                else:
+                                    # 降级到改进的正则提取
+                                    chinese_words = re.findall(r'[\u4e00-\u9fff]{2,4}', cleaned_query)
+                                    keywords = [w for w in chinese_words if w not in stop_words][:3]
+                            except Exception as e:
+                                logger.critical("❌[JIEBA_DEBUG] sqlite_vector_store中jieba分词失败: %s", e)
+                                # 最后降级到改进的字符组合
+                                chars = re.findall(r'[\u4e00-\u9fff]', cleaned_query)
+                                keywords = []
+                                for i in range(len(chars)-1):
+                                    word = chars[i] + chars[i+1]
+                                    if word not in stop_words:
+                                        keywords.append(word)
+                                        if len(keywords) >= 3:
+                                            break
                 elif len(cleaned_query) >= 2:
                     keywords = [cleaned_query]
                 
@@ -354,14 +377,8 @@ class SQLiteVectorStore:
                 if not search_conditions:
                     search_conditions = ["chunk_text LIKE ?"]
                     search_params = [f'%{query_text}%']
-                    if len(keyword) >= 2:
-                        search_conditions.append("chunk_text LIKE ?")
-                        search_params.append(f'%{keyword}%')
                 
-                # 如果没有有效关键词，使用原始查询
-                if not search_conditions:
-                    search_conditions = ["chunk_text LIKE ?"]
-                    search_params = [f'%{query_text}%']
+                # 移除重复的条件检查，避免keyword变量错误
                 
                 # 添加limit参数
                 search_params.append(limit * 3)  # 获取更多候选，然后筛选

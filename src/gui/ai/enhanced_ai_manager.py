@@ -43,11 +43,20 @@ class IntelligentContextBuilder:
         self.codex_manager = None
         self.rag_service = None
         self.reference_detector = None
+        self._intelligent_context_collector = None
         
         # 从shared获取组件
         if shared:
             self.codex_manager = getattr(shared, 'codex_manager', None)
             self.rag_service = getattr(shared, 'rag_service', None)
+            
+        # 初始化智能上下文收集器
+        try:
+            from core.intelligent_context_collector import IntelligentContextCollector
+            self._intelligent_context_collector = IntelligentContextCollector(self.codex_manager)
+            logger.info(f"IntelligentContextBuilder初始化 - Codex: {bool(self.codex_manager)}, RAG: {bool(self.rag_service)}, 智能收集器: 已启用")
+        except ImportError as e:
+            logger.warning(f"智能上下文收集器不可用: {e}")
             
         logger.info(f"IntelligentContextBuilder初始化 - Codex: {bool(self.codex_manager)}, RAG: {bool(self.rag_service)}")
     
@@ -164,15 +173,36 @@ class IntelligentContextBuilder:
             return []
     
     def _search_rag_relevant(self, text: str, cursor_pos: int, mode: str) -> str:
-        """搜索RAG相关内容"""
+        """搜索RAG相关内容 - 使用智能上下文收集器"""
         if not self.rag_service:
             return ""
         
         try:
-            # 提取查询文本
-            query_length = {"fast": 150, "balanced": 200, "full": 300}
-            query_text = self._extract_text_context(text, cursor_pos, mode)["full_context"]
-            query_text = query_text[-query_length.get(mode, 200):]
+            # 使用智能上下文收集器
+            if hasattr(self, '_intelligent_context_collector') and self._intelligent_context_collector:
+                # 使用智能收集器
+                context_result = self._intelligent_context_collector.collect_context_for_completion(
+                    text, cursor_pos
+                )
+                query_text = context_result.rag_query
+                logger.debug(f"智能上下文收集: 查询='{query_text}', 实体={len(context_result.detected_entities)}个, 关键词={len(context_result.primary_keywords)}个")
+                
+                # 新增: 空查询检查和立即降级
+                if not query_text or len(query_text.strip()) < 5:
+                    logger.warning("智能上下文收集器返回空查询，立即切换到降级策略")
+                    # 立即使用降级策略
+                    context_data = self._extract_text_context(text, cursor_pos, mode)
+                    full_context = context_data["full_context"]
+                    query_text = self._extract_smart_query_from_context(full_context, mode)
+                    logger.debug(f"降级策略生成查询: 原文={len(full_context)}字符, 查询='{query_text}'")
+            else:
+                # 降级到改进的上下文提取
+                context_data = self._extract_text_context(text, cursor_pos, mode)
+                full_context = context_data["full_context"]
+                
+                # 不再只取最后几个字符，而是智能提取关键词
+                query_text = self._extract_smart_query_from_context(full_context, mode)
+                logger.debug(f"改进上下文提取: 原文={len(full_context)}字符, 查询='{query_text}'")
             
             # RAG检索
             if hasattr(self.rag_service, 'search_with_context'):
@@ -189,6 +219,55 @@ class IntelligentContextBuilder:
             logger.warning(f"RAG检索失败: {e}")
         
         return ""
+    
+    def _extract_smart_query_from_context(self, full_context: str, mode: str) -> str:
+        """从完整上下文中智能提取RAG查询 - 增强版"""
+        if not full_context:
+            return ""
+        
+        try:
+            # 策略1: 使用jieba分词提取关键词
+            import jieba
+            import jieba.posseg as pseg
+                
+            words = pseg.cut(full_context)
+            important_words = []
+            
+            # 扩展停用词列表
+            stop_words = {'的', '是', '在', '有', '和', '与', '了', '着', '过', '等', '主题', '内容', '关于', '从', '被', '到',
+                         '他', '她', '我', '你', '它', '这', '那', '这个', '那个', '一个', '什么', '怎么', '为什么',
+                         '因为', '所以', '但是', '然后', '现在', '时候', '地方', '东西', '事情', '问题', '方面', '情况'}
+            
+            for word, flag in words:
+                if (len(word) >= 2 and
+                    word not in stop_words and
+                    flag in ['n', 'nr', 'ns', 'nt', 'nz', 'v', 'vn', 'a']):
+                    important_words.append(word)
+            
+            if important_words:
+                # 根据模式调整关键词数量
+                max_words = {"fast": 6, "balanced": 10, "full": 15}
+                selected_words = important_words[:max_words.get(mode, 10)]
+                query = " ".join(selected_words)
+                if len(query) >= 10:
+                    return query[:200]
+            
+            # 策略2: 提取最近的完整句子
+            import re
+            sentences = re.split(r'[。！？]', full_context)
+            recent_sentences = [s.strip() for s in sentences[-3:] if s.strip() and len(s.strip()) >= 5]
+            if recent_sentences:
+                query = " ".join(recent_sentences)
+                return query[:200]
+            
+            # 策略3: 使用最后的文本片段
+            return full_context[-100:] if len(full_context) > 100 else full_context
+            
+        except Exception as e:
+            logger.critical("❌[JIEBA_DEBUG] enhanced_ai_manager中jieba相关处理失败: %s", e)
+            logger.warning(f"智能查询提取失败: {e}")
+            # 最终降级
+            return full_context[-100:] if len(full_context) > 100 else full_context
     
     def _get_user_style_preferences(self) -> Dict[str, Any]:
         """获取用户风格偏好"""
@@ -312,10 +391,15 @@ class IntelligentContextBuilder:
         sentence_endings = ['。', '！', '？', '…', '\n']
         
         if reverse:
-            # 从后往前找最后一个句子结束
-            for i in range(len(text) - 1, -1, -1):
-                if text[i] in sentence_endings:
-                    return text[i+1:]
+            # 修复：不再截断前文，保留完整的上下文
+            # 只有在文本非常长的情况下才考虑截断
+            if len(text) > 1000:
+                # 从后往前找一个合适的句子边界，但至少保留500个字符
+                min_keep = min(500, len(text))
+                for i in range(len(text) - min_keep, -1, -1):
+                    if text[i] in sentence_endings:
+                        return text[i+1:]
+            # 如果没找到合适的截断点或文本不够长，返回完整文本
             return text
         else:
             # 从前往后找第一个句子结束

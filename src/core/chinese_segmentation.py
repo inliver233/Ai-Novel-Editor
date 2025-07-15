@@ -15,8 +15,8 @@ try:
     import jieba
     import jieba.posseg as pseg
     JIEBA_AVAILABLE = True
-    logger.info("jieba中文分词库加载成功")
-except ImportError:
+    logger.info("jieba中文分词库加载成功 - 版本: %s", getattr(jieba, '__version__', 'unknown'))
+except ImportError as e:
     JIEBA_AVAILABLE = False
     logger.warning("jieba中文分词库未安装，将使用基础分词功能")
 
@@ -94,7 +94,10 @@ class ChineseSegmenter:
         self._enable_custom_dict = enable_custom_dict
         
         if JIEBA_AVAILABLE and enable_custom_dict:
+            logger.critical("🎯[JIEBA_DEBUG] 正在初始化jieba自定义词典...")
             self._init_jieba()
+        else:
+            logger.critical("❌[JIEBA_DEBUG] jieba不可用或自定义词典禁用 - JIEBA_AVAILABLE=%s, enable_custom_dict=%s", JIEBA_AVAILABLE, enable_custom_dict)
     
     def _init_jieba(self):
         """初始化jieba设置"""
@@ -162,6 +165,7 @@ class ChineseSegmenter:
         results = []
         
         if JIEBA_AVAILABLE and with_pos:
+            logger.critical("🎯[JIEBA_DEBUG] 使用jieba进行词性标注分词，文本长度: %d", len(text))
             # 使用jieba进行词性标注分词
             words = pseg.cut(text)
             current_pos = 0
@@ -184,6 +188,7 @@ class ChineseSegmenter:
                         current_pos = end_pos
         
         elif JIEBA_AVAILABLE:
+            logger.critical("🎯[JIEBA_DEBUG] 使用jieba进行简单分词，文本长度: %d", len(text))
             # 使用jieba进行简单分词
             words = jieba.cut(text, cut_all=False)
             current_pos = 0
@@ -205,6 +210,7 @@ class ChineseSegmenter:
                         current_pos = end_pos
         
         else:
+            logger.critical("❌[JIEBA_DEBUG] jieba不可用，降级到基础分词（按字符），文本长度: %d", len(text))
             # 降级到基础分词（按字符）
             results = self._basic_segment(text)
         
@@ -244,6 +250,7 @@ class ChineseSegmenter:
             (关键词, 权重) 的列表
         """
         if not JIEBA_AVAILABLE:
+            logger.critical("❌[JIEBA_DEBUG] jieba不可用，无法进行关键词提取 - JIEBA_AVAILABLE=%s", JIEBA_AVAILABLE)
             logger.warning("jieba不可用，无法进行关键词提取")
             return []
         
