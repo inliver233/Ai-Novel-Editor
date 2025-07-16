@@ -178,6 +178,12 @@ class SmartCompletionManager(QObject):
                 return True
             elif key == Qt.Key.Key_Escape:
                 self._popup_widget.hide()
+                # 🔧 修复：检查是否有活跃的Ghost Text需要处理
+                try:
+                    if self._ghost_completion and self._ghost_completion.has_active_ghost_text():
+                        self._ghost_completion.reject_ghost_text()
+                except Exception as e:
+                    logger.error(f"Smart补全管理器Esc键处理Ghost Text失败: {e}")
                 return True
                 
         # Tab键处理 - 🔧 修复手动模式状态管理

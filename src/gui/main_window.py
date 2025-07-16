@@ -1442,6 +1442,24 @@ class MainWindow(QMainWindow):
 
     def _exit_focus_mode(self):
         """退出专注模式（Esc键）"""
+        # 🔧 修复：优先处理Ghost Text的Esc键事件
+        try:
+            if hasattr(self, '_editor_panel') and self._editor_panel:
+                text_editor = self._editor_panel.get_current_editor()
+                if text_editor and hasattr(text_editor, '_ghost_completion') and text_editor._ghost_completion:
+                    if text_editor._ghost_completion.has_active_ghost_text():
+                        # 如果有活跃的Ghost Text，优先处理
+                        logger.debug("🔄 全局Esc快捷键：检测到活跃Ghost Text，优先处理")
+                        text_editor._ghost_completion.reject_ghost_text()
+                        return
+                    else:
+                        logger.debug("🔄 全局Esc快捷键：没有活跃Ghost Text，继续处理专注模式")
+                else:
+                    logger.debug("🔄 全局Esc快捷键：Ghost Text系统不可用")
+        except Exception as e:
+            logger.error(f"🔄 全局Esc快捷键：处理Ghost Text时发生异常: {e}")
+            # 异常时继续处理专注模式
+        
         if not self._focus_mode:
             return
         # 只在非普通模式时才退出到普通模式

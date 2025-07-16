@@ -435,8 +435,11 @@ class IntelligentTextEditor(QPlainTextEdit):
 
         # 第一优先级：Ghost Text补全处理
         if hasattr(self, '_ghost_completion') and self._ghost_completion:
-            if self._ghost_completion.handle_key_press(event):
-                return
+            try:
+                if self._ghost_completion.handle_key_press(event):
+                    return
+            except Exception as e:
+                logger.error(f"Ghost Text按键处理失败: {e}")
 
         # 第二优先级：智能补全管理器处理
         if self._smart_completion.handle_key_press(event):
@@ -451,6 +454,12 @@ class IntelligentTextEditor(QPlainTextEdit):
             elif key == Qt.Key.Key_Escape:
                 # ESC键隐藏补全组件
                 self._completion_widget.hide()
+                # 🔧 修复：检查是否有活跃的Ghost Text需要处理
+                try:
+                    if hasattr(self, '_ghost_completion') and self._ghost_completion and self._ghost_completion.has_active_ghost_text():
+                        self._ghost_completion.reject_ghost_text()
+                except Exception as e:
+                    logger.error(f"Esc键处理Ghost Text失败: {e}")
                 return
             elif key in [Qt.Key.Key_Backspace, Qt.Key.Key_Delete]:
                 # 删除键：先处理删除，然后更新补全
@@ -634,8 +643,11 @@ class IntelligentTextEditor(QPlainTextEdit):
     def show_ghost_ai_completion(self, suggestion: str):
         """显示Ghost Text AI补全建议"""
         if suggestion and self._ghost_completion:
-            self._ghost_completion.show_completion(suggestion)
-            logger.info(f"Ghost text AI completion shown: {suggestion[:50]}...")
+            try:
+                self._ghost_completion.show_completion(suggestion)
+                logger.info(f"Ghost text AI completion shown: {suggestion[:50]}...")
+            except Exception as e:
+                logger.error(f"显示Ghost Text补全失败: {e}")
 
     def hide_inline_completion(self):
         """隐藏内联补全"""
@@ -645,7 +657,10 @@ class IntelligentTextEditor(QPlainTextEdit):
     def hide_ghost_completion(self):
         """隐藏Ghost Text补全"""
         if self._ghost_completion:
-            self._ghost_completion.hide_completion()
+            try:
+                self._ghost_completion.hide_completion()
+            except Exception as e:
+                logger.error(f"隐藏Ghost Text补全失败: {e}")
     
     @pyqtSlot()
     def _on_text_changed(self):
