@@ -41,8 +41,9 @@ class APITestWorker(QThread):
             self.testStarted.emit()
             self.testProgress.emit("正在验证配置参数...")
             
-            # 检查必要参数
-            if not self.config_data.get('api_key', '').strip():
+            # 检查必要参数（Ollama不需要API密钥）
+            provider_name = self.config_data.get('provider', 'OpenAI')
+            if not self.config_data.get('api_key', '').strip() and provider_name not in ['Ollama (本地)']:
                 self.testCompleted.emit(False, "API密钥不能为空")
                 return
                 
@@ -64,11 +65,12 @@ class APITestWorker(QThread):
             provider_mapping = {
                 'OpenAI': AIProvider.OPENAI,
                 'Claude (Anthropic)': AIProvider.CLAUDE,
+                'Gemini (Google)': AIProvider.GEMINI,
+                'Ollama (本地)': AIProvider.OLLAMA,
                 '通义千问 (阿里云)': AIProvider.CUSTOM,
                 '智谱AI': AIProvider.CUSTOM,
                 'DeepSeek': AIProvider.CUSTOM,
                 'Groq': AIProvider.CUSTOM,
-                'Ollama (本地)': AIProvider.CUSTOM,
                 '自定义API': AIProvider.CUSTOM
             }
             
@@ -78,24 +80,23 @@ class APITestWorker(QThread):
             # 根据服务商设置正确的endpoint URL
             endpoint_url = api_base
             if not endpoint_url and provider_name != '自定义API':
+                # 对于预设提供商，如果用户没有自定义URL，则使用None让AI客户端使用默认URL
+                # 如果用户设置了自定义URL，则会使用用户的URL但保持原生API格式
                 endpoint_mapping = {
-                    'OpenAI': 'https://api.openai.com/v1/chat/completions',
-                    'Claude (Anthropic)': 'https://api.anthropic.com/v1/messages',
                     '通义千问 (阿里云)': 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
                     '智谱AI': 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
                     'DeepSeek': 'https://api.deepseek.com/chat/completions',
-                    'Groq': 'https://api.groq.com/openai/v1/chat/completions',
-                    'Ollama (本地)': 'http://localhost:11434/v1/chat/completions'
+                    'Groq': 'https://api.groq.com/openai/v1/chat/completions'
                 }
-                endpoint_url = endpoint_mapping.get(provider_name, '')
+                endpoint_url = endpoint_mapping.get(provider_name, None)
             
             config = AIConfig(
                 provider=provider,
                 model=self.config_data['model'],
                 endpoint_url=endpoint_url,
                 temperature=self.config_data.get('temperature', 0.8),
-                max_tokens=100,  # 测试时使用较小的token数
-                timeout=15  # 缩短超时时间
+                max_tokens=self.config_data.get('max_tokens', 500),  # 🔧 修复：使用用户配置的max_tokens
+                timeout=self.config_data.get('timeout', 30)  # 🔧 修复：使用用户配置的timeout
             )
             
             # 设置API密钥
@@ -123,7 +124,7 @@ class APITestWorker(QThread):
             for i, test_prompt in enumerate(test_prompts):
                 try:
                     self.testProgress.emit(f"尝试测试消息 {i+1}/{len(test_prompts)}...")
-                    response = client.complete(test_prompt, max_tokens=50)
+                    response = client.complete(test_prompt, max_tokens=self.config_data.get('max_tokens', 200))  # 🔧 修复：使用用户配置的max_tokens
                     
                     if response and len(response.strip()) > 0:
                         success = True
@@ -242,12 +243,13 @@ class UnifiedAPIConfigWidget(QFrame):
         self._provider_combo = QComboBox()
         self._provider_combo.addItems([
             "OpenAI",
-            "Claude (Anthropic)", 
+            "Claude (Anthropic)",
+            "Gemini (Google)",
+            "Ollama (本地)",
             "通义千问 (阿里云)",
             "智谱AI",
             "DeepSeek",
             "Groq",
-            "Ollama (本地)",
             "自定义API"
         ])
         group_layout.addRow("服务商:", self._provider_combo)
@@ -374,7 +376,12 @@ class UnifiedAPIConfigWidget(QFrame):
             "Claude (Anthropic)": {
                 "api_base": "https://api.anthropic.com",
                 "models": ["claude-3-5-sonnet-20241022", "claude-3-sonnet-20240229", "claude-3-haiku-20240307"],
-                "help": "Anthropic Claude API，需要Anthropic账户和API密钥"
+                "help": "Anthropic Claude API，使用原生格式，需要Anthropic账户和API密钥"
+            },
+            "Gemini (Google)": {
+                "api_base": "https://generativelanguage.googleapis.com",
+                "models": ["gemini-2.0-flash-exp", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.5-flash-8b"],
+                "help": "Google Gemini API，使用原生格式，需要Google AI Studio API密钥，可自定义代理URL"
             },
             "通义千问 (阿里云)": {
                 "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -398,8 +405,8 @@ class UnifiedAPIConfigWidget(QFrame):
             },
             "Ollama (本地)": {
                 "api_base": "http://localhost:11434/v1",
-                "models": ["llama3.2", "qwen2.5", "gemma2"],
-                "help": "本地Ollama服务，需要先安装并启动Ollama"
+                "models": ["llama3.2", "qwen2.5", "gemma2", "llama3.1:8b", "mistral:7b"],
+                "help": "本地Ollama服务，使用OpenAI兼容格式，通常无需API密钥，可配置远程Ollama服务器URL"
             },
             "自定义API": {
                 "api_base": "",
@@ -433,6 +440,13 @@ class UnifiedAPIConfigWidget(QFrame):
                 help_text = f"<b>{provider}</b><br>{preset['help']}"
                 self._test_result_browser.setHtml(help_text)
             
+            # 特殊处理：Ollama通常不需要API密钥
+            if hasattr(self, '_api_key_edit'):
+                if provider == "Ollama (本地)":
+                    self._api_key_edit.setPlaceholderText("通常无需填写（本地服务）")
+                else:
+                    self._api_key_edit.setPlaceholderText("请输入API密钥")
+            
     def _toggle_key_visibility(self, checked):
         """切换密钥显示/隐藏"""
         if checked:
@@ -450,8 +464,9 @@ class UnifiedAPIConfigWidget(QFrame):
         # 获取当前配置
         config_data = self.get_config()
         
-        # 验证必要参数
-        if not config_data['api_key'].strip():
+        # 验证必要参数（Ollama通常不需要API密钥）
+        provider_name = config_data.get('provider', '')
+        if not config_data['api_key'].strip() and provider_name != 'Ollama (本地)':
             self._show_test_result(False, "请先输入API密钥")
             return
             
@@ -1173,11 +1188,12 @@ class UnifiedAIConfigDialog(QDialog):
                 provider_reverse_mapping = {
                     'openai': 'OpenAI',
                     'claude': 'Claude (Anthropic)',
+                    'gemini': 'Gemini (Google)',
+                    'ollama': 'Ollama (本地)',
                     'qwen': '通义千问 (阿里云)',
                     'zhipu': '智谱AI',
                     'deepseek': 'DeepSeek',
                     'groq': 'Groq',
-                    'ollama': 'Ollama (本地)',
                     'custom': '自定义API'
                 }
                 
@@ -1304,11 +1320,12 @@ class UnifiedAIConfigDialog(QDialog):
                 provider_mapping = {
                     'OpenAI': 'openai',
                     'Claude (Anthropic)': 'claude',
+                    'Gemini (Google)': 'gemini',
+                    'Ollama (本地)': 'ollama',
                     '通义千问 (阿里云)': 'qwen',
                     '智谱AI': 'zhipu',
                     'DeepSeek': 'deepseek',
                     'Groq': 'groq',
-                    'Ollama (本地)': 'ollama',
                     '自定义API': 'custom'
                 }
                 

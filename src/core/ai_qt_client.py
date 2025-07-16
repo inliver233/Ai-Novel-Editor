@@ -5,11 +5,14 @@ PyQt6集成的AI客户端
 
 import asyncio
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from PyQt6.QtCore import QObject, pyqtSignal, QThread, QTimer
 from PyQt6.QtWidgets import QApplication
 
 from .ai_client import AIClient, AsyncAIClient, AIConfig, AIClientError
+from .multimodal_types import MultimodalMessage
+from .tool_types import ToolDefinition, ToolCall
+from .tool_manager import ToolManager, get_tool_manager
 
 logger = logging.getLogger(__name__)
 
@@ -22,13 +25,20 @@ class AIWorkerThread(QThread):
     streamChunkReceived = pyqtSignal(str)  # 流式数据块
     errorOccurred = pyqtSignal(str)  # 错误信息
     requestCompleted = pyqtSignal()  # 请求完成
+    toolCallStarted = pyqtSignal(str, dict)  # 工具调用开始 (tool_name, parameters)
+    toolCallCompleted = pyqtSignal(str, dict)  # 工具调用完成 (tool_name, result)
     
     def __init__(self, config: AIConfig, parent=None):
         super().__init__(parent)
         self.config = config
         self.prompt = ""
+        self.messages = None  # 多模态消息列表
         self.system_prompt = None
         self.stream_mode = False
+        self.multimodal_mode = False
+        self.tool_calling_mode = False  # 工具调用模式
+        self.tools = None  # 工具列表
+        self.tool_manager = None  # 工具管理器
         self.kwargs = {}
         self._cancelled = False
         
@@ -38,12 +48,49 @@ class AIWorkerThread(QThread):
                    stream: bool = False, **kwargs):
         """设置请求参数"""
         self.prompt = prompt
+        self.messages = None
         self.system_prompt = system_prompt
         self.stream_mode = stream
+        self.multimodal_mode = False
+        self.tool_calling_mode = False
+        self.tools = None
+        self.tool_manager = None
         self.kwargs = kwargs
         self._cancelled = False
         
         logger.debug(f"设置AI请求: stream={stream}, prompt={prompt[:50]}...")
+    
+    def set_multimodal_request(self, messages: List[MultimodalMessage], system_prompt: Optional[str] = None,
+                              stream: bool = False, **kwargs):
+        """设置多模态请求参数"""
+        self.messages = messages
+        self.prompt = ""
+        self.system_prompt = system_prompt
+        self.stream_mode = stream
+        self.multimodal_mode = True
+        self.tool_calling_mode = False
+        self.tools = None
+        self.tool_manager = None
+        self.kwargs = kwargs
+        self._cancelled = False
+        
+        logger.debug(f"设置多模态AI请求: stream={stream}, messages={len(messages)} 条")
+    
+    def set_tool_calling_request(self, prompt: str, tools: List[ToolDefinition], 
+                                system_prompt: Optional[str] = None, stream: bool = False, **kwargs):
+        """设置工具调用请求参数"""
+        self.prompt = prompt
+        self.messages = None
+        self.system_prompt = system_prompt
+        self.stream_mode = stream
+        self.multimodal_mode = False
+        self.tool_calling_mode = True
+        self.tools = tools
+        self.tool_manager = get_tool_manager()
+        self.kwargs = kwargs
+        self._cancelled = False
+        
+        logger.debug(f"设置工具调用AI请求: stream={stream}, tools={len(tools)} 个, prompt={prompt[:50]}...")
     
     def cancel_request(self):
         """取消请求"""
@@ -64,9 +111,9 @@ class AIWorkerThread(QThread):
             self.requestCompleted.emit()
     
     def _run_sync_request(self):
-        """执行同步请求 - 支持取消"""
+        """执行同步请求 - 支持取消和多模态"""
         try:
-            logger.debug("开始同步AI请求")
+            logger.debug(f"开始同步AI请求 - 多模态: {self.multimodal_mode}")
             
             # 在开始请求前检查取消状态
             if self._cancelled:
@@ -79,18 +126,38 @@ class AIWorkerThread(QThread):
                     logger.debug("请求在客户端创建后已被取消")
                     return
                 
-                # 执行请求，传入较短的超时时间以支持快速取消
-                response = client.complete(
-                    self.prompt, 
-                    self.system_prompt, 
-                    timeout=30,  # 30秒超时，避免长时间阻塞
-                    **self.kwargs
-                )
+                # 根据模式执行不同类型的请求
+                # 🔧 修复：使用配置中的超时时间而不是硬编码
+                timeout_value = self.config.timeout if hasattr(self.config, 'timeout') else 30
+                
+                if self.tool_calling_mode and self.tools:
+                    response = client.complete_with_tools(
+                        self.prompt,
+                        self.tools,
+                        self.system_prompt,
+                        timeout=timeout_value,  # 🔧 修复：使用配置的超时时间
+                        **self.kwargs
+                    )
+                elif self.multimodal_mode and self.messages:
+                    response = client.complete_multimodal(
+                        self.messages,
+                        self.system_prompt,
+                        timeout=timeout_value,  # 🔧 修复：使用配置的超时时间
+                        **self.kwargs
+                    )
+                else:
+                    response = client.complete(
+                        self.prompt, 
+                        self.system_prompt, 
+                        timeout=timeout_value,  # 🔧 修复：使用配置的超时时间
+                        **self.kwargs
+                    )
                 
                 # 请求完成后再次检查取消状态
                 if not self._cancelled and response:
                     self.responseReceived.emit(response)
-                    logger.info(f"同步AI请求完成: {len(response)} 字符")
+                    mode_text = "多模态" if self.multimodal_mode else "文本"
+                    logger.info(f"同步{mode_text}AI请求完成: {len(response)} 字符")
                 elif self._cancelled:
                     logger.debug("请求在完成后被取消，不发送响应")
                 
@@ -127,7 +194,7 @@ class AIWorkerThread(QThread):
                 self.errorOccurred.emit(f"流式请求失败: {e}")
     
     async def _async_stream_request(self):
-        """异步流式请求 - 更频繁的取消检查"""
+        """异步流式请求 - 更频繁的取消检查，支持多模态"""
         try:
             async with AsyncAIClient(self.config) as client:
                 # 开始前检查取消状态
@@ -138,11 +205,28 @@ class AIWorkerThread(QThread):
                 full_response = ""
                 chunk_count = 0
                 
-                async for chunk in client.complete_stream(
-                    self.prompt, 
-                    self.system_prompt, 
-                    **self.kwargs
-                ):
+                # 根据模式选择不同的流式方法
+                if self.tool_calling_mode and self.tools:
+                    stream_generator = client.complete_with_tools_async(
+                        self.prompt,
+                        self.tools,
+                        self.system_prompt,
+                        **self.kwargs
+                    )
+                elif self.multimodal_mode and self.messages:
+                    stream_generator = client.complete_multimodal_stream(
+                        self.messages,
+                        self.system_prompt,
+                        **self.kwargs
+                    )
+                else:
+                    stream_generator = client.complete_stream(
+                        self.prompt, 
+                        self.system_prompt, 
+                        **self.kwargs
+                    )
+                
+                async for chunk in stream_generator:
                     # 每个chunk都检查取消状态
                     if self._cancelled:
                         logger.debug(f"流式请求在第{chunk_count}个chunk后被取消")
@@ -161,7 +245,8 @@ class AIWorkerThread(QThread):
                 # 完成后检查取消状态
                 if not self._cancelled and full_response:
                     self.responseReceived.emit(full_response)
-                    logger.info(f"流式AI请求完成: {len(full_response)} 字符，共{chunk_count}个chunk")
+                    mode_text = "多模态" if self.multimodal_mode else "文本"
+                    logger.info(f"{mode_text}流式AI请求完成: {len(full_response)} 字符，共{chunk_count}个chunk")
                 elif self._cancelled:
                     logger.debug("流式请求被取消，不发送最终响应")
                     
@@ -284,6 +369,150 @@ class QtAIClient(QObject):
         # 启动线程
         self._worker_thread.start()
     
+    def complete_multimodal_async(self, messages: List[MultimodalMessage], context: Optional[Dict[str, Any]] = None,
+                                 system_prompt: Optional[str] = None, **kwargs):
+        """异步多模态补全"""
+        if self._worker_thread and self._worker_thread.isRunning():
+            logger.warning("AI请求正在进行中，忽略新的多模态请求")
+            return
+        
+        # 准备上下文
+        self._current_context = context or {}
+        self._current_context.update({
+            'messages': [str(msg) for msg in messages],  # 转换为字符串用于日志
+            'system_prompt': system_prompt,
+            'stream': False,
+            'multimodal': True,
+            'kwargs': kwargs
+        })
+        
+        logger.info(f"开始异步多模态补全: {len(messages)} 条消息")
+        
+        # 创建工作线程
+        self._worker_thread = AIWorkerThread(self.config, self)
+        self._worker_thread.set_multimodal_request(messages, system_prompt, stream=False, **kwargs)
+        
+        # 连接信号
+        self._worker_thread.responseReceived.connect(self._on_response_received)
+        self._worker_thread.errorOccurred.connect(self._on_error_occurred)
+        self._worker_thread.requestCompleted.connect(self._on_request_completed)
+        
+        # 发出开始信号
+        self.requestStarted.emit(self._current_context.copy())
+        
+        # 启动线程
+        self._worker_thread.start()
+    
+    def complete_multimodal_stream_async(self, messages: List[MultimodalMessage], context: Optional[Dict[str, Any]] = None,
+                                        system_prompt: Optional[str] = None, **kwargs):
+        """异步多模态流式补全"""
+        if self._worker_thread and self._worker_thread.isRunning():
+            logger.warning("AI请求正在进行中，忽略新的多模态流式请求")
+            return
+        
+        # 准备上下文
+        self._current_context = context or {}
+        self._current_context.update({
+            'messages': [str(msg) for msg in messages],  # 转换为字符串用于日志
+            'system_prompt': system_prompt,
+            'stream': True,
+            'multimodal': True,
+            'kwargs': kwargs
+        })
+        
+        logger.info(f"开始异步多模态流式补全: {len(messages)} 条消息")
+        
+        # 创建工作线程
+        self._worker_thread = AIWorkerThread(self.config, self)
+        self._worker_thread.set_multimodal_request(messages, system_prompt, stream=True, **kwargs)
+        
+        # 连接信号
+        self._worker_thread.responseReceived.connect(self._on_response_received)
+        self._worker_thread.streamChunkReceived.connect(self._on_stream_chunk_received)
+        self._worker_thread.errorOccurred.connect(self._on_error_occurred)
+        self._worker_thread.requestCompleted.connect(self._on_request_completed)
+        
+        # 发出开始信号
+        self.requestStarted.emit(self._current_context.copy())
+        
+        # 启动线程
+        self._worker_thread.start()
+    
+    def complete_with_tools_async(self, prompt: str, tools: List[ToolDefinition], context: Optional[Dict[str, Any]] = None,
+                                 system_prompt: Optional[str] = None, **kwargs):
+        """异步工具调用补全"""
+        if self._worker_thread and self._worker_thread.isRunning():
+            logger.warning("AI请求正在进行中，忽略新的工具调用请求")
+            return
+        
+        # 准备上下文
+        self._current_context = context or {}
+        self._current_context.update({
+            'prompt': prompt,
+            'tools': [tool.name for tool in tools],  # 工具名称列表用于日志
+            'system_prompt': system_prompt,
+            'stream': False,
+            'tool_calling': True,
+            'kwargs': kwargs
+        })
+        
+        logger.info(f"开始异步工具调用补全: {len(tools)} 个工具, prompt={prompt[:50]}...")
+        
+        # 创建工作线程
+        self._worker_thread = AIWorkerThread(self.config, self)
+        self._worker_thread.set_tool_calling_request(prompt, tools, system_prompt, stream=False, **kwargs)
+        
+        # 连接信号
+        self._worker_thread.responseReceived.connect(self._on_response_received)
+        self._worker_thread.errorOccurred.connect(self._on_error_occurred)
+        self._worker_thread.requestCompleted.connect(self._on_request_completed)
+        self._worker_thread.toolCallStarted.connect(self._on_tool_call_started)
+        self._worker_thread.toolCallCompleted.connect(self._on_tool_call_completed)
+        
+        # 发出开始信号
+        self.requestStarted.emit(self._current_context.copy())
+        
+        # 启动线程
+        self._worker_thread.start()
+    
+    def complete_with_tools_stream_async(self, prompt: str, tools: List[ToolDefinition], context: Optional[Dict[str, Any]] = None,
+                                        system_prompt: Optional[str] = None, **kwargs):
+        """异步工具调用流式补全"""
+        if self._worker_thread and self._worker_thread.isRunning():
+            logger.warning("AI请求正在进行中，忽略新的工具调用流式请求")
+            return
+        
+        # 准备上下文
+        self._current_context = context or {}
+        self._current_context.update({
+            'prompt': prompt,
+            'tools': [tool.name for tool in tools],  # 工具名称列表用于日志
+            'system_prompt': system_prompt,
+            'stream': True,
+            'tool_calling': True,
+            'kwargs': kwargs
+        })
+        
+        logger.info(f"开始异步工具调用流式补全: {len(tools)} 个工具, prompt={prompt[:50]}...")
+        
+        # 创建工作线程
+        self._worker_thread = AIWorkerThread(self.config, self)
+        self._worker_thread.set_tool_calling_request(prompt, tools, system_prompt, stream=True, **kwargs)
+        
+        # 连接信号
+        self._worker_thread.responseReceived.connect(self._on_response_received)
+        self._worker_thread.streamChunkReceived.connect(self._on_stream_chunk_received)
+        self._worker_thread.errorOccurred.connect(self._on_error_occurred)
+        self._worker_thread.requestCompleted.connect(self._on_request_completed)
+        self._worker_thread.toolCallStarted.connect(self._on_tool_call_started)
+        self._worker_thread.toolCallCompleted.connect(self._on_tool_call_completed)
+        
+        # 发出开始信号
+        self.requestStarted.emit(self._current_context.copy())
+        
+        # 启动线程
+        self._worker_thread.start()
+    
     def cancel_request(self):
         """取消当前请求"""
         if self._worker_thread and self._worker_thread.isRunning():
@@ -314,6 +543,16 @@ class QtAIClient(QObject):
         if self._worker_thread:
             self._worker_thread.deleteLater()
             self._worker_thread = None
+    
+    def _on_tool_call_started(self, tool_name: str, parameters: dict):
+        """工具调用开始处理"""
+        logger.info(f"工具调用开始: {tool_name}，参数: {parameters}")
+        # 可以在这里添加更多的工具调用开始处理逻辑
+    
+    def _on_tool_call_completed(self, tool_name: str, result: dict):
+        """工具调用完成处理"""
+        logger.info(f"工具调用完成: {tool_name}，结果: {result}")
+        # 可以在这里添加更多的工具调用完成处理逻辑
     
     def cleanup(self):
         """安全地清理资源，应用关闭时使用强制模式"""

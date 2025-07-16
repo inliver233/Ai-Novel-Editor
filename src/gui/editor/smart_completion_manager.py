@@ -72,8 +72,15 @@ class SmartCompletionManager(QObject):
         self._last_completion_pos = -1
         self._completion_mode = 'manual_ai'  # manual_ai, disabled, auto_ai - 修复：默认手动模式
         
-        # 🔧 修复：初始化动态超时管理器
-        self._timeout_manager = TimeoutManager()
+        # 🔧 修复：初始化动态超时管理器，传递用户配置的超时时间
+        try:
+            from core.config import get_config
+            config = get_config()
+            user_timeout = config.get('ai', 'timeout', 30) if config else 30
+            self._timeout_manager = TimeoutManager(user_timeout=user_timeout)
+        except Exception as e:
+            logger.warning(f"获取用户超时配置失败，使用默认值: {e}")
+            self._timeout_manager = TimeoutManager()
         
         # 定时器
         self._auto_completion_timer = QTimer()

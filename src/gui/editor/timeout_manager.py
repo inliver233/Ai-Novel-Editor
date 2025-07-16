@@ -27,10 +27,11 @@ class TimeoutManager:
     替换固定的10秒超时，提供更智能的超时管理。
     """
     
-    def __init__(self):
-        self.base_timeout = 15.0  # 基础超时15秒
-        self.max_timeout = 30.0   # 最大超时30秒
-        self.min_timeout = 8.0    # 最小超时8秒
+    def __init__(self, user_timeout: Optional[float] = None):
+        self.base_timeout = 25.0  # 🔧 修复：提高基础超时到25秒（考虑到实际请求需要30秒）
+        # 🔧 修复：使用用户配置的超时时间作为最大值，如果没有则使用90秒
+        self.max_timeout = user_timeout if user_timeout and user_timeout > 30 else 90.0
+        self.min_timeout = 15.0   # 🔧 修复：提高最小超时到15秒
         self.timeout_history: List[RequestMetrics] = []
         self.max_history_size = 50  # 保留最近50次记录
         

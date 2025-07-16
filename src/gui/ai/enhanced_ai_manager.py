@@ -823,12 +823,43 @@ class EnhancedAIManager(QObject):
     
     def _get_max_tokens(self, context_mode: str) -> int:
         """根据上下文模式获取最大token数"""
-        token_limits = {
-            "fast": 80,
-            "balanced": 150,
-            "full": 250
+        try:
+            # 从AI配置获取用户设置的max_tokens
+            ai_config = self._config.get_ai_config()
+            if ai_config and hasattr(ai_config, 'max_tokens'):
+                base_tokens = ai_config.max_tokens
+            else:
+                # 回退到配置文件中的值
+                ai_section = self._config.get_section('ai')
+                base_tokens = ai_section.get('max_tokens', 2000)
+        except Exception as e:
+            logger.warning(f"获取max_tokens配置失败: {e}")
+            base_tokens = 2000  # 合理的默认值
+        
+        # 🔧 修复：如果用户设置了较大的max_tokens值（>2500），则不进行模式缩减
+        # 这样用户的自定义设置能够完全生效
+        if base_tokens > 2500:
+            logger.debug(f"Token计算: base={base_tokens}, mode={context_mode}, 用户设置较大值，不进行缩减, result={base_tokens}")
+            return base_tokens
+        
+        # 对于默认或较小的值，仍然根据上下文模式调整token数量
+        mode_multipliers = {
+            "fast": 0.4,      # 40% - 快速模式
+            "balanced": 0.6,  # 60% - 平衡模式  
+            "full": 1.0       # 100% - 全局模式
         }
-        return token_limits.get(context_mode, 150)
+        
+        multiplier = mode_multipliers.get(context_mode, 0.6)
+        adjusted_tokens = int(base_tokens * multiplier)
+        
+        # 确保有合理的最小值和最大值
+        min_tokens = 50
+        max_tokens = 8000
+        
+        result = max(min_tokens, min(adjusted_tokens, max_tokens))
+        logger.debug(f"Token计算: base={base_tokens}, mode={context_mode}, multiplier={multiplier}, result={result}")
+        
+        return result
     
     def _get_temperature(self) -> float:
         """获取AI生成的温度参数"""

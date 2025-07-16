@@ -145,10 +145,21 @@ class SimpleAIManager(QObject):
                 'prompt': prompt
             }
             
+            # 从配置获取max_tokens
+            try:
+                ai_config = self._config.get_ai_config()
+                if ai_config and hasattr(ai_config, 'max_tokens'):
+                    max_tokens = min(ai_config.max_tokens, 1000)  # 限制在合理范围
+                else:
+                    ai_section = self._config.get_section('ai')
+                    max_tokens = min(ai_section.get('max_tokens', 500), 1000)
+            except Exception:
+                max_tokens = 500  # 合理的默认值
+            
             self._ai_client.complete_async(
                 prompt=prompt,
                 context=request_context,
-                max_tokens=100,  # 适中的token数量
+                max_tokens=max_tokens,
                 temperature=0.7
             )
             

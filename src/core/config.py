@@ -94,7 +94,7 @@ class Config:
                 "model": "gpt-3.5-turbo",
                 "endpoint_url": "",
                 "temperature": 0.8,
-                "max_tokens": 200,
+                "max_tokens": 2000,  # 🔧 修复：统一默认值，与ai_client.py保持一致
                 "top_p": 0.9,
                 "timeout": 30,
                 "max_retries": 3,
@@ -349,12 +349,13 @@ class Config:
                 provider=provider,
                 model=ai_section.get('model', 'gpt-3.5-turbo'),
                 endpoint_url=ai_section.get('endpoint_url') or None,
-                max_tokens=ai_section.get('max_tokens', 200),
+                max_tokens=ai_section.get('max_tokens', 2000),
                 temperature=ai_section.get('temperature', 0.8),
                 top_p=ai_section.get('top_p', 0.9),
                 timeout=ai_section.get('timeout', 30),
                 max_retries=ai_section.get('max_retries', 3),
-                disable_ssl_verify=ai_section.get('disable_ssl_verify', False)
+                disable_ssl_verify=ai_section.get('disable_ssl_verify', False),
+                reasoning_effort=ai_section.get('reasoning_effort', 'medium')
             )
             
             # 处理旧版本的api_key（如果存在）
@@ -418,5 +419,13 @@ class Config:
 
 # 全局配置实例
 _config_instance = None
+
+
+def get_config() -> Optional[Config]:
+    """获取全局配置实例"""
+    global _config_instance
+    if _config_instance is None:
+        _config_instance = Config()
+    return _config_instance
 
 
