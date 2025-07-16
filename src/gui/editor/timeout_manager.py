@@ -71,7 +71,10 @@ class TimeoutManager:
     def _calculate_historical_timeout(self) -> float:
         """基于历史请求时间计算基础超时"""
         if not self.timeout_history:
-            return self.base_timeout
+            # 🔧 修复：如果没有历史数据，使用用户配置的超时时间的70%作为基础
+            # 这样可以更好地适应用户的实际需求
+            user_based_timeout = self.max_timeout * 0.7  # 用户设置60秒 → 基础42秒
+            return max(self.base_timeout, user_based_timeout)
             
         # 获取最近的成功请求
         recent_successful = [
@@ -80,7 +83,9 @@ class TimeoutManager:
         ]
         
         if not recent_successful:
-            return self.base_timeout
+            # 🔧 修复：如果没有成功的历史记录，也使用用户配置的70%
+            user_based_timeout = self.max_timeout * 0.7
+            return max(self.base_timeout, user_based_timeout)
             
         # 计算平均耗时和标准差
         durations = [metrics.duration for metrics in recent_successful]
@@ -93,11 +98,12 @@ class TimeoutManager:
         # 超时时间 = 平均时间 + 2倍标准差（覆盖95%的情况）
         historical_timeout = avg_duration + 2 * std_dev
         
-        # 确保不低于基础超时
-        historical_timeout = max(historical_timeout, self.base_timeout)
+        # 🔧 修复：确保不低于基础超时，也不低于用户配置的50%
+        user_min_timeout = self.max_timeout * 0.5  # 用户设置60秒 → 最少30秒
+        historical_timeout = max(historical_timeout, self.base_timeout, user_min_timeout)
         
         logger.debug(f"历史超时计算: avg={avg_duration:.1f}s, std={std_dev:.1f}s, "
-                    f"result={historical_timeout:.1f}s")
+                    f"user_min={user_min_timeout:.1f}s, result={historical_timeout:.1f}s")
         
         return historical_timeout
     
