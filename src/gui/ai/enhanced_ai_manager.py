@@ -590,9 +590,7 @@ class EnhancedAIManager(QObject):
         self._reference_detector = None
         self._prompt_function_registry = None
         
-        # 性能和缓存
-        self._completion_cache = {}
-        self._cache_size_limit = 100
+        # 性能管理
         self._current_editor = None
         
         # 配置缓存
@@ -753,13 +751,7 @@ class EnhancedAIManager(QObject):
             logger.warning("AI补全不可用")
             return False
         
-        # 检查缓存
-        cache_key = self._get_enhanced_cache_key(context, cursor_position, user_tags, completion_type)
-        if cache_key in self._completion_cache:
-            cached_result = self._completion_cache[cache_key]
-            self.completionReady.emit(cached_result, context)
-            logger.debug("使用缓存的补全结果")
-            return True
+        # 缓存系统已移除，直接进行AI请求
         
         try:
             # 1. 智能上下文收集
@@ -870,34 +862,7 @@ class EnhancedAIManager(QObject):
         except:
             return 0.7
     
-    def _get_enhanced_cache_key(self, context: str, cursor_pos: int, 
-                              user_tags: List[str], completion_type: str) -> str:
-        """生成增强的缓存键"""
-        # 包含更多上下文信息的缓存键
-        key_components = [
-            context[-150:] if len(context) > 150 else context,  # 最后150字符
-            str(cursor_pos),
-            "|".join(sorted(user_tags or [])),
-            completion_type,
-            self._get_context_mode()
-        ]
-        
-        key_string = "::".join(key_components)
-        return hashlib.md5(key_string.encode()).hexdigest()
-    
-    def _add_to_enhanced_cache(self, context: str, cursor_pos: int, 
-                             user_tags: List[str], completion_type: str, result: str):
-        """添加到增强缓存"""
-        cache_key = self._get_enhanced_cache_key(context, cursor_pos, user_tags, completion_type)
-        
-        # 缓存大小限制
-        if len(self._completion_cache) >= self._cache_size_limit:
-            # 移除最旧的条目
-            oldest_key = next(iter(self._completion_cache))
-            del self._completion_cache[oldest_key]
-        
-        self._completion_cache[cache_key] = result
-        logger.debug(f"结果已缓存: {cache_key[:16]}...")
+    # 缓存系统已完全移除
     
     # 信号处理 - 增强版本
     @pyqtSlot(str, dict)
@@ -919,9 +884,7 @@ class EnhancedAIManager(QObject):
             user_tags = context.get('user_tags', [])
             completion_type = context.get('completion_type', 'text')
             
-            # 添加到增强缓存
-            if original_context:
-                self._add_to_enhanced_cache(original_context, cursor_pos, user_tags, completion_type, completion)
+            # 缓存系统已移除，直接处理结果
             
             # 发送信号
             self.completionReady.emit(completion, original_context)
@@ -999,7 +962,7 @@ class EnhancedAIManager(QObject):
             'completion_enabled': self._completion_enabled,
             'auto_trigger_enabled': self._auto_trigger_enabled,
             'trigger_delay': self._trigger_delay,
-            'cache_size': len(self._completion_cache),
+            'cache_enabled': False,  # 缓存已禁用
             'enhanced_features': {
                 'codex_integration': bool(self._codex_manager),
                 'rag_available': bool(self.context_builder.rag_service),
@@ -1016,11 +979,10 @@ class EnhancedAIManager(QObject):
         logger.info("EnhancedAIManager已清理")
     
     def clear_cache(self):
-        """清空缓存"""
-        self._completion_cache.clear()
+        """清空缓存（缓存已移除，保持接口兼容性）"""
         if self.prompt_generator.prompt_manager:
             self.prompt_generator.prompt_manager.clear_cache()
-        logger.info("增强AI补全缓存已清空")
+        logger.info("增强AI补全缓存已移除，此方法保持兼容性")
     
     # 自动触发功能
     def schedule_completion(self, context: str, cursor_position: int = -1, 
@@ -1393,9 +1355,7 @@ class EnhancedAIManager(QObject):
                     pass
                 self._current_editor = None
             
-            # 清空缓存
-            if hasattr(self, '_completion_cache'):
-                self._completion_cache.clear()
+            # 缓存已移除，无需清理
             
             logger.info("EnhancedAIManager资源清理完成")
         except Exception as e:
@@ -1452,7 +1412,7 @@ class EnhancedAIManager(QObject):
     def get_completion_stats(self) -> Dict[str, Any]:
         """获取补全统计信息"""
         return {
-            'cache_size': len(getattr(self, '_completion_cache', {})),
+            'cache_enabled': False,  # 缓存已禁用
             'completion_enabled': self._completion_enabled,
             'auto_trigger_enabled': self._auto_trigger_enabled,
             'punctuation_assist_enabled': getattr(self, '_punctuation_assist_enabled', True),
@@ -1460,10 +1420,8 @@ class EnhancedAIManager(QObject):
         }
     
     def clear_cache(self):
-        """清空补全缓存"""
-        if hasattr(self, '_completion_cache'):
-            self._completion_cache.clear()
-        logger.info("补全缓存已清空")
+        """清空补全缓存（缓存已移除，保持接口兼容性）"""
+        logger.info("补全缓存已移除，此方法保持兼容性")
     
     def get_config(self) -> Dict[str, Any]:
         """获取完整配置"""

@@ -361,9 +361,7 @@ class SinglePromptManager(QObject):
         self.context_injector = AutoContextInjector(shared)
         self.template_processor = TemplateProcessor()  # 新增模板处理器
         
-        # 简化的缓存系统 - 仅保留最近的100个结果
-        self._prompt_cache = OrderedDict()
-        self._cache_max_size = 100
+        # 缓存系统已移除，保证多次触发正常工作
         
         # 基础模板
         self.base_template = self._load_base_template()
@@ -376,14 +374,7 @@ class SinglePromptManager(QObject):
     def generate_prompt(self, context: SimplePromptContext) -> str:
         """生成最终提示词 - 核心方法"""
         
-        # 1. 缓存检查
-        cache_key = self._get_cache_key(context)
-        if cache_key in self._prompt_cache:
-            cached_prompt = self._prompt_cache[cache_key]
-            # 移到最后（LRU策略）
-            self._prompt_cache.move_to_end(cache_key)
-            logger.debug(f"提示词缓存命中: {cache_key[:20]}...")
-            return cached_prompt
+        # 1. 缓存系统已移除，直接生成提示词
         
         # 2. 构建基础提示词
         prompt = self.base_template
@@ -407,8 +398,7 @@ class SinglePromptManager(QObject):
         # 7. 根据模式调整提示词长度和详细度
         prompt = self._adjust_for_mode(prompt, context.prompt_mode)
         
-        # 8. 缓存结果
-        self._cache_prompt(cache_key, prompt)
+        # 8. 缓存系统已移除
         
         # 9. 发出信号
         self.promptGenerated.emit(prompt)
@@ -490,44 +480,25 @@ class SinglePromptManager(QObject):
             # 平衡模式：保持原样
             return prompt
     
-    def _get_cache_key(self, context: SimplePromptContext) -> str:
-        """生成缓存键"""
-        key_data = {
-            'text_hash': hashlib.md5(context.text.encode()).hexdigest()[:8],
-            'cursor_pos': context.cursor_position,
-            'tags': sorted(context.selected_tags),
-            'mode': context.prompt_mode.value,
-            'type': context.completion_type.value,
-            'word_count': context.word_count
-        }
-        
-        key_str = json.dumps(key_data, sort_keys=True)
-        return hashlib.md5(key_str.encode()).hexdigest()
+    # 缓存键生成方法已移除
     
-    def _cache_prompt(self, key: str, prompt: str):
-        """缓存提示词结果"""
-        self._prompt_cache[key] = prompt
-        
-        # LRU缓存管理
-        if len(self._prompt_cache) > self._cache_max_size:
-            # 移除最旧的条目
-            self._prompt_cache.popitem(last=False)
+    # 缓存系统已完全移除
     
     def get_available_tags(self) -> Dict[str, List[str]]:
         """获取所有可用标签"""
         return self.tag_system.get_available_tags()
     
     def clear_cache(self):
-        """清空缓存"""
-        self._prompt_cache.clear()
-        logger.info("提示词缓存已清空")
+        """清空缓存（缓存已移除，保持接口兼容性）"""
+        logger.info("提示词缓存已移除，此方法保持兼容性")
     
     def get_cache_stats(self) -> Dict[str, Any]:
-        """获取缓存统计信息"""
+        """获取缓存统计信息（缓存已移除，保持接口兼容性）"""
         return {
-            'size': len(self._prompt_cache),
-            'max_size': self._cache_max_size,
-            'hit_rate': getattr(self, '_cache_hits', 0) / max(getattr(self, '_cache_requests', 1), 1)
+            'size': 0,
+            'max_size': 0,
+            'hit_rate': 0.0,
+            'cache_enabled': False
         }
     
     def _validate_base_template(self):

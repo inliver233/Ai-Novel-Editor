@@ -161,12 +161,7 @@ class Config:
                     "enable_fallback": True,
                     "max_concurrent": 5
                 },
-                "cache": {
-                    "enabled": True,
-                    "memory_size": 500,
-                    "ttl": 7200,
-                    "max_memory_mb": 50
-                }
+                # 缓存配置已移除，提升性能和稳定性
             },
             
             # 提示词配置

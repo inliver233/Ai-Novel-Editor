@@ -25,7 +25,7 @@ except ImportError:
     NUMPY_AVAILABLE = False
 
 # 导入智能缓存
-from .smart_cache import SmartCache, cached
+# 缓存系统已移除
 
 logger = logging.getLogger(__name__)
 
@@ -84,24 +84,9 @@ class RAGService:
         self._max_retries = config.get('network', {}).get('max_retries', 3)
         self._enable_fallback = config.get('network', {}).get('enable_fallback', True)
         
-        # 初始化智能缓存
-        cache_config = config.get('cache', {})
-        cache_enabled = cache_config.get('enabled', True)
+        # 缓存系统已移除，保证性能直接依赖API调用
         
-        if cache_enabled:
-            import os
-            cache_dir = os.path.expanduser("~/.cache/ai-novel-editor/rag")
-            cache_db_path = os.path.join(cache_dir, "rag_cache.db")
-            
-            self._cache = SmartCache(
-                memory_cache_size=cache_config.get('memory_size', 500),
-                disk_cache_path=cache_db_path,
-                default_ttl=cache_config.get('ttl', 7200.0),  # 2小时
-                max_memory_mb=cache_config.get('max_memory_mb', 50.0)
-            )
-            logger.info("RAG智能缓存已启用")
-        else:
-            self._cache = None
+        self._cache = None
         
         # 初始化线程池用于非阻塞操作
         self._thread_pool = ThreadPoolExecutor(
@@ -289,15 +274,7 @@ class RAGService:
             logger.error("aiohttp not available, cannot create embeddings")
             return None
             
-        # 生成缓存键
-        cache_key = f"embedding:{self.embedding_model}:{hashlib.md5(text.encode()).hexdigest()}"
-        
-        # 检查缓存
-        if self._cache:
-            cached_embedding = self._cache.get(cache_key)
-            if cached_embedding is not None:
-                logger.debug(f"嵌入向量缓存命中: {text[:50]}...")
-                return cached_embedding
+        # 缓存系统已移除，直接调用API
         
         # 检查网络连接
         network_ok = await self._check_network_connectivity()
@@ -337,15 +314,7 @@ class RAGService:
                             # 网络恢复，更新状态
                             self._network_available = True
                             
-                            # 存储到缓存
-                            if self._cache:
-                                self._cache.put(
-                                    cache_key, 
-                                    embedding, 
-                                    ttl=7200.0,  # 2小时
-                                    tags=['embedding', self.embedding_model]
-                                )
-                                logger.debug(f"嵌入向量已缓存: {text[:50]}...")
+                            # 缓存系统已移除
                             
                             return embedding
                         elif response.status == 429:  # 速率限制
@@ -495,11 +464,7 @@ class RAGService:
         cache_key = f"rerank:{self.rerank_model}:{hashlib.md5(query.encode()).hexdigest()}:{doc_hash}:{top_k}"
         
         # 检查缓存
-        if self._cache:
-            cached_result = self._cache.get(cache_key)
-            if cached_result is not None:
-                logger.debug(f"重排序结果缓存命中: {query[:50]}...")
-                return cached_result
+        # 缓存系统已移除，直接调用API
         
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -535,14 +500,7 @@ class RAGService:
                                 reranked.append((item['index'], item['relevance_score']))
                             
                             # 存储到缓存
-                            if self._cache:
-                                self._cache.put(
-                                    cache_key, 
-                                    reranked, 
-                                    ttl=3600.0,  # 1小时
-                                    tags=['rerank', self.rerank_model]
-                                )
-                                logger.debug(f"重排序结果已缓存: {query[:50]}...")
+                            # 缓存系统已移除
                             
                             return reranked
                         elif response.status == 429:  # 速率限制
@@ -842,28 +800,19 @@ class RAGService:
     
     def clear_cache(self):
         """清空缓存"""
-        if self._cache:
-            self._cache.clear()
-            logger.info("RAG缓存已清空")
+        # 缓存系统已移除
     
     def invalidate_cache_by_model(self, model_name: str):
         """根据模型名称清理缓存"""
-        if self._cache:
-            self._cache.invalidate_by_tags([model_name])
-            logger.info(f"已清理模型 {model_name} 的缓存")
+        # 缓存系统已移除
     
     def get_cache_stats(self) -> Dict[str, Any]:
-        """获取缓存统计信息"""
-        if self._cache:
-            return self._cache.get_stats()
-        else:
-            return {"enabled": False}
+        """获取缓存统计信息（缓存已移除，保持接口兼容性）"""
+        return {"enabled": False, "cache_removed": True}
     
     def cleanup_cache(self):
-        """清理过期缓存"""
-        if self._cache:
-            self._cache.cleanup_expired()
-            logger.info("RAG缓存清理完成")
+        """清理过期缓存（缓存已移除，保持接口兼容性）"""
+        logger.info("缓存系统已移除，此方法保持兼容性")
     
     def delete_document_index(self, document_id: str) -> bool:
         """删除文档的索引"""
@@ -876,8 +825,7 @@ class RAGService:
             logger.info(f"删除文档 {document_id} 的 {count} 个嵌入向量")
             
             # 清理相关缓存
-            if self._cache:
-                self._cache.invalidate_by_tags([document_id])
+            # 缓存系统已移除
                 
             return count > 0
         except Exception as e:
@@ -1041,8 +989,7 @@ class RAGService:
             logger.info("RAG事件循环已关闭")
         
         # 关闭缓存
-        if self._cache:
-            self._cache.close()
+        # 缓存系统已移除
             logger.info("RAG缓存已关闭")
 
 

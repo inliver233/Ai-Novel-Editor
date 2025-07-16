@@ -48,9 +48,8 @@ class SimpleAIManager(QObject):
         self._auto_trigger_enabled = True
         self._trigger_delay = 1000  # ms
         
-        # 缓存和性能
-        self._completion_cache = {}  # 简单的内存缓存
-        self._cache_size_limit = 100
+        # 性能管理
+        # 缓存系统已移除，保证多次触发正常工作
         
         # 初始化AI客户端
         self._init_ai_client()
@@ -127,12 +126,7 @@ class SimpleAIManager(QObject):
         if not self._completion_enabled or not self._ai_client:
             return False
         
-        # 检查缓存
-        cache_key = self._get_cache_key(context, cursor_position)
-        if cache_key in self._completion_cache:
-            cached_result = self._completion_cache[cache_key]
-            self.completionReady.emit(cached_result, context)
-            return True
+        # 缓存系统已移除，直接进行AI请求
         
         try:
             # 准备补全请求
@@ -205,23 +199,7 @@ class SimpleAIManager(QObject):
         
         return prompt
     
-    def _get_cache_key(self, context: str, cursor_position: int) -> str:
-        """生成缓存键"""
-        # 使用最后100字符作为缓存键
-        key_text = context[-100:] if len(context) > 100 else context
-        return f"{hash(key_text)}_{cursor_position}"
-    
-    def _add_to_cache(self, context: str, cursor_position: int, result: str):
-        """添加到缓存"""
-        cache_key = self._get_cache_key(context, cursor_position)
-        
-        # 缓存大小限制
-        if len(self._completion_cache) >= self._cache_size_limit:
-            # 移除最旧的条目
-            oldest_key = next(iter(self._completion_cache))
-            del self._completion_cache[oldest_key]
-        
-        self._completion_cache[cache_key] = result
+    # 缓存系统已完全移除
     
     # 自动触发功能
     def schedule_completion(self, context: str, cursor_position: int = -1):
@@ -269,9 +247,7 @@ class SimpleAIManager(QObject):
             original_context = context.get('context', '')
             cursor_pos = context.get('cursor_position', -1)
             
-            # 添加到缓存
-            if original_context:
-                self._add_to_cache(original_context, cursor_pos, completion)
+            # 缓存系统已移除，直接处理结果
             
             # 发送信号
             self.completionReady.emit(completion, original_context)
@@ -361,18 +337,17 @@ class SimpleAIManager(QObject):
             'completion_enabled': self._completion_enabled,
             'auto_trigger_enabled': self._auto_trigger_enabled,
             'trigger_delay': self._trigger_delay,
-            'cache_size': len(self._completion_cache)
+            'cache_enabled': False  # 缓存已禁用
         }
     
     def clear_cache(self):
-        """清空缓存"""
-        self._completion_cache.clear()
-        logger.info("AI补全缓存已清空")
+        """清空缓存（缓存已移除，保持接口兼容性）"""
+        logger.info("AI补全缓存已移除，此方法保持兼容性")
     
     def cleanup(self):
         """清理资源"""
         self._completion_timer.stop()
-        self.clear_cache()
+        # 缓存已移除，无需清理
         if self._ai_client:
             self._ai_client.deleteLater()
         logger.info("SimpleAIManager已清理")
@@ -499,7 +474,7 @@ class SimpleAIManager(QObject):
             'total_requests': getattr(self, '_total_requests', 0),
             'successful_completions': getattr(self, '_successful_completions', 0),
             'cache_hits': getattr(self, '_cache_hits', 0),
-            'cache_size': len(self._completion_cache),
+            'cache_enabled': False,  # 缓存已禁用
             'enabled': self._completion_enabled
         }
     
@@ -755,7 +730,7 @@ class SimpleAIManager(QObject):
     def get_performance_settings(self) -> Dict[str, Any]:
         """获取性能设置"""
         return {
-            'cache_enabled': True,
-            'cache_size': len(self._completion_cache),
+            'cache_enabled': False,  # 缓存已禁用
+            'cache_size': 0,
             'auto_trigger': self._auto_trigger_enabled
         }

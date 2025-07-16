@@ -56,11 +56,8 @@ class CompletionEngine(QObject):
             '@scene': ['@scene: ', '@setting: ']
         }
         
-        # 标签值缓存
-        self._tag_values_cache = {}
-        self._cache_timer = QTimer()
-        self._cache_timer.timeout.connect(self._update_tag_values_cache)
-        self._cache_timer.start(5000)  # 每5秒更新一次缓存
+        # 缓存系统已移除，简化标签值管理
+        self._tag_values_data = {}
         
         logger.info("Completion engine initialized")
     
@@ -165,8 +162,8 @@ class CompletionEngine(QObject):
         if not tag_type:
             return suggestions
         
-        # 获取已存在的标签值
-        existing_values = self._tag_values_cache.get(tag_type, [])
+        # 获取已存在的标签值（缓存已移除）
+        existing_values = self._tag_values_data.get(tag_type, [])
         
         # 过滤匹配的值
         current_lower = current_word.lower()
@@ -259,16 +256,12 @@ class CompletionEngine(QObject):
         
         return suggestions
     
-    def _update_tag_values_cache(self):
-        """更新标签值缓存"""
-        # TODO: 从当前项目中提取所有标签值
-        # 这需要项目管理器提供所有文档的元数据
-        pass
+    # 缓存系统已移除
     
     def set_project_context(self, project_data: Dict[str, Any]):
         """设置项目上下文"""
-        # 更新标签值缓存
+        # 更新标签值数据（缓存已移除）
         if 'metadata' in project_data:
-            self._tag_values_cache = project_data['metadata']
+            self._tag_values_data = project_data['metadata']
         
         logger.debug("Project context updated for completion engine")

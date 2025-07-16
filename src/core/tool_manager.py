@@ -28,24 +28,14 @@ class ToolExecutionConfig:
     """工具执行配置"""
     max_parallel_executions: int = 5
     default_timeout: int = 30
-    enable_caching: bool = True
-    cache_ttl: int = 300  # 缓存有效期（秒）
+    # 缓存系统已移除，保证多次执行正常工作
     require_user_approval: bool = False
     allowed_permissions: Set[ToolPermission] = field(default_factory=lambda: {
         ToolPermission.READ_ONLY, ToolPermission.SAFE_WRITE
     })
 
 
-@dataclass
-class CacheEntry:
-    """缓存条目"""
-    result: ToolExecutionResult
-    timestamp: float
-    ttl: int
-    
-    def is_expired(self) -> bool:
-        """检查是否过期"""
-        return time.time() - self.timestamp > self.ttl
+# 缓存系统已完全移除
 
 
 class ToolSecurityManager:
@@ -90,72 +80,7 @@ class ToolSecurityManager:
             self.execution_history = self.execution_history[-500:]
 
 
-class ToolCache:
-    """工具执行结果缓存"""
-    
-    def __init__(self, enabled: bool = True, default_ttl: int = 300):
-        self.enabled = enabled
-        self.default_ttl = default_ttl
-        self._cache: Dict[str, CacheEntry] = {}
-        self._lock = threading.RLock()
-    
-    def _generate_key(self, tool_name: str, parameters: Dict[str, Any]) -> str:
-        """生成缓存键"""
-        param_str = json.dumps(parameters, sort_keys=True, ensure_ascii=False)
-        key_string = f"{tool_name}:{param_str}"
-        return hashlib.md5(key_string.encode()).hexdigest()
-    
-    def get(self, tool_name: str, parameters: Dict[str, Any]) -> Optional[ToolExecutionResult]:
-        """获取缓存结果"""
-        if not self.enabled:
-            return None
-        
-        key = self._generate_key(tool_name, parameters)
-        
-        with self._lock:
-            entry = self._cache.get(key)
-            if entry and not entry.is_expired():
-                logger.debug(f"缓存命中: {tool_name}")
-                return entry.result
-            elif entry:
-                # 清理过期缓存
-                del self._cache[key]
-        
-        return None
-    
-    def set(self, tool_name: str, parameters: Dict[str, Any], 
-            result: ToolExecutionResult, ttl: Optional[int] = None):
-        """设置缓存"""
-        if not self.enabled:
-            return
-        
-        key = self._generate_key(tool_name, parameters)
-        ttl = ttl or self.default_ttl
-        
-        with self._lock:
-            self._cache[key] = CacheEntry(
-                result=result,
-                timestamp=time.time(),
-                ttl=ttl
-            )
-    
-    def clear(self):
-        """清空缓存"""
-        with self._lock:
-            self._cache.clear()
-    
-    def cleanup_expired(self):
-        """清理过期缓存"""
-        with self._lock:
-            expired_keys = [
-                key for key, entry in self._cache.items() 
-                if entry.is_expired()
-            ]
-            for key in expired_keys:
-                del self._cache[key]
-            
-            if expired_keys:
-                logger.debug(f"清理了 {len(expired_keys)} 个过期缓存条目")
+# 缓存系统已完全移除
 
 
 class ToolManager:
@@ -165,7 +90,7 @@ class ToolManager:
         self.config = config or ToolExecutionConfig()
         self.tools: Dict[str, ToolDefinition] = {}
         self.security_manager = ToolSecurityManager(self.config)
-        self.cache = ToolCache(self.config.enable_caching, self.config.cache_ttl)
+        # 缓存系统已移除
         self.active_calls: Dict[str, ToolCall] = {}
         self.executor = ThreadPoolExecutor(max_workers=self.config.max_parallel_executions)
         self._lock = threading.RLock()
@@ -305,12 +230,7 @@ class ToolManager:
                 tool_call.error = error_msg
                 return ToolExecutionResult(success=False, error=error_msg)
         
-        # 检查缓存
-        cached_result = self.cache.get(tool_call.tool_name, tool_call.parameters)
-        if cached_result:
-            tool_call.status = ToolCallStatus.COMPLETED
-            tool_call.result = cached_result.result
-            return cached_result
+        # 缓存系统已移除，直接执行工具
         
         # 执行工具
         tool_call.status = ToolCallStatus.RUNNING
@@ -331,9 +251,7 @@ class ToolManager:
             tool_call.result = execution_result.result
             tool_call.end_time = time.time()
             
-            # 缓存结果
-            if execution_result.success:
-                self.cache.set(tool_call.tool_name, tool_call.parameters, execution_result)
+            # 缓存系统已移除
             
             # 记录执行历史
             self.security_manager.record_execution(tool_call)
@@ -409,13 +327,12 @@ class ToolManager:
             "success_rate": successful_executions / total_executions if total_executions > 0 else 0,
             "average_duration": avg_duration,
             "active_calls": len(self.active_calls),
-            "cache_entries": len(self.cache._cache)
+            "cache_enabled": False  # 缓存已禁用
         }
     
     def cleanup(self):
         """清理资源"""
-        # 清理缓存
-        self.cache.cleanup_expired()
+        # 缓存系统已移除
         
         # 关闭线程池
         if self.executor:

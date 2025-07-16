@@ -231,11 +231,12 @@ def main():
         help="向量存储数据库路径",
         default=os.path.expanduser("~/.ai-novel-editor/vector_store/vectors.db")
     )
-    parser.add_argument(
-        "--cache-db",
-        help="缓存数据库路径",
-        default=os.path.expanduser("~/.ai-novel-editor/cache/smart_cache.db")
-    )
+    # Cache system has been removed, cache migration is no longer needed
+    # parser.add_argument(
+    #     "--cache-db",
+    #     help="缓存数据库路径",
+    #     default=os.path.expanduser("~/.ai-novel-editor/cache/smart_cache.db")
+    # )
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -271,11 +272,11 @@ def main():
     else:
         print(f"向量数据库不存在，跳过: {args.vector_db}")
     
-    # 迁移缓存存储
-    if os.path.exists(args.cache_db):
-        migrator.migrate_cache_store(args.cache_db)
-    else:
-        print(f"缓存数据库不存在，跳过: {args.cache_db}")
+    # Cache system has been removed, cache migration is no longer needed
+    # if os.path.exists(args.cache_db):
+    #     migrator.migrate_cache_store(args.cache_db)
+    # else:
+    #     print(f"缓存数据库不存在，跳过: {args.cache_db}")
     
     # 打印摘要
     migrator.print_summary()
