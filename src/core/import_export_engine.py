@@ -16,7 +16,7 @@ from typing import Dict, List, Optional, Any, Tuple, Union, Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
 
-from PyQt6.QtCore import QObject, pyqtSignal, QThread, QMutex, QMutexLocker
+from PyQt6.QtCore import QObject, pyqtSignal
 
 logger = logging.getLogger(__name__)
 

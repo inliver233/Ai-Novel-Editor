@@ -15,7 +15,7 @@ import aiohttp
 import requests
 from PyQt6.QtCore import QObject, pyqtSignal, QThread, QTimer
 from .secure_key_manager import get_secure_key_manager
-from .multimodal_types import MultimodalMessage, TextContent, ImageContent, FileContent, MediaContent
+from .multimodal_types import MultimodalMessage, TextContent, MediaContent
 from .tool_types import ToolDefinition, ToolCall, ToolCallStatus
 from .tool_manager import ToolManager, get_tool_manager
 
@@ -999,7 +999,7 @@ class AIClient:
     def __enter__(self):
         return self
     
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, _exc_type, _exc_val, _exc_tb):
         if self._session:
             self._session.close()
 
@@ -1015,7 +1015,7 @@ class AsyncAIClient(AIClient):
         self._session = aiohttp.ClientSession()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, _exc_type, _exc_val, _exc_tb):
         if self._session:
             await self._session.close()
 

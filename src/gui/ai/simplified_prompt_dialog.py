@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QFileDialog, QTabWidget
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QPropertyAnimation, QEasingCurve, QRect
-from PyQt6.QtGui import QFont, QPalette, QColor, QPainter, QLinearGradient
+from PyQt6.QtGui import QFont, QPalette, QColor, QPainter
 
 logger = logging.getLogger(__name__)
 

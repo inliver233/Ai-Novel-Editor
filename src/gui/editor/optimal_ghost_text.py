@@ -40,6 +40,7 @@ class OptimalGhostText(QObject):
         self._ghost_start_pos = -1
         self._ghost_end_pos = -1
         self._is_active = False
+        self._base_char_format = None  # ��¼��ʾGhost Textǰ���λ�õĻ����ַ���ʽ
         
         # 创建Ghost Text格式
         self._ghost_format = self._create_ghost_format()
@@ -101,6 +102,12 @@ class OptimalGhostText(QObject):
             # 创建光标
             cursor = QTextCursor(self.document)
             cursor.setPosition(position)
+            
+            # Record the base char format at insertion position for later restore
+            try:
+                self._base_char_format = cursor.charFormat()
+            except Exception:
+                self._base_char_format = None
             
             # 检测插入类型
             cursor_block = cursor.block()
@@ -200,6 +207,7 @@ class OptimalGhostText(QObject):
         self._ghost_end_pos = -1
         self._is_active = False
         self._undo_position = -1
+        self._base_char_format = None
         logger.debug("🔄 所有Ghost Text状态已重置")
     
     def accept_ghost_text(self) -> bool:
@@ -216,9 +224,12 @@ class OptimalGhostText(QObject):
             cursor.setPosition(self._ghost_end_pos, QTextCursor.MoveMode.KeepAnchor)
             
             # 创建正常格式
-            normal_format = QTextCharFormat()
-            if hasattr(self.text_editor, 'currentCharFormat'):
+            if self._base_char_format is not None:
+                normal_format = QTextCharFormat(self._base_char_format)
+            elif hasattr(self.text_editor, 'currentCharFormat'):
                 normal_format = self.text_editor.currentCharFormat()
+            else:
+                normal_format = QTextCharFormat()
             
             # 应用正常格式，移除Ghost Text标记
             cursor.setCharFormat(normal_format)

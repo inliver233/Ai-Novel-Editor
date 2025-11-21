@@ -10,8 +10,8 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QMenu, QMessageBox, QToolButton,
     QFrame, QSplitter, QTextEdit
 )
-from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QMimeData, QTimer
-from PyQt6.QtGui import QAction, QIcon, QDrag, QCursor
+from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QTimer
+from PyQt6.QtGui import QAction, QCursor
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:

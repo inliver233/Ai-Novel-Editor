@@ -26,7 +26,7 @@ try:
     from core.config import Config
     from core.simple_prompt_service import (
         SinglePromptManager, SimplePromptContext, 
-        PromptMode, CompletionType, create_simple_prompt_context
+        PromptMode, CompletionType
     )
     from core.prompt_functions import PromptFunctionRegistry, PromptContext
     AI_AVAILABLE = True

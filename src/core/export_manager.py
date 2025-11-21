@@ -11,7 +11,7 @@ from enum import Enum
 
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
 
-from .concurrent_io import FileIOWorker, get_concurrent_io
+from .concurrent_io import FileIOWorker
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:

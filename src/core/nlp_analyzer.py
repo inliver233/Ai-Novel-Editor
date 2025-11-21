@@ -20,7 +20,6 @@ try:
     import nltk
     from nltk.tokenize import sent_tokenize, word_tokenize
     from nltk.corpus import stopwords
-    from nltk.stem import SnowballStemmer
     NLTK_AVAILABLE = True
 except ImportError:
     NLTK_AVAILABLE = False

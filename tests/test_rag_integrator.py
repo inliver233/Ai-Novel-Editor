@@ -11,7 +11,7 @@ import time
 # 添加src目录到Python路径
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from core.rag_integrator import RAGIntegrator
+from archive.experimental.core.rag_integrator import RAGIntegrator
 
 
 class TestRAGIntegrator(unittest.TestCase):

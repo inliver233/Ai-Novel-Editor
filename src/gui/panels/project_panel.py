@@ -12,8 +12,8 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QLineEdit, QMenu, QMessageBox, QSplitter,
     QGroupBox, QToolButton, QFrame
 )
-from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QMimeData
-from PyQt6.QtGui import QAction, QIcon, QDrag, QPixmap
+from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QAction, QIcon, QPixmap
 from typing import TYPE_CHECKING
 from core.project import DocumentType, DocumentStatus
 
@@ -98,29 +98,6 @@ class ProjectPanel(QWidget):
         layout.addStretch()
         
         # 折叠按钮（紧凑化）
-        collapse_btn = QToolButton()
-        collapse_btn.setText("折叠")
-        collapse_btn.setMaximumWidth(40)  # 限制按钮宽度
-        collapse_btn.setToolTip("折叠项目面板")
-        collapse_btn.clicked.connect(lambda: self.parent().parent()._toggle_project_panel() if hasattr(self.parent().parent(), '_toggle_project_panel') else None)
-        layout.addWidget(collapse_btn)
-        
-        return frame
-        collapse_btn = QToolButton()
-        collapse_btn.setText("−")
-        collapse_btn.setFixedSize(20, 20)
-        # Style is now managed globally by the theme QSS files.
-        collapse_btn.setStyleSheet("""
-            QToolButton {
-                border: none;
-                background-color: transparent;
-                font-size: 16px;
-                font-weight: bold;
-            }
-        """)
-        layout.addWidget(collapse_btn)
-        
-        return frame
     
     def _create_project_tree(self) -> QTreeWidget:
         """创建项目树"""

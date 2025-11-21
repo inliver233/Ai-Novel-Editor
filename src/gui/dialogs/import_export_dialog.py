@@ -9,12 +9,12 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
-from PyQt6.QtGui import QIcon, QPixmap, QMovie
+from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTabWidget,
                            QWidget, QLabel, QPushButton, QComboBox, QCheckBox,
                            QProgressBar, QTextEdit, QGroupBox, QGridLayout,
                            QFileDialog, QMessageBox, QSplitter, QFrame,
-                           QListWidget, QListWidgetItem, QSpacerItem, QSizePolicy)
+                           QListWidget, QListWidgetItem, QSizePolicy)
 
 from core.import_export_engine import (ImportExportEngine, ExportFormat, 
                                        ImportMode, ImportResult, ExportResult)

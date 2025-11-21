@@ -669,7 +669,7 @@ class DeepIntegratedGhostText(QObject):
             logger.warning(f"渲染Ghost Text时出错: {e}")
             return
             
-    def _perform_block_updates(self, block_numbers: Set[int]):
+    def _perform_block_updates(self, _block_numbers: Set[int]):
         """执行块更新"""
         # 触发编辑器重绘相关区域
         self.text_editor.viewport().update()

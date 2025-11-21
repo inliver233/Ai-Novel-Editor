@@ -153,7 +153,6 @@ def main():
             if not hasattr(project_manager_instance, '_db_manager') or project_manager_instance._db_manager is None:
                 logger.warning("ProjectManager的数据库管理器未初始化，正在创建临时数据库...")
                 from core.database_manager import DatabaseManager
-                import tempfile
                 import os
                 
                 # 创建临时数据库目录

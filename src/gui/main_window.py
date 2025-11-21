@@ -7,18 +7,17 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-    QSplitter, QMenuBar, QToolBar, QStatusBar,
-    QMessageBox, QApplication, QFileDialog, QDialog,
+    QSplitter,
+    QMessageBox, QApplication, QDialog,
     QTabWidget
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot
-from PyQt6.QtGui import QAction, QKeySequence, QCloseEvent, QShortcut
+from PyQt6.QtGui import QKeySequence, QCloseEvent, QShortcut
 from core.config import Config
 from core.shared import Shared
-from core.project import ProjectManager, DocumentType
+from core.project import ProjectManager
 from gui.panels.project_panel import ProjectPanel
 from gui.panels.outline_panel import OutlinePanel
 from gui.panels.codex_panel import CodexPanel
@@ -30,7 +29,7 @@ from gui.themes import ThemeManager, ThemeType
 from gui.controllers.project_controller import ProjectController
 from gui.dialogs import (
     SettingsDialog, AboutDialog, ProjectSettingsDialog,
-    FindReplaceDialog, WordCountDialog, ShortcutsDialog,
+    WordCountDialog, ShortcutsDialog,
     AutoReplaceDialog, ImportDialog, ExportDialog
 )
 from gui.dialogs.import_export_dialog import ImportExportDialog
@@ -1556,11 +1555,14 @@ class MainWindow(QMainWindow):
                 logger.error(f"刷新Codex面板失败: {e}")
 
     @pyqtSlot(str)
-    def _on_theme_manager_changed(self, theme: str): pass
+    def _on_theme_manager_changed(self, theme: str):
+        pass
     @pyqtSlot(str)
-    def _on_text_statistics_changed(self, text: str): pass
+    def _on_text_statistics_changed(self, text: str):
+        pass
     @pyqtSlot(int, int)
-    def _on_cursor_position_changed(self, line: int, column: int): pass
+    def _on_cursor_position_changed(self, line: int, column: int):
+        pass
     def _update_statistics_delayed(self): pass
     @pyqtSlot(str, dict)
     def _on_toolbar_action(self, action_id: str, data: dict):

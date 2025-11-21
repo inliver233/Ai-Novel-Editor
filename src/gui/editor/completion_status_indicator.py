@@ -7,7 +7,7 @@ import logging
 from typing import Optional
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QLabel, QPushButton, 
-    QFrame, QToolTip
+    QFrame
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QPalette, QIcon, QPixmap, QPainter
@@ -186,7 +186,7 @@ class StatusIndicatorWidget(QFrame):
         return self._ai_status
 
 
-class FloatingStatusIndicator(StatusIndicatorWidget):
+class _LegacyFloatingStatusIndicator(StatusIndicatorWidget):
     """浮动状态指示器 - 显示在编辑器右下角"""
     
     def __init__(self, text_editor):

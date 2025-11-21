@@ -7,7 +7,7 @@ import logging
 from enum import Enum
 from typing import Optional
 from PyQt6.QtWidgets import QWidget, QLabel, QHBoxLayout, QGraphicsOpacityEffect, QMainWindow, QApplication
-from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtSignal, QRect, QPoint
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtSignal, QRect
 from PyQt6.QtGui import QPainter, QBrush, QColor, QPen, QFont
 
 logger = logging.getLogger(__name__)

@@ -6,7 +6,7 @@ import logging
 from typing import Dict, Any, Optional
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
-    QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QCheckBox,
+    QLineEdit, QSpinBox, QComboBox, QCheckBox,
     QPushButton, QLabel, QSlider, QTextEdit, QProgressBar,
     QMessageBox, QTextBrowser, QFrame, QScrollArea
 )

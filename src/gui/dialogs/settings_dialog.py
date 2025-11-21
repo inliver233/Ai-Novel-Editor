@@ -8,7 +8,7 @@ from typing import Dict, Any
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QFormLayout,
     QLineEdit, QSpinBox, QCheckBox, QComboBox, QPushButton, QLabel,
-    QGroupBox, QSlider, QTextEdit, QFileDialog, QColorDialog, QFontDialog
+    QGroupBox, QSlider, QTextEdit, QFileDialog, QFontDialog
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QColor

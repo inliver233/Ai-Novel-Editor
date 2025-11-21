@@ -10,7 +10,7 @@ import os
 # 添加src目录到Python路径
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from core.codex_integrator import CodexIntegrator
+from archive.experimental.core.codex_integrator import CodexIntegrator
 
 
 class MockCodexEntry:

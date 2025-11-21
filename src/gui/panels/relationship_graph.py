@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal, QTimer, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import (
     QPainter, QColor, QPen, QBrush, QFont, 
-    QMouseEvent, QWheelEvent, QPainterPath, QPolygonF,
+    QMouseEvent, QWheelEvent, QPolygonF,
     QTransform, QCursor, QAction
 )
 import math

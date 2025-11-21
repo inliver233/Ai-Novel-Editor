@@ -8,7 +8,7 @@ import json
 from typing import Dict, Any, List, Optional
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QFormLayout,
-    QLineEdit, QTextEdit, QSpinBox, QDoubleSpinBox, QComboBox,
+    QLineEdit, QTextEdit, QSpinBox, QComboBox,
     QPushButton, QLabel, QGroupBox, QCheckBox, QSlider, QFrame,
     QProgressBar, QTextBrowser, QPlainTextEdit, QSplitter, QMessageBox,
     QWidget, QListWidget, QListWidgetItem
@@ -1087,15 +1087,7 @@ class UnifiedAIConfigDialog(QDialog):
         self._prompt_config_widget = EnhancedPromptConfigWidget()
         self._tabs.addTab(self._prompt_config_widget, "✨ 智能提示词")
         
-        # 大纲AI配置页 (简化版本暂不提供)
-        # TODO: 实现简化的大纲AI配置界面  
-        # try:
-        #     self._outline_widget = self._create_outline_widget()
-        #     self._tabs.addTab(self._outline_widget, "📋 大纲AI")
-        #     logger.debug("Successfully added outline AI config tab")
-        # except Exception as e:
-        #     logger.error(f"Failed to create outline AI config tab: {e}")
-            
+        # 大纲AI配置页（简化版本预留，当前不在 UI 中显示）
         # 提示词模板管理页
         try:
             self._template_widget = self._create_template_widget()
@@ -1124,11 +1116,6 @@ class UnifiedAIConfigDialog(QDialog):
         # 此方法暂时为空，可根据需要添加信号连接
         pass
         
-    def _create_outline_widget(self):
-        """创建大纲AI配置页面 (简化版本暂不实现)"""
-        # TODO: 实现简化的大纲AI配置界面
-        pass
-    
     def _create_template_widget(self):
         """创建提示词模板管理页面"""
         try:
@@ -1795,7 +1782,7 @@ class TemplateManagementWidget(QWidget):
                 combo.setCurrentIndex(i)
                 return
     
-    def _on_template_selected(self, current, previous):
+    def _on_template_selected(self, current, _previous):
         """模板选择变化"""
         if not current:
             self._edit_btn.setEnabled(False)

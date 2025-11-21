@@ -375,41 +375,6 @@ class CompletionWidget(QWidget):
         # 不再显示错误状态组件，改为在日志中记录
         self.hide()
         return
-
-        # 创建错误标签（如果不存在）
-        if not hasattr(self, '_error_label'):
-            self._error_label = QLabel()
-            self._error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._error_label.setStyleSheet("""
-                QLabel {
-                    background-color: #3d1a1a;
-                    border: 1px solid #d73a49;
-                    border-radius: 6px;
-                    padding: 12px;
-                    color: #f85149;
-                    font-size: 12px;
-                }
-            """)
-            self._main_layout.addWidget(self._error_label)
-
-        self._error_label.setText(f"❌ {error_message}")
-        self._error_label.show()
-
-        # 显示界面
-        self._show_with_animation()
-
-        # 3秒后自动隐藏
-        QTimer.singleShot(3000, self.hide)
-
-        logger.debug(f"Showing error: {error_message}")
-
-    def hide_loading(self):
-        """隐藏加载状态"""
-        self._is_loading = False
-        self._loading_frame.hide()
-
-        logger.debug("Loading state hidden")
-    
     def hide_loading(self):
         """隐藏加载状态"""
         self._is_loading = False

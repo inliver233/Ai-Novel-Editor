@@ -151,6 +151,44 @@ class SmartCompletionManager(QObject):
                 
         except Exception as e:
             logger.warning(f"Failed to notify mode change: {e}")
+
+    def _get_ghost_system(self):
+        """获取当前可用的 Ghost Text 系统实例（必要时重新探测）。"""
+        if self._ghost_completion is not None:
+            return self._ghost_completion
+
+        # 动态回查编辑器上的 Ghost Text 相关属性，避免指针不同步
+        ghost_candidates = [
+            ('_ghost_completion', 'Ghost Completion'),
+            ('_optimal_ghost_text', 'Optimal Ghost Text'),
+            ('_deep_ghost_text', 'Deep Ghost Text')
+        ]
+
+        for attr_name, display_name in ghost_candidates:
+            if hasattr(self._text_editor, attr_name):
+                candidate = getattr(self._text_editor, attr_name)
+                if candidate is not None and hasattr(candidate, 'show_completion'):
+                    self._ghost_completion = candidate
+                    logger.info(f"重新绑定 {display_name} 作为 Ghost Text 系统: type={type(self._ghost_completion)}")
+                    return self._ghost_completion
+
+        return None
+
+    def _has_active_ghost_text(self) -> bool:
+        """统一判断当前是否存在可见的 Ghost Text。"""
+        ghost = self._get_ghost_system()
+        if not ghost:
+            return False
+
+        try:
+            if hasattr(ghost, 'has_active_ghost_text'):
+                return bool(ghost.has_active_ghost_text())
+            if hasattr(ghost, 'is_showing'):
+                return bool(ghost.is_showing())
+        except Exception as e:
+            logger.error(f"检测 Ghost Text 状态失败: {e}")
+
+        return False
             
     def handle_key_press(self, event: QKeyEvent) -> bool:
         """处理按键事件
@@ -854,39 +892,6 @@ class SmartCompletionManager(QObject):
             logger.info("📊 超时历史记录已重置")
         except Exception as e:
             logger.error(f"重置超时历史记录失败: {e}")
-    
-    def emergency_reset(self):
-        """紧急重置 - 清理所有状态，用于故障恢复"""
-        try:
-            logger.warning("🚨 执行紧急重置")
-            
-            # 停止所有定时器
-            if hasattr(self, '_ai_timeout_timer'):
-                self._ai_timeout_timer.stop()
-            if hasattr(self, '_auto_completion_timer'):
-                self._auto_completion_timer.stop()
-            
-            # 隐藏所有补全
-            self.hide_all_completions()
-            
-            # 重置所有状态标记
-            self._is_completing = False
-            self._ai_request_completed = False
-            self._last_completion_pos = -1
-            
-            # 清理临时状态
-            for attr in ['_last_ai_context', '_ai_request_time', '_last_trigger_time', '_last_auto_trigger_time']:
-                if hasattr(self, attr):
-                    delattr(self, attr)
-            
-            # 通知状态管理器
-            if hasattr(self._text_editor, '_ai_status_manager'):
-                self._text_editor._ai_status_manager.hide()
-            
-            logger.info("✅ 紧急重置完成")
-            
-        except Exception as e:
-            logger.error(f"紧急重置失败: {e}")
     
     def emergency_reset(self):
         """紧急重置 - 清理所有状态，用于故障恢复"""
