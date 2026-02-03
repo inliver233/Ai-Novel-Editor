@@ -24,6 +24,9 @@ except ImportError:
     NLTK_AVAILABLE = False
 
 
+logger = logging.getLogger(__name__)
+
+
 class NLPBackend(Enum):
     """NLP后端选择"""
     SPACY = "spacy"
@@ -428,42 +431,40 @@ def test_nlp_analyzer():
 最终，他们成为了好朋友，经常一起喝咖啡聊天。
 """
     
-    print("=== NLP语义分析测试 ===")
+    logger.info("=== NLP语义分析测试 ===")
     
     # 创建分析器
     analyzer = NLPAnalyzer()
     
     # 获取后端信息
     backend_info = analyzer.get_backend_info()
-    print(f"使用后端: {backend_info['backend']}")
-    print(f"初始化状态: {backend_info['initialized']}")
-    print()
+    logger.info("使用后端: %s", backend_info["backend"])
+    logger.info("初始化状态: %s", backend_info["initialized"])
     
     # 语义分析
     semantic_info = analyzer.analyze_text(sample_text)
     
-    print("语义分析结果:")
-    print(f"  命名实体: {semantic_info.entities}")
-    print(f"  关键词: {semantic_info.keywords}")
-    print(f"  情感倾向: {semantic_info.sentiment}")
-    print(f"  主题: {semantic_info.topics}")
+    logger.info("语义分析结果:")
+    logger.info("  命名实体: %s", semantic_info.entities)
+    logger.info("  关键词: %s", semantic_info.keywords)
+    logger.info("  情感倾向: %s", semantic_info.sentiment)
+    logger.info("  主题: %s", semantic_info.topics)
     
     if semantic_info.pos_tags:
-        print(f"  词性标注 (前10个): {semantic_info.pos_tags[:10]}")
+        logger.info("  词性标注 (前10个): %s", semantic_info.pos_tags[:10])
     
     if semantic_info.dependency_info:
-        print(f"  依存关系: {semantic_info.dependency_info}")
-    
-    print()
+        logger.info("  依存关系: %s", semantic_info.dependency_info)
     
     # 叙事元素提取
-    print("叙事元素提取:")
+    logger.info("叙事元素提取:")
     narrative_elements = analyzer.extract_narrative_elements(sample_text)
     
     for element_type, elements in narrative_elements.items():
         if elements:
-            print(f"  {element_type}: {elements}")
+            logger.info("  %s: %s", element_type, elements)
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     test_nlp_analyzer()
