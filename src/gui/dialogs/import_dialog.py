@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSlot, QThread
 
 from core.import_manager import ImportManager, ImportFormat, ImportOptions
+from core.backup_workflows import create_pre_import_backup
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -236,6 +237,34 @@ class ImportDialog(QDialog):
             create_project=self._create_project_check.isChecked(),
             project_name=file_path.stem if self._create_project_check.isChecked() else None
         )
+
+        # 危险操作：导入可能覆盖大量文档，导入前必须先备份。
+        try:
+            current_project = self._project_manager.get_current_project()
+            project_dir = (
+                Path(current_project.project_path)
+                if current_project and current_project.project_path
+                else None
+            )
+
+            if project_dir is None:
+                if options.create_project:
+                    logger.info("No active project; skip pre-import backup for create_project flow")
+                else:
+                    raise RuntimeError("未找到当前项目路径，无法在导入前创建备份")
+            else:
+                rag_config = None
+                try:
+                    rag_config = self._project_manager._config.get_section("rag")  # type: ignore[attr-defined]
+                except Exception:
+                    rag_config = None
+
+                backup_set = create_pre_import_backup(project_dir, rag_config=rag_config)
+                logger.info("Pre-import backup created: %s", backup_set.project_backup_dir)
+        except Exception as e:
+            logger.exception("Failed to create pre-import backup")
+            QMessageBox.critical(self, "备份失败", f"导入前备份失败，已取消导入:\n\n{e}")
+            return
         
         # 禁用控件
         self._set_ui_enabled(False)

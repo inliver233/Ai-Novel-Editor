@@ -112,6 +112,8 @@ class ImportTab(QWidget):
         # 备份现有数据
         self.backup_check = QCheckBox("导入前备份现有数据")
         self.backup_check.setChecked(True)
+        self.backup_check.setEnabled(False)  # 危险操作：强制备份（写死）
+        self.backup_check.setToolTip("危险操作：导入前强制备份，无法关闭")
         options_layout.addWidget(self.backup_check, 2, 0, 1, 2)
         
         layout.addWidget(options_group)
@@ -209,9 +211,9 @@ class ImportTab(QWidget):
         import_mode = self.import_mode_combo.currentData()
         auto_fix = self.auto_fix_check.isChecked()
         
-        # 如果需要备份
-        if self.backup_check.isChecked():
-            self._create_backup_before_import()
+        # 危险操作：导入前强制备份（写死）。
+        if not self._create_backup_before_import():
+            return
         
         # 启动工作线程
         self.worker = ImportExportWorker(
@@ -231,15 +233,26 @@ class ImportTab(QWidget):
         self.cancel_button.setEnabled(True)
         self.progress_label.setText("开始导入...")
     
-    def _create_backup_before_import(self):
-        """导入前创建备份"""
+    def _create_backup_before_import(self) -> bool:
+        """导入前创建备份（备份集合）"""
         try:
-            from datetime import datetime
-            backup_path = f"backup_before_import_{datetime.now().strftime('%Y%m%d_%H%M%S')}.backup"
-            self.engine.create_backup(backup_path)
-            logger.info(f"Backup created before import: {backup_path}")
+            from core.backup_workflows import create_pre_import_backup
+
+            project_dir = None
+            if self.engine and getattr(self.engine, "codex_manager", None):
+                db_manager = getattr(self.engine.codex_manager, "db_manager", None)
+                project_dir = getattr(db_manager, "project_path", None)
+
+            if not project_dir:
+                raise RuntimeError("无法确定当前项目路径，无法在导入前创建备份")
+
+            backup_set = create_pre_import_backup(project_dir)
+            logger.info("Backup created before import: %s", backup_set.project_backup_dir)
+            return True
         except Exception as e:
-            logger.warning(f"Failed to create backup before import: {e}")
+            logger.exception("Failed to create backup before import")
+            QMessageBox.critical(self, "备份失败", f"导入前备份失败，已取消导入:\n\n{e}")
+            return False
     
     def _cancel_import(self):
         """取消导入"""
