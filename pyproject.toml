@@ -1,0 +1,50 @@
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+extend-exclude = '''
+/(
+  \.git
+|\.venv
+|venv
+|build
+|dist
+|archive
+|temp_research
+|\.sisyphus
+|projects
+|exports
+|backups
+)/
+'''
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+extend-exclude = [
+  ".git",
+  ".venv",
+  "venv",
+  "build",
+  "dist",
+  "archive",
+  "temp_research",
+  ".sisyphus",
+  "projects",
+  "exports",
+  "backups",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = []
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_ignores = true
+no_implicit_optional = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-q"]
+
