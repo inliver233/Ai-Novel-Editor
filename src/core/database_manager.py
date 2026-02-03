@@ -3,13 +3,12 @@
 负责所有与SQLite数据库的交互，确保数据操作的原子性和一致性。
 """
 
-import sqlite3
 import json
 import logging
-import time
+import sqlite3
 import threading
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 

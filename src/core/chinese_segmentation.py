@@ -3,11 +3,13 @@
 基于jieba分词库，为Codex系统提供智能文本处理
 """
 
-import re
 import logging
-from typing import List, Dict, Set, Tuple, Optional
+import re
 from dataclasses import dataclass
 from enum import Enum
+from typing import Dict, List, Optional, Tuple
+
+from .codex_manager import CodexEntry
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +18,7 @@ try:
     import jieba.posseg as pseg
     JIEBA_AVAILABLE = True
     logger.info("jieba中文分词库加载成功 - 版本: %s", getattr(jieba, '__version__', 'unknown'))
-except ImportError as e:
+except ImportError:
     JIEBA_AVAILABLE = False
     logger.warning("jieba中文分词库未安装，将使用基础分词功能")
 
@@ -355,7 +357,7 @@ class ChineseSegmenter:
             'segments': segments[:20]  # 返回前20个分词结果作为示例
         }
     
-    def update_custom_dictionary(self, codex_entries: List['CodexEntry']):
+    def update_custom_dictionary(self, codex_entries: List[CodexEntry]):
         """
         根据Codex条目更新自定义词典
         

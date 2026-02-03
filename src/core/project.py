@@ -5,17 +5,17 @@
 """
 
 from __future__ import annotations
-import json
+
 import logging
 import uuid
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
-from pathlib import Path
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass, asdict, field, fields
 from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from .database_manager import DatabaseManager
 from .config import Config
+from .database_manager import DatabaseManager
 from .shared import Shared
 
 logger = logging.getLogger(__name__)
@@ -619,14 +619,14 @@ class ProjectManager:
                                         else:
                                             logger.warning(f"[AUTO_INDEX] 索引失败: {title}")
                                     else:
-                                        logger.warning(f"[AUTO_INDEX] index_document_sync方法不可用")
+                                        logger.warning("[AUTO_INDEX] index_document_sync方法不可用")
                                         break
                                         
                                 except Exception as e:
                                     logger.error(f"[AUTO_INDEX] 索引文档异常 {title}: {e}")
                                     continue
                             
-                            logger.info(f"[AUTO_INDEX] 自动索引完成")
+                            logger.info("[AUTO_INDEX] 自动索引完成")
                         else:
                             logger.info("[AUTO_INDEX] 所有文档均已索引，无需重新索引")
                     else:

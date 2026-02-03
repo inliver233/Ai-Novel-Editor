@@ -4,12 +4,12 @@
 解决RAG检索上下文不准确的问题
 """
 
+import logging
 import re
 import time
-import logging
-from typing import List, Dict, Tuple, Optional, Set
 from dataclasses import dataclass
 from enum import Enum
+from typing import Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -295,7 +295,6 @@ class ImprovedContextExtractor:
         
         try:
             # 尝试使用jieba进行分词
-            import jieba
             import jieba.posseg as pseg
             jieba_available = True
             # 分词并提取名词、动词、形容词等更多词性
@@ -374,7 +373,7 @@ class ImprovedContextExtractor:
             
             # 策略2: 如果仍然不足，提取单字符组合
             if len(unique_keywords) < 1:
-                logger.warning(f"[KEYWORD_EXTRACT] 启用最后降级策略：单字符组合")
+                logger.warning("[KEYWORD_EXTRACT] 启用最后降级策略：单字符组合")
                 chars = re.findall(r'[\u4e00-\u9fff]', text)
                 for i in range(len(chars)-1):
                     word = chars[i] + chars[i+1]
@@ -390,7 +389,7 @@ class ImprovedContextExtractor:
         
         # 如果关键词仍然为空，记录详细信息
         if not unique_keywords:
-            logger.error(f"[KEYWORD_EXTRACT] 关键词提取失败！")
+            logger.error("[KEYWORD_EXTRACT] 关键词提取失败！")
             logger.error(f"[KEYWORD_EXTRACT] 输入文本: '{text[:200]}...'")
             logger.error(f"[KEYWORD_EXTRACT] 文本长度: {len(text)}")
             logger.error(f"[KEYWORD_EXTRACT] jieba可用: {jieba_available}")

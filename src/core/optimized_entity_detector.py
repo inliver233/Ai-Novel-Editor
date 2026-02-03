@@ -3,15 +3,14 @@
 修复时间表达式误识别问题，改进中文实体识别准确性
 """
 
-import re
 import logging
-from typing import List, Dict, Set, Optional, Tuple
+import re
 from dataclasses import dataclass
 from enum import Enum
+from typing import Dict, List, Optional
 
-from .reference_detector import ReferenceDetector, DetectedReference
-from .codex_manager import CodexManager, CodexEntry, CodexEntryType
-from .chinese_segmentation import get_segmenter, SegmentedWord, WordType
+from .codex_manager import CodexEntry, CodexEntryType, CodexManager
+from .reference_detector import DetectedReference, ReferenceDetector
 
 logger = logging.getLogger(__name__)
 
@@ -457,7 +456,6 @@ class OptimizedEntityDetector(ReferenceDetector):
         try:
             # 使用简单的中文分词提取关键词
             # 提取名词、动词、形容词等
-            import jieba
             import jieba.posseg as pseg
             logger.critical("🎯[JIEBA_DEBUG] optimized_entity_detector中jieba导入成功，准备提取上下文关键词")
             

@@ -3,11 +3,13 @@ AI大纲解析器系统架构设计
 结合现有导入系统和AI技术的智能大纲生成方案
 """
 
-from typing import List, Dict, Any, Optional, Tuple
-from dataclasses import dataclass
-from enum import Enum
 import re
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any, Dict, List, Optional, Tuple
+
+from loguru import logger
 
 try:
     from .nlp_analyzer import NLPAnalyzer
@@ -336,7 +338,7 @@ class AIEnhancedOutlineParser(OutlineParser):
         
         # 导入提示词管理器
         try:
-            from .outline_prompts import outline_prompt_manager, PromptType
+            from .outline_prompts import PromptType, outline_prompt_manager
             self.prompt_manager = outline_prompt_manager
             self.PromptType = PromptType
             self._prompts_available = True

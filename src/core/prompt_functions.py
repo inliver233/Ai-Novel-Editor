@@ -3,11 +3,11 @@
 基于NovelCrafter的函数化提示词设计，支持类似 {codex.detected()} 的动态函数调用
 """
 
-import re
 import logging
-from typing import Dict, Any, List, Optional, Callable, TYPE_CHECKING
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
     from core.codex_manager import CodexManager
@@ -121,7 +121,7 @@ class CodexDetectedFunction(CodexFunction):
                 xml_parts.append(f"    <description>{entry.description}</description>")
             if entry.aliases:
                 xml_parts.append(f"    <aliases>{', '.join(entry.aliases)}</aliases>")
-            xml_parts.append(f"  </entry>")
+            xml_parts.append("  </entry>")
         
         xml_parts.append("</codex_entries>")
         return "\n".join(xml_parts)

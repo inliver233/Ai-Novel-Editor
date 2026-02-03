@@ -4,18 +4,17 @@
 """
 
 import logging
-from pathlib import Path
-from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, List, Optional
 
-from PyQt6.QtCore import QObject, pyqtSignal, QThread
+from PyQt6.QtCore import QObject, pyqtSignal
 
 from .concurrent_io import FileIOWorker
 
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from core.project import ProjectManager, ProjectDocument, DocumentType
+    from core.project import ProjectDocument, ProjectManager
 
 logger = logging.getLogger(__name__)
 
@@ -224,8 +223,8 @@ class ExportManager(QObject):
         """导出为Word文档"""
         try:
             from docx import Document
-            from docx.shared import Pt
             from docx.enum.text import WD_ALIGN_PARAGRAPH
+            from docx.shared import Pt
         except ImportError:
             self.exportError.emit("需要安装python-docx库: pip install python-docx")
             return False
@@ -264,11 +263,11 @@ class ExportManager(QObject):
                 
                 # 添加标题
                 if document.doc_type.value == 'act':
-                    heading = doc.add_heading(f"第{document.order + 1}幕 {document.name}", level=1)
+                    doc.add_heading(f"第{document.order + 1}幕 {document.name}", level=1)
                 elif document.doc_type.value == 'chapter':
-                    heading = doc.add_heading(f"第{document.order + 1}章 {document.name}", level=2)
+                    doc.add_heading(f"第{document.order + 1}章 {document.name}", level=2)
                 elif document.doc_type.value == 'scene':
-                    heading = doc.add_heading(f"场景{document.order + 1}：{document.name}", level=3)
+                    doc.add_heading(f"场景{document.order + 1}：{document.name}", level=3)
                 
                 # 添加内容
                 if document.content:

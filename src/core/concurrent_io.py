@@ -3,13 +3,13 @@
 提供非阻塞的文件读写操作，避免GUI冻结
 """
 
-import asyncio
 import json
 import logging
-from concurrent.futures import ThreadPoolExecutor, Future
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Dict, Optional, Callable, Union
-from PyQt6.QtCore import QObject, pyqtSignal, QThread
+from typing import Any, Callable, Dict, Optional, Union
+
+from PyQt6.QtCore import QThread, pyqtSignal
 
 logger = logging.getLogger(__name__)
 

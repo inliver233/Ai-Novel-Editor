@@ -3,9 +3,9 @@ AI大纲分析提示词模块
 集中管理所有大纲相关的AI提示词，方便修改和优化
 """
 
-from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Dict, Optional
 
 
 class PromptType(Enum):

@@ -3,14 +3,14 @@
 支持OpenAI、Claude、Gemini三种格式的统一工具调用接口
 """
 
+import asyncio
+import inspect
 import json
 import logging
-import inspect
-from typing import Dict, Any, List, Optional, Union, Callable, Type
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from abc import ABC, abstractmethod
-import asyncio
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

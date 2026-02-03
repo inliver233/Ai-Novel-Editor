@@ -3,11 +3,11 @@ NLP语义分析模块
 集成spacy/nltk库进行深度语义分析
 """
 
+import logging
 import re
-from typing import List, Dict, Tuple, Optional, Set, Any
 from dataclasses import dataclass
 from enum import Enum
-import logging
+from typing import Any, Dict, List, Tuple
 
 try:
     import spacy
@@ -18,8 +18,7 @@ except ImportError:
 
 try:
     import nltk
-    from nltk.tokenize import sent_tokenize, word_tokenize
-    from nltk.corpus import stopwords
+    from nltk.tokenize import word_tokenize
     NLTK_AVAILABLE = True
 except ImportError:
     NLTK_AVAILABLE = False
@@ -227,9 +226,6 @@ class NLPAnalyzer:
     
     def _nltk_analyze(self, text: str) -> SemanticInfo:
         """使用NLTK进行分析"""
-        # 句子分割
-        sentences = sent_tokenize(text)
-        
         # 词汇分割
         words = word_tokenize(text)
         

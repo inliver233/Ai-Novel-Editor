@@ -3,18 +3,17 @@
 提供高质量的数据交换功能，支持多种格式和高级特性
 """
 
-import json
 import csv
+import json
 import logging
 import os
 import shutil
 import zipfile
 from abc import ABC, abstractmethod
-from datetime import datetime
-from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple, Union, Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum, auto
+from typing import Dict, List, Optional, Tuple
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
@@ -178,11 +177,11 @@ class DataValidator:
         errors = []
         
         # 检查必需字段
-        for field in self.required_fields['codex_entry']:
-            if field not in entry:
-                errors.append(f"条目 {index}: 缺少必需字段 '{field}'")
-            elif not entry[field]:
-                errors.append(f"条目 {index}: 字段 '{field}' 不能为空")
+        for required_field in self.required_fields['codex_entry']:
+            if required_field not in entry:
+                errors.append(f"条目 {index}: 缺少必需字段 '{required_field}'")
+            elif not entry[required_field]:
+                errors.append(f"条目 {index}: 字段 '{required_field}' 不能为空")
         
         # 检查ID唯一性
         entry_id = entry.get('id')
@@ -193,10 +192,12 @@ class DataValidator:
                 seen_ids.add(entry_id)
         
         # 检查字段类型
-        for field, expected_type in self.field_types.items():
-            if field in entry and entry[field] is not None:
-                if not isinstance(entry[field], expected_type):
-                    errors.append(f"条目 {index}: 字段 '{field}' 类型错误，期望 {expected_type.__name__}")
+        for field_name, expected_type in self.field_types.items():
+            if field_name in entry and entry[field_name] is not None:
+                if not isinstance(entry[field_name], expected_type):
+                    errors.append(
+                        f"条目 {index}: 字段 '{field_name}' 类型错误，期望 {expected_type.__name__}"
+                    )
         
         # 检查entry_type有效性
         valid_types = ['CHARACTER', 'LOCATION', 'OBJECT', 'LORE', 'SUBPLOT', 'OTHER']
@@ -538,9 +539,8 @@ class ExcelHandler(FormatHandler):
         try:
             # 检查是否安装了openpyxl
             try:
-                import openpyxl
                 from openpyxl import Workbook
-                from openpyxl.styles import Font, PatternFill, Alignment
+                from openpyxl.styles import Alignment, Font, PatternFill
             except ImportError:
                 result.errors.append("需要安装openpyxl库：pip install openpyxl")
                 return result
@@ -1023,14 +1023,6 @@ class ImportExportEngine(QObject):
     
     def _register_handlers(self):
         """注册格式处理器"""
-        handlers = [
-            JSONHandler(self.progress_reporter),
-            CSVHandler(self.progress_reporter),
-            ExcelHandler(self.progress_reporter),
-            MarkdownHandler(self.progress_reporter),
-            BackupHandler(self.progress_reporter)
-        ]
-        
         # 为每个格式注册对应的处理器
         self.handlers[ExportFormat.JSON] = JSONHandler(self.progress_reporter)
         self.handlers[ExportFormat.CSV] = CSVHandler(self.progress_reporter)
@@ -1273,9 +1265,9 @@ class ImportExportEngine(QObject):
         """只更新非空字段"""
         update_data = {}
         
-        for field in ['title', 'description', 'aliases', 'relationships', 'progression']:
-            if field in data and data[field]:
-                update_data[field] = data[field]
+        for field_name in ['title', 'description', 'aliases', 'relationships', 'progression']:
+            if field_name in data and data[field_name]:
+                update_data[field_name] = data[field_name]
         
         if update_data and self.codex_manager:
             self.codex_manager.update_entry(entry.id, **update_data)

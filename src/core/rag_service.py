@@ -1,15 +1,13 @@
 """
 RAG服务 - 处理向量搜索和重排序
 """
-import logging
-import json
 import asyncio
-import hashlib
-import time
+import logging
 import threading
-from concurrent.futures import ThreadPoolExecutor, Future
-from typing import List, Dict, Any, Optional, Tuple, Callable
+import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # 尝试导入可选依赖
 try:
@@ -142,7 +140,7 @@ class RAGService:
                 async with session.get(
                     f"{self.base_url.replace('/v1', '')}/health",  # 健康检查端点
                     timeout=aiohttp.ClientTimeout(total=10)
-                ) as response:
+                ):
                     self._network_available = True
                     self._last_network_check = current_time
                     return True
@@ -398,8 +396,6 @@ class RAGService:
     
     def create_embeddings_batch(self, texts: List[str]) -> List[Optional[List[float]]]:
         """同步批量创建嵌入向量（带超时保护）"""
-        import concurrent.futures
-        import threading
         
         try:
             # 使用新的事件循环避免冲突
@@ -458,13 +454,6 @@ class RAGService:
         if not AIOHTTP_AVAILABLE:
             logger.warning("aiohttp not available, returning original order")
             return [(i, 1.0) for i in range(len(documents))][:top_k]
-        
-        # 生成缓存键
-        doc_hash = hashlib.md5('|'.join(documents).encode()).hexdigest()
-        cache_key = f"rerank:{self.rerank_model}:{hashlib.md5(query.encode()).hexdigest()}:{doc_hash}:{top_k}"
-        
-        # 检查缓存
-        # 缓存系统已移除，直接调用API
         
         headers = {
             "Authorization": f"Bearer {self.api_key}",

@@ -5,14 +5,14 @@ PyQt6集成的AI客户端
 
 import asyncio
 import logging
-from typing import Dict, Any, Optional, List
-from PyQt6.QtCore import QObject, pyqtSignal, QThread, QTimer
-from PyQt6.QtWidgets import QApplication
+from typing import Any, Dict, List, Optional
 
-from .ai_client import AIClient, AsyncAIClient, AIConfig, AIClientError
+from PyQt6.QtCore import QObject, QThread, pyqtSignal
+
+from .ai_client import AIClient, AIClientError, AIConfig, AsyncAIClient
 from .multimodal_types import MultimodalMessage
-from .tool_types import ToolDefinition, ToolCall
-from .tool_manager import ToolManager, get_tool_manager
+from .tool_manager import get_tool_manager
+from .tool_types import ToolDefinition
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +185,7 @@ class AIWorkerThread(QThread):
             try:
                 # 在当前线程中运行异步任务
                 loop.run_until_complete(self._async_stream_request())
-            except Exception as e:
+            except Exception:
                 if not self._cancelled:
                     raise
                 

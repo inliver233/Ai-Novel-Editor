@@ -4,12 +4,12 @@
 """
 
 import logging
-from typing import Optional, Dict, Any
 from pathlib import Path
+from typing import Any, Dict, Optional
+
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from .config import Config
-
 
 logger = logging.getLogger(__name__)
 

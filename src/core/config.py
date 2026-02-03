@@ -7,6 +7,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
+
 from PyQt6.QtCore import QSettings, QStandardPaths
 
 # 导入AI相关类型
@@ -330,9 +331,6 @@ class Config:
             if not ai_section.get('model'):
                 logger.warning("AI模型未配置")
                 return None
-
-            # 创建AI配置对象
-            from .ai_client import AIConfig, AIProvider
 
             try:
                 provider = AIProvider(provider_str)

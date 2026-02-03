@@ -5,16 +5,15 @@
 
 import logging
 import re
-from pathlib import Path
-from typing import Optional, List, Dict, Any, Tuple
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from core.project import ProjectManager, DocumentType
+    from core.project import DocumentType, ProjectManager
 
 from core.project import DocumentType  # 直接导入用于运行时
 

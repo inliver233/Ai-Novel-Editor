@@ -3,12 +3,12 @@
 基于NovelCrafter的引用检测机制，智能识别文本中的Codex条目引用
 """
 
-import re
 import logging
-from typing import List, Dict, Tuple, Set, Optional
+import re
 from dataclasses import dataclass
+from typing import Dict, List, Set, Tuple
 
-from .codex_manager import CodexManager, CodexEntry, CodexEntryType
+from .codex_manager import CodexEntry, CodexEntryType, CodexManager
 
 logger = logging.getLogger(__name__)
 

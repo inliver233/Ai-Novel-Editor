@@ -3,14 +3,13 @@
 专门为AI补全收集和处理上下文信息，解决RAG检索上下文不准确的问题
 """
 
+import logging
 import re
 import time
-import logging
-from typing import List, Dict, Tuple, Optional, Set
 from dataclasses import dataclass
-from enum import Enum
+from typing import Dict, List
 
-from .improved_context_extractor import ImprovedContextExtractor, ExtractedContext
+from .improved_context_extractor import ExtractedContext, ImprovedContextExtractor
 from .optimized_entity_detector import OptimizedEntityDetector
 
 logger = logging.getLogger(__name__)
@@ -85,7 +84,7 @@ class IntelligentContextCollector:
         
         # 紧急修复：如果智能RAG查询为空，使用降级策略确保返回有效查询
         if not rag_query or len(rag_query.strip()) < 5:
-            logger.warning(f"[EMERGENCY_FIX] 智能RAG查询构建失败，启用紧急降级策略")
+            logger.warning("[EMERGENCY_FIX] 智能RAG查询构建失败，启用紧急降级策略")
             
             # 降级策略1: 直接使用before_context的最后部分
             if extracted_context.before_context and len(extracted_context.before_context) > 20:
@@ -103,12 +102,12 @@ class IntelligentContextCollector:
                 if extracted_context.before_context:
                     # 直接使用前100个字符
                     rag_query = extracted_context.before_context[:100].strip()
-                    logger.warning(f"[EMERGENCY_FIX] 降级策略2，直接使用前100字符")
+                    logger.warning("[EMERGENCY_FIX] 降级策略2，直接使用前100字符")
             
             # 降级策略3: 最后的保险措施
             if not rag_query or len(rag_query.strip()) < 5:
                 rag_query = "默认查询内容"
-                logger.error(f"[EMERGENCY_FIX] 所有策略失败，使用默认查询")
+                logger.error("[EMERGENCY_FIX] 所有策略失败，使用默认查询")
         
         # 4. 生成上下文摘要
         context_summary = self._generate_intelligent_summary(
@@ -212,7 +211,7 @@ class IntelligentContextCollector:
                 last_part = extracted_context.before_context[-150:].strip()  # 增加字符数
                 if last_part:
                     query = last_part
-                    logger.warning(f"查询为空，使用最后150个字符作为备用查询")
+                    logger.warning("查询为空，使用最后150个字符作为备用查询")
             
             # 7.2 如果仍然为空，尝试使用全文的关键字符
             if not query.strip() and len(extracted_context.before_context) > 0:

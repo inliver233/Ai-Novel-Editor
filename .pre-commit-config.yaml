@@ -10,7 +10,7 @@ repos:
     rev: v0.9.10
     hooks:
       - id: ruff
-        args: ["--exit-zero"]
+        args: ["--fix", "--exit-zero"]
         files: ^src/core/
         stages: [manual]
       - id: ruff-format

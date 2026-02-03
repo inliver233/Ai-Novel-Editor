@@ -3,14 +3,14 @@ Codex知识库管理系统
 基于NovelCrafter的Codex设计，管理小说世界观的角色、地点、物品等元素
 """
 
+import logging
 import re
 import uuid
-import logging
-import time
+from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Dict, List, Any, Optional, Set, Tuple
 from enum import Enum
-from dataclasses import dataclass, asdict
+from typing import Any, Dict, List, Optional, Tuple
+
 try:
     from PyQt6.QtCore import QObject, pyqtSignal
     HAS_QT = True
@@ -1208,7 +1208,7 @@ class CodexManager(QObject):
         removed_count = original_count - len(entry.relationships)
         
         if removed_count == 0:
-            logger.info(f"No matching relationships found to remove")
+            logger.info("No matching relationships found to remove")
             return False
         
         # 保存数据
@@ -1851,8 +1851,8 @@ class CodexManager(QObject):
         Returns:
             Dict[str, Any]: 增强的统计数据
         """
-        from datetime import datetime, timedelta
         import statistics
+        from datetime import datetime
         
         # 基础统计
         total_refs = len(self._references)

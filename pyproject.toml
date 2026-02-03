@@ -35,7 +35,7 @@ extend-exclude = [
 ]
 
 [tool.ruff.lint]
-select = ["E", "F", "I"]
+select = ["E9", "F", "I"]
 ignore = []
 
 [tool.mypy]
@@ -47,4 +47,3 @@ no_implicit_optional = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["-q"]
-

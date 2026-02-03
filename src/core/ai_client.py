@@ -3,21 +3,22 @@ AI客户端核心模块
 基于OpenAI兼容API格式的统一LLM客户端实现
 """
 
+import asyncio
 import json
 import logging
-import time
-import asyncio
 import os
-from typing import Dict, Any, List, Optional, AsyncGenerator, Union
+import time
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, AsyncGenerator, Dict, List, Optional, Union
+
 import aiohttp
 import requests
-from PyQt6.QtCore import QObject, pyqtSignal, QThread, QTimer
+
+from .multimodal_types import MultimodalMessage
 from .secure_key_manager import get_secure_key_manager
-from .multimodal_types import MultimodalMessage, TextContent, MediaContent
-from .tool_types import ToolDefinition, ToolCall, ToolCallStatus
 from .tool_manager import ToolManager, get_tool_manager
+from .tool_types import ToolCall, ToolDefinition
 
 logger = logging.getLogger(__name__)
 
@@ -735,7 +736,7 @@ class AIClient:
                     
                     # 调试信息
                     self.logger.debug(f"Gemini响应结构: {json.dumps(response_data, indent=2, ensure_ascii=False)[:500]}...")
-                    self.logger.warning(f"Gemini响应格式无法识别 - 可能是API bug或新格式")
+                    self.logger.warning("Gemini响应格式无法识别 - 可能是API bug或新格式")
                     
                 except Exception as e:
                     self.logger.error(f"解析Gemini响应时出错: {e}")

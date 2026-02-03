@@ -1,13 +1,14 @@
 """
 SQLite向量存储管理器
 """
-import sqlite3
+import hashlib
 import json
 import logging
-import hashlib
+import re
+import sqlite3
+
 # import pickle  # 移除pickle，使用JSON序列化
-from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
 
 # 尝试导入numpy
 try:
@@ -350,7 +351,7 @@ class SQLiteVectorStore:
                 
                 # 如果关键词提取失败，尝试AI关键词提取
                 if not keywords and len(query_text.strip()) >= 2:
-                    logger.info(f"[SEARCH] 传统分词失败，尝试AI关键词提取...")
+                    logger.info("[SEARCH] 传统分词失败，尝试AI关键词提取...")
                     ai_keywords = self._extract_keywords_with_ai(query_text)
                     if ai_keywords:
                         keywords = ai_keywords
@@ -948,8 +949,9 @@ class SQLiteVectorStore:
 关键词："""
 
             # 使用requests发送请求
-            import requests
             import json
+
+            import requests
             
             headers = {
                 "Authorization": f"Bearer {ai_config['api_key']}",
@@ -965,7 +967,7 @@ class SQLiteVectorStore:
                 "temperature": 0.3
             }
             
-            logger.info(f"[AI_KEYWORDS] 发送AI关键词提取请求...")
+            logger.info("[AI_KEYWORDS] 发送AI关键词提取请求...")
             
             response = requests.post(
                 ai_config['api_url'],

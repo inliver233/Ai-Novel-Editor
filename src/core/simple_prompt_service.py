@@ -5,14 +5,12 @@
 """
 
 import logging
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any, Union, Tuple
-from enum import Enum
-from PyQt6.QtCore import QObject, pyqtSignal
-import json
 import re
-import time
-import hashlib
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Dict, List
+
+from PyQt6.QtCore import QObject, pyqtSignal
 
 # 导入模板处理器
 from .template_processor import TemplateProcessor
@@ -294,7 +292,6 @@ class AutoContextInjector:
         """检测情感基调"""
         positive_words = ['高兴', '开心', '快乐', '兴奋', '满意', '欣喜']
         negative_words = ['伤心', '难过', '愤怒', '恐惧', '焦虑', '担心']
-        neutral_words = ['平静', '思考', '观察', '等待', '继续']
         
         if any(word in text for word in positive_words):
             return "积极情感"
