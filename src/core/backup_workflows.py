@@ -54,3 +54,19 @@ def create_pre_import_backup(
     apply_retention_policy(Path.home() / BackupPaths().global_app_dir_name / BackupPaths().global_backup_dir_name)
 
     return backup_set
+
+
+def create_pre_delete_backup(
+    project_dir: str | Path,
+    *,
+    project_db: str | Path | None = None,
+    vectors_db: str | Path | None = None,
+    rag_config: dict[str, Any] | None = None,
+) -> BackupSet:
+    """Create a backup set before a potentially destructive recursive delete."""
+    return create_pre_import_backup(
+        project_dir,
+        project_db=project_db,
+        vectors_db=vectors_db,
+        rag_config=rag_config,
+    )

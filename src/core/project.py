@@ -14,6 +14,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from .backup_workflows import create_pre_delete_backup
 from .config import Config
 from .database_manager import DatabaseManager
 from .shared import Shared
@@ -296,6 +297,22 @@ class ProjectManager:
         """移除文档及其所有子文档"""
         if not self._current_project or doc_id not in self._current_project.documents:
             return False
+
+        if save:
+            if self._project_path is None:
+                logger.error("Cannot create pre-delete backup: project path is not set")
+                return False
+            try:
+                rag_config = None
+                try:
+                    rag_config = self._config.get_section("rag")
+                except Exception:
+                    rag_config = None
+
+                create_pre_delete_backup(self._project_path, rag_config=rag_config)
+            except Exception:
+                logger.exception("Failed to create pre-delete backup; aborting delete")
+                return False
         
         docs_to_remove = {doc_id}
         children_queue = [doc_id]
