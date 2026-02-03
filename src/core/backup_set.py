@@ -45,3 +45,9 @@ def snapshot_project_db(backup_set: BackupSet, source_db: str | Path) -> Path:
     """Write a consistent project.db snapshot for this backup set."""
     backup_sqlite_db(source_db, backup_set.project_db_path)
     return backup_set.project_db_path
+
+
+def snapshot_vectors_db(backup_set: BackupSet, source_db: str | Path) -> Path:
+    """Write a consistent vectors.db snapshot for this backup set."""
+    backup_sqlite_db(source_db, backup_set.vectors_db_path)
+    return backup_set.vectors_db_path
