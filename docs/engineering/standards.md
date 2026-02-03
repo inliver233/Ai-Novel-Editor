@@ -21,9 +21,15 @@
 
 ## 分阶段启用策略（建议）
 1. Phase A（当前）：只启用低风险 hooks，避免一次性引入大规模格式化 diff。
-2. Phase B：引入 ruff（可先 `--fix` + 低风险规则集），对 `src/core/` 优先落地。
+2. Phase B：引入 ruff（可先只做提示/告警，再逐步启用 `--fix`），对 `src/core/` 优先落地。
 3. Phase C：引入 black（先格式化新增/变更文件，逐步扩展到全量）。
 4. Phase D：引入 mypy（先从 `src/core/` 开始，逐步提高严格度）。
+
+对应的手工执行命令（当前配置为 `manual` 阶段，避免默认提交时引入大规模 diff）：
+- ruff：`pre-commit run ruff --all-files --hook-stage manual`
+- ruff-format：`pre-commit run ruff-format --all-files --hook-stage manual`
+- black：`pre-commit run black --all-files --hook-stage manual`
+- mypy：`pre-commit run mypy --all-files --hook-stage manual`
 
 ## 例外原则
 - 任何大规模格式化或规则收敛必须拆分 commit，避免把真实逻辑变更淹没在机械 diff 中。
