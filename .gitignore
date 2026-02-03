@@ -162,6 +162,7 @@ CLEANUP_PROGRESS.md
 # 根目录 md 文档默认忽略（保留 README.md）
 /*.md
 !/README.md
+!/完全重构计划.md
 
 # Python 缓存文件 (额外确保)
 src/**/__pycache__/
