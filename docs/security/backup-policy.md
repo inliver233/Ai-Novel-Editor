@@ -13,3 +13,6 @@
 - 入口实现：`src/core/sqlite_backup.py::copy_sqlite_db_files`
 
 注意：兜底方案仅作为兼容路径，默认优先使用官方 backup API。
+
+## 触发点（已落地）
+- Schema migration 前：`src/core/database_manager.py::_migrate_database()` 会先创建 `project.db` 备份（受测：`tests/test_database_migration_backup.py`）。
