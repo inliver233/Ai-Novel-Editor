@@ -181,6 +181,7 @@ def write_backup_manifest(
     vectors_db: str | Path | None = None,
     rag_config: dict[str, Any] | None = None,
     app_version: str | None = None,
+    reason: str | None = None,
 ) -> Path:
     """Write backup set manifest.json.
 
@@ -207,6 +208,7 @@ def write_backup_manifest(
     manifest: dict[str, Any] = {
         "timestamp": backup_set.timestamp,
         "app_version": str(app_version),
+        "reason": str(reason) if reason is not None else None,
         "project_path": _sanitize_project_path(project_dir),
         "project_db": {"schema_version": schema_version},
         "vectors": {
