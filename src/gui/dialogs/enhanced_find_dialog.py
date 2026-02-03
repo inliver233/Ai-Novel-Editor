@@ -31,52 +31,49 @@ class GlobalSearchWorker(QThread):
     
     def run(self):
         """执行全局搜索"""
-        print(f"🔍 全局搜索线程开始运行")
+        logger.debug("Global search thread started")
 
         if not self.project_manager:
-            print("❌ 项目管理器为空，搜索结束")
+            logger.warning("Global search aborted: project_manager is None")
             self.searchFinished.emit()
             return
 
         try:
             # 获取所有文档
-            print("📚 获取所有文档...")
+            logger.debug("Collecting documents for global search")
 
             # 检查项目管理器是否有当前项目
             if not hasattr(self.project_manager, '_current_project') or not self.project_manager._current_project:
-                print("❌ 没有当前项目")
+                logger.warning("Global search aborted: no current project")
                 return
 
             documents = self.project_manager._current_project.documents
-            print(f"📚 找到 {len(documents)} 个文档")
+            logger.debug("Global search: %d documents", len(documents))
 
             for doc_id, document in documents.items():
-                print(f"🔍 搜索文档: {doc_id} - {document.name}")
+                logger.debug("Global search: scanning document %s (%s)", doc_id, document.name)
                 content = document.content
                 if content:
-                    print(f"📄 文档内容长度: {len(content)}")
+                    logger.debug("Global search: document %s content length=%d", doc_id, len(content))
                     self._search_in_content(doc_id, document.name, content)
                 else:
-                    print(f"❌ 文档内容为空: {doc_id}")
+                    logger.debug("Global search: document %s content is empty", doc_id)
 
-        except Exception as e:
-            print(f"❌ 全局搜索异常: {e}")
-            logger.error(f"Global search error: {e}")
+        except Exception:
+            logger.exception("Global search failed")
         finally:
-            print("🏁 全局搜索完成")
+            logger.debug("Global search finished")
             self.searchFinished.emit()
     
     def _search_in_content(self, doc_id: str, doc_title: str, content: str):
         """在内容中搜索"""
         lines = content.split('\n')
-        print(f"🔍 在文档 {doc_title} 中搜索，共 {len(lines)} 行")
+        logger.debug("Global search: scanning %s (%d lines)", doc_title, len(lines))
 
         for line_num, line in enumerate(lines, 1):
             if self._line_matches(line):
-                print(f"✅ 找到匹配项: {doc_title} 第{line_num}行 - {line.strip()}")
+                logger.debug("Global search: match in %s at line %d", doc_title, line_num)
                 self.searchResult.emit(doc_id, doc_title, line_num, line.strip())
-            else:
-                print(f"❌ 第{line_num}行不匹配: {repr(line[:50])}")
     
     def _line_matches(self, line: str) -> bool:
         """检查行是否匹配搜索条件"""
@@ -303,14 +300,14 @@ class EnhancedFindDialog(QDialog):
         """查找下一个"""
         search_text = self._search_edit.text()
         if not search_text:
-            print("❌ 搜索文本为空")
+            logger.debug("Find requested but search text is empty")
             return
 
         if self._global_search_radio.isChecked():
-            print("🌍 执行全局搜索")
+            logger.debug("Find requested in global scope")
             self._start_global_search()
         else:
-            print("📄 执行当前文档搜索")
+            logger.debug("Find requested in current document scope")
             self._find_in_current_document(True)
     
     def _find_previous(self):
@@ -321,40 +318,41 @@ class EnhancedFindDialog(QDialog):
     def _find_in_current_document(self, forward: bool):
         """在当前文档中查找"""
         search_text = self._search_edit.text()
-        print(f"🔍 在当前文档中查找: '{search_text}', 向前: {forward}")
+        logger.debug(
+            "Find in current document: forward=%s has_search_text=%s", forward, bool(search_text)
+        )
 
         if not search_text:
-            print("❌ 搜索文本为空")
+            logger.debug("Find aborted: search text is empty")
             return
 
         if not self._text_editor:
-            print("❌ 文本编辑器为空")
+            logger.warning("Find aborted: text editor is None")
             return
 
         options = self._get_search_options()
-        print(f"🔧 搜索选项: {options}")
+        logger.debug("Find options: %s", options)
 
         # 直接实现搜索逻辑，不依赖简化版对话框
         self._perform_current_document_search(search_text, options, forward)
 
     def _perform_current_document_search(self, search_text: str, options: dict, forward: bool):
         """在当前文档中执行搜索"""
-        print(f"🔍 执行当前文档搜索: '{search_text}', 向前: {forward}")
+        logger.debug("Perform current document search: forward=%s", forward)
 
         # 获取文档内容进行调试
         document_content = self._text_editor.toPlainText()
-        print(f"📄 文档内容长度: {len(document_content)}")
-        print(f"📄 文档内容预览: {repr(document_content[:100])}")
+        logger.debug("Document content length: %d", len(document_content))
 
         # 获取当前光标位置
         cursor = self._text_editor.textCursor()
         original_position = cursor.position()
-        print(f"📍 当前光标位置: {original_position}")
+        logger.debug("Original cursor position: %d", original_position)
 
         # 如果有选中文本且正在向前搜索，从选中文本的末尾开始搜索
         if forward and cursor.hasSelection():
             cursor.setPosition(cursor.selectionEnd())
-            print(f"📍 调整搜索起始位置到选中文本末尾: {cursor.position()}")
+            logger.debug("Adjusted search start to selection end: %d", cursor.position())
 
         # 构建搜索标志
         flags = QTextDocument.FindFlag(0)
@@ -379,20 +377,24 @@ class EnhancedFindDialog(QDialog):
             # 普通文本搜索
             found_cursor = self._text_editor.document().find(search_text, cursor, flags)
 
-        print(f"🔍 第一次搜索结果: {not found_cursor.isNull()}")
+        logger.debug("Initial search found=%s", not found_cursor.isNull())
 
         if not found_cursor.isNull():
-            print(f"📍 找到匹配项位置: {found_cursor.selectionStart()}-{found_cursor.selectionEnd()}")
+            logger.debug(
+                "Match selection: %d-%d",
+                found_cursor.selectionStart(),
+                found_cursor.selectionEnd(),
+            )
             self._text_editor.setTextCursor(found_cursor)
             self._text_editor.ensureCursorVisible()
-            print("✅ 找到匹配项")
+            logger.debug("Match found")
         else:
             # 尝试循环搜索
-            print("🔄 尝试循环搜索...")
+            logger.debug("Attempting wrap-around search")
             if self._try_wrap_around_search_current(search_text, options, forward, original_position):
-                print("✅ 循环搜索找到匹配项")
+                logger.debug("Wrap-around match found")
             else:
-                print("❌ 未找到匹配项")
+                logger.debug("No match found")
                 self._show_message("未找到匹配项")
 
     def _try_wrap_around_search_current(self, search_text: str, options: dict, forward: bool, original_position: int) -> bool:
@@ -428,16 +430,24 @@ class EnhancedFindDialog(QDialog):
         if not found_cursor.isNull():
             # 检查是否回到了原始位置（避免无限循环）
             found_start = found_cursor.selectionStart()
-            print(f"🔄 循环搜索找到匹配项，位置: {found_start}, 原始位置: {original_position}")
+            logger.debug(
+                "Wrap-around candidate: found_start=%d original_position=%d",
+                found_start,
+                original_position,
+            )
             if found_start != original_position:
-                print(f"🔄 循环搜索成功，匹配位置: {found_cursor.selectionStart()}-{found_cursor.selectionEnd()}")
+                logger.debug(
+                    "Wrap-around success: selection=%d-%d",
+                    found_cursor.selectionStart(),
+                    found_cursor.selectionEnd(),
+                )
                 self._text_editor.setTextCursor(found_cursor)
                 self._text_editor.ensureCursorVisible()
                 return True
             else:
-                print(f"🔄 循环搜索回到原始位置，停止搜索")
+                logger.debug("Wrap-around returned to original position; stopping")
         else:
-            print(f"🔄 循环搜索未找到匹配项")
+            logger.debug("Wrap-around found no match")
 
         return False
 
@@ -459,30 +469,30 @@ class EnhancedFindDialog(QDialog):
     def _start_global_search(self):
         """开始全局搜索"""
         search_text = self._search_edit.text()
-        print(f"🌍 开始全局搜索: '{search_text}'")
+        logger.debug("Start global search requested")
 
         if not search_text:
-            print("❌ 搜索文本为空")
+            logger.debug("Global search aborted: search text is empty")
             return
 
         if not self._project_manager:
-            print("❌ 项目管理器为空")
+            logger.warning("Global search aborted: project manager is None")
             return
 
         # 清空结果
         self._results_tree.clear()
         self._results_label.setText("搜索中...")
-        print("🔄 清空搜索结果，开始搜索...")
+        logger.debug("Cleared previous global search results")
 
         # 启动搜索线程
         options = self._get_search_options()
-        print(f"🔧 全局搜索选项: {options}")
+        logger.debug("Global search options: %s", options)
 
         self._search_worker = GlobalSearchWorker(self._project_manager, search_text, options)
         self._search_worker.searchResult.connect(self._add_search_result)
         self._search_worker.searchFinished.connect(self._on_search_finished)
         self._search_worker.start()
-        print("🚀 全局搜索线程已启动")
+        logger.debug("Global search worker started")
     
     @pyqtSlot(str, str, int, str)
     def _add_search_result(self, doc_id: str, doc_title: str, line_num: int, line_content: str):
@@ -491,7 +501,7 @@ class EnhancedFindDialog(QDialog):
         item.setData(0, Qt.ItemDataRole.UserRole, doc_id)
         item.setData(1, Qt.ItemDataRole.UserRole, line_num)  # 存储行号
         self._results_tree.addTopLevelItem(item)
-        print(f"➕ 添加搜索结果: {doc_title} 第{line_num}行")
+        logger.debug("Added search result: %s line %d", doc_title, line_num)
     
     @pyqtSlot()
     def _on_search_finished(self):
@@ -503,12 +513,12 @@ class EnhancedFindDialog(QDialog):
         """结果项双击处理"""
         doc_id = item.data(0, Qt.ItemDataRole.UserRole)
         line_num = item.data(1, Qt.ItemDataRole.UserRole)
-        print(f"🖱️ 双击搜索结果: 文档ID={doc_id}, 行号={line_num}")
+        logger.debug("Search result double-clicked: doc_id=%s line_num=%s", doc_id, line_num)
 
         if doc_id:
             # 先发出文档请求信号
             self.documentRequested.emit(doc_id)
-            print(f"📄 请求打开文档: {doc_id}")
+            logger.debug("Document requested: %s", doc_id)
             
             # 延迟一下，等文档加载完成后再跳转到指定行
             if line_num:
@@ -532,10 +542,10 @@ class EnhancedFindDialog(QDialog):
                 # 高亮该行（可选）
                 cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor)
                 self._text_editor.setTextCursor(cursor)
-                
-                print(f"✅ 跳转到第 {line_num} 行")
+
+                logger.debug("Jumped to line %d", line_num)
             else:
-                print(f"❌ 无法跳转到第 {line_num} 行")
+                logger.debug("Failed to jump to line %d", line_num)
     
     def set_search_text(self, text: str):
         """设置搜索文本"""
