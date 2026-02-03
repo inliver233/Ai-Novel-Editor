@@ -35,7 +35,9 @@ class DatabaseManager:
         # 为每个操作创建新的连接
         conn = sqlite3.connect(str(self.db_path))
         conn.row_factory = sqlite3.Row
-        # 启用WAL模式以提高并发性能
+        # 启用 WAL 模式以提高并发性能。
+        # 注意：WAL 会产生额外的 `*.db-wal` / `*.db-shm` 文件，因此备份时不应只复制单个 `*.db` 文件；
+        # 应优先使用 SQLite 官方 `sqlite3.Connection.backup()` 以获得一致快照。
         conn.execute("PRAGMA journal_mode=WAL")
         return conn
 
