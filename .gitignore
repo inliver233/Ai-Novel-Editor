@@ -159,9 +159,9 @@ memory-bank/
 # 本地修复/清理过程记录的 MD 文件（不需要提交）
 CLEANUP_PROGRESS.md
 
-# 除了 README.md 以外的所有 md 文档
-*.md
-!README.md
+# 根目录 md 文档默认忽略（保留 README.md）
+/*.md
+!/README.md
 
 # Python 缓存文件 (额外确保)
 src/**/__pycache__/
