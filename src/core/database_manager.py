@@ -10,6 +10,9 @@ import threading
 from pathlib import Path
 from typing import Any, Dict
 
+from .backup_manager import BackupPaths, apply_retention_policy, format_backup_timestamp, get_project_db_backup_path
+from .sqlite_backup import backup_sqlite_db
+
 logger = logging.getLogger(__name__)
 
 class DatabaseManager:
@@ -69,6 +72,16 @@ class DatabaseManager:
         target_version = 2  # 目标版本
         
         if current_version < target_version:
+            try:
+                timestamp = format_backup_timestamp()
+                backup_path = get_project_db_backup_path(self.project_path, timestamp=timestamp)
+                logger.info("Creating pre-migration backup: %s", backup_path)
+                backup_sqlite_db(self.db_path, backup_path)
+                apply_retention_policy(self.project_path / BackupPaths().project_backup_dir_name)
+            except Exception:
+                logger.exception("Failed to create pre-migration backup; aborting migration")
+                raise
+
             logger.info(f"Migrating database from version {current_version} to {target_version}")
             
             # 版本1到版本2的迁移: 为codex_references添加新字段
