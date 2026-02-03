@@ -54,7 +54,7 @@ def setup_application():
             if not icon.isNull():
                 app.setWindowIcon(icon)
     except Exception as e:
-        print(f"警告：设置应用图标失败: {e}")
+        logging.getLogger(__name__).warning("警告：设置应用图标失败: %s", e)
     
     # 设置高DPI支持 (PyQt6中已默认启用)
     # app.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)

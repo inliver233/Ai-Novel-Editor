@@ -9,6 +9,7 @@ PRODUCTION_FILES = [
     "src/gui/dialogs/simple_find_dialog.py",
     "src/gui/dialogs/find_replace_dialog.py",
     "src/core/nlp_analyzer.py",
+    "src/main.py",
 ]
 
 
