@@ -25,11 +25,16 @@ from core.project import ProjectManager
 from gui.main_window import MainWindow
 
 from core.log import configure_logging
-def setup_logging():
+def setup_logging(config: Config | None = None):
     """设置日志系统"""
     log_dir = Path.home() / ".ai-novel-editor" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    configure_logging(log_file=log_dir / "app.log")
+
+    log_level = "INFO"
+    if config is not None:
+        log_level = str(config.get("app", "log_level", log_level))
+
+    configure_logging(log_file=log_dir / "app.log", level=log_level)
 
 def setup_application():
     """设置应用程序基础配置"""
@@ -66,16 +71,16 @@ def setup_application():
 def main():
     """主函数"""
     try:
-        # 设置日志
-        setup_logging()
-        logger = logging.getLogger(__name__)
-        logger.info("Starting AI Novel Editor...")
-        
         # 创建应用程序
         app = setup_application()
-        
+
         # 初始化全局配置和共享数据
         config_instance = Config()
+
+        # 设置日志（支持从配置控制日志级别）
+        setup_logging(config_instance)
+        logger = logging.getLogger(__name__)
+        logger.info("Starting AI Novel Editor...")
         shared_instance = Shared(config=config_instance)
         project_manager_instance = ProjectManager(config=config_instance, shared=shared_instance)
         

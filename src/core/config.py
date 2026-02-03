@@ -71,7 +71,8 @@ class Config:
                 "language": "zh_CN",
                 "auto_save_interval": 30,  # 秒
                 "backup_count": 5,
-                "check_updates": True
+                "check_updates": True,
+                "log_level": "INFO",
             },
             
             # 编辑器设置

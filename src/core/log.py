@@ -26,10 +26,34 @@ class Defaults:
         "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
         "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
     )
-    LOG_LEVEL: str = "DEBUG"
+    LOG_LEVEL: str = "INFO"
     LOG_ROTATION: str = "00:00"
     LOG_RETENTION: str = "3 days"
     LOG_COMPRESSION: str = "zip"
+
+
+_LOG_LEVEL_ALIASES: dict[str, str] = {
+    "WARN": "WARNING",
+    "FATAL": "CRITICAL",
+}
+
+_ALLOWED_LOG_LEVELS = {
+    "TRACE",
+    "DEBUG",
+    "INFO",
+    "SUCCESS",
+    "WARNING",
+    "ERROR",
+    "CRITICAL",
+}
+
+
+def _normalize_log_level(level: str) -> str:
+    normalized = (level or "").strip().upper()
+    normalized = _LOG_LEVEL_ALIASES.get(normalized, normalized)
+    if normalized in _ALLOWED_LOG_LEVELS:
+        return normalized
+    return Defaults.LOG_LEVEL
     
 class PropagateFromLoguruHandler(logging.Handler):
     """Propagate loguru messages to logging
@@ -139,6 +163,7 @@ def configure_logging(
     Raises:
         ImportError: 导入异常
     """
+    level = _normalize_log_level(level)
     intercept_logging()
     
     if config is not None:
