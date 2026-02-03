@@ -21,3 +21,12 @@ def test_format_backup_timestamp() -> None:
     from core.backup_manager import format_backup_timestamp
 
     assert format_backup_timestamp(datetime(2026, 2, 3, 1, 2, 3)) == "20260203-010203"
+
+
+def test_global_vectors_db_backup_path() -> None:
+    from core.backup_manager import get_global_vectors_db_backup_path
+
+    timestamp = "20260203-010203"
+    assert get_global_vectors_db_backup_path(timestamp=timestamp) == (
+        Path.home() / ".ai-novel-editor" / "backups" / timestamp / "vectors.db"
+    )
