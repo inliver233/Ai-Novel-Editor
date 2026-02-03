@@ -189,6 +189,7 @@ user_config.json
 projects/
 exports/
 backups/
+temp_research/
 
 # IDE 和编辑器配置
 .vscode/
