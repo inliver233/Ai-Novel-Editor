@@ -151,7 +151,7 @@ class SimpleFindDialog(QDialog):
     
     def _on_tab_changed(self, index: int):
         """标签页切换处理"""
-        print(f"📋 标签页切换到: {index}")  # 调试输出
+        logger.debug("Tab changed: index=%d", index)
         
         if index == 0:  # 查找标签页
             self._replace_btn.setEnabled(False)
@@ -178,32 +178,32 @@ class SimpleFindDialog(QDialog):
     def _find_next(self):
         """查找下一个"""
         search_text = self._get_search_text()
-        print(f"🔍 查找下一个: '{search_text}'")  # 调试输出
+        logger.debug("Find next requested: has_search_text=%s", bool(search_text))
         
         if not search_text:
-            print("❌ 搜索文本为空")
+            logger.debug("Find next aborted: search text is empty")
             return
         
         if not self._text_editor:
-            print("❌ 文本编辑器为空")
+            logger.warning("Find next aborted: text editor is None")
             return
         
         options = self._get_search_options()
-        print(f"🔧 搜索选项: {options}")
+        logger.debug("Find options: %s", options)
         
         self._perform_search(search_text, options, True)
     
     def _find_previous(self):
         """查找上一个"""
         search_text = self._get_search_text()
-        print(f"🔍 查找上一个: '{search_text}'")
+        logger.debug("Find previous requested: has_search_text=%s", bool(search_text))
         
         if not search_text:
-            print("❌ 搜索文本为空")
+            logger.debug("Find previous aborted: search text is empty")
             return
         
         if not self._text_editor:
-            print("❌ 文本编辑器为空")
+            logger.warning("Find previous aborted: text editor is None")
             return
         
         options = self._get_search_options()
@@ -213,15 +213,15 @@ class SimpleFindDialog(QDialog):
         """替换当前"""
         search_text = self._replace_find_edit.text()
         replace_text = self._replace_edit.text()
-        
-        print(f"🔄 替换: '{search_text}' -> '{replace_text}'")
+
+        logger.debug("Replace current requested: has_search_text=%s", bool(search_text))
         
         if not search_text:
-            print("❌ 搜索文本为空")
+            logger.debug("Replace current aborted: search text is empty")
             return
         
         if not self._text_editor:
-            print("❌ 文本编辑器为空")
+            logger.warning("Replace current aborted: text editor is None")
             return
         
         # 简单替换：如果有选中文本且匹配，则替换
@@ -230,7 +230,7 @@ class SimpleFindDialog(QDialog):
             selected_text = cursor.selectedText()
             if selected_text == search_text:
                 cursor.insertText(replace_text)
-                print("✅ 替换成功")
+                logger.debug("Replace current: replaced selected text")
                 return
         
         # 否则先查找
@@ -240,15 +240,15 @@ class SimpleFindDialog(QDialog):
         """全部替换"""
         search_text = self._replace_find_edit.text()
         replace_text = self._replace_edit.text()
-        
-        print(f"🔄 全部替换: '{search_text}' -> '{replace_text}'")
+
+        logger.debug("Replace all requested: has_search_text=%s", bool(search_text))
         
         if not search_text:
-            print("❌ 搜索文本为空")
+            logger.debug("Replace all aborted: search text is empty")
             return
         
         if not self._text_editor:
-            print("❌ 文本编辑器为空")
+            logger.warning("Replace all aborted: text editor is None")
             return
         
         # 简单的全部替换
@@ -258,31 +258,30 @@ class SimpleFindDialog(QDialog):
         
         if count > 0:
             self._text_editor.setPlainText(new_content)
-            print(f"✅ 替换了 {count} 处")
+            logger.debug("Replace all: replaced %d occurrences", count)
             self._show_message(f"已替换 {count} 处")
         else:
-            print("❌ 未找到匹配项")
+            logger.debug("Replace all: no matches found")
             self._show_message("未找到匹配项")
     
     def _perform_search(self, search_text: str, options: dict, forward: bool = True):
         """执行搜索"""
-        print(f"🔍 执行搜索: '{search_text}', 向前: {forward}")
+        logger.debug("Perform search: forward=%s", forward)
 
         # 获取文档内容进行调试
         document_content = self._text_editor.toPlainText()
-        print(f"📄 文档内容长度: {len(document_content)}")
-        print(f"📄 文档内容预览: {repr(document_content[:100])}")
+        logger.debug("Document content length: %d", len(document_content))
 
         # 获取当前光标位置
         cursor = self._text_editor.textCursor()
         original_position = cursor.position()
-        print(f"📍 当前光标位置: {original_position}")
-        print(f"📍 文档总字符数: {self._text_editor.document().characterCount()}")
+        logger.debug("Original cursor position: %d", original_position)
+        logger.debug("Document character count: %d", self._text_editor.document().characterCount())
 
         # 如果有选中文本且正在向前搜索，从选中文本的末尾开始搜索
         if forward and cursor.hasSelection():
             cursor.setPosition(cursor.selectionEnd())
-            print(f"📍 调整搜索起始位置到选中文本末尾: {cursor.position()}")
+            logger.debug("Adjusted search start to selection end: %d", cursor.position())
 
         # 构建搜索标志
         flags = QTextDocument.FindFlag(0)
@@ -307,20 +306,24 @@ class SimpleFindDialog(QDialog):
             # 普通文本搜索
             found_cursor = self._text_editor.document().find(search_text, cursor, flags)
 
-        print(f"🔍 第一次搜索结果: {not found_cursor.isNull()}")
+        logger.debug("Initial search found=%s", not found_cursor.isNull())
 
         if not found_cursor.isNull():
-            print(f"📍 找到匹配项位置: {found_cursor.selectionStart()}-{found_cursor.selectionEnd()}")
+            logger.debug(
+                "Match selection: %d-%d",
+                found_cursor.selectionStart(),
+                found_cursor.selectionEnd(),
+            )
             self._text_editor.setTextCursor(found_cursor)
             self._text_editor.ensureCursorVisible()
-            print("✅ 找到匹配项")
+            logger.debug("Match found")
         else:
             # 尝试循环搜索
-            print("🔄 尝试循环搜索...")
+            logger.debug("Attempting wrap-around search")
             if self._try_wrap_around_search(search_text, options, forward, original_position):
-                print("✅ 循环搜索找到匹配项")
+                logger.debug("Wrap-around match found")
             else:
-                print("❌ 未找到匹配项")
+                logger.debug("No match found")
                 self._show_message("未找到匹配项")
 
     def _try_wrap_around_search(self, search_text: str, options: dict, forward: bool, original_position: int) -> bool:
@@ -357,12 +360,16 @@ class SimpleFindDialog(QDialog):
             # 检查是否回到了原始位置（避免无限循环）
             found_start = found_cursor.selectionStart()
             if found_start != original_position:
-                print(f"🔄 循环搜索成功，匹配位置: {found_cursor.selectionStart()}-{found_cursor.selectionEnd()}")
+                logger.debug(
+                    "Wrap-around success: selection=%d-%d",
+                    found_cursor.selectionStart(),
+                    found_cursor.selectionEnd(),
+                )
                 self._text_editor.setTextCursor(found_cursor)
                 self._text_editor.ensureCursorVisible()
                 return True
             else:
-                print(f"🔄 循环搜索回到原始位置，停止搜索")
+                logger.debug("Wrap-around returned to original position; stopping")
 
         return False
     

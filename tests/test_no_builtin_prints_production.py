@@ -6,6 +6,7 @@ import pytest
 
 PRODUCTION_FILES = [
     "src/gui/dialogs/enhanced_find_dialog.py",
+    "src/gui/dialogs/simple_find_dialog.py",
 ]
 
 
