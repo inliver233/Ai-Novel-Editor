@@ -25,3 +25,22 @@ def test_backup_sqlite_db_creates_consistent_snapshot(tmp_path: Path) -> None:
     with sqlite3.connect(backup_db) as conn:
         (value,) = conn.execute("SELECT v FROM t WHERE id = 1").fetchone()
         assert value == "hello"
+
+
+def test_backup_sqlite_db_supports_vectors_db_path(tmp_path: Path) -> None:
+    from core.sqlite_backup import backup_sqlite_db
+
+    source_db = tmp_path / "vectors.db"
+    backup_db = tmp_path / "vectors.backup.db"
+
+    with sqlite3.connect(source_db) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("CREATE TABLE embeddings (id INTEGER PRIMARY KEY, v TEXT NOT NULL)")
+        conn.execute("INSERT INTO embeddings (v) VALUES ('vec')")
+        conn.commit()
+
+    backup_sqlite_db(source_db, backup_db)
+
+    with sqlite3.connect(backup_db) as conn:
+        (value,) = conn.execute("SELECT v FROM embeddings WHERE id = 1").fetchone()
+        assert value == "vec"
