@@ -225,21 +225,21 @@ class FindReplaceDialog(QDialog):
     def _find_next(self):
         """查找下一个"""
         search_text = self._get_search_text()
-        print(f"🔍 查找下一个: '{search_text}'")  # 调试输出
+        logger.debug("Find next requested: has_search_text=%s", bool(search_text))
 
         if not search_text:
-            print("❌ 搜索文本为空")  # 调试输出
+            logger.debug("Find next aborted: search text is empty")
             return
 
         options = self._get_search_options()
         options["forward"] = True
-        print(f"🔧 搜索选项: {options}")  # 调试输出
+        logger.debug("Find options: %s", options)
 
         if self._text_editor:
-            print("✅ 文本编辑器存在，执行搜索")  # 调试输出
+            logger.debug("Using local text editor for search")
             self._perform_search(search_text, options)
         else:
-            print("❌ 文本编辑器不存在，发送信号")  # 调试输出
+            logger.debug("No local text editor, emitting findRequested signal")
             self.findRequested.emit(search_text, options)
     
     def _find_previous(self):
@@ -289,10 +289,10 @@ class FindReplaceDialog(QDialog):
     
     def _perform_search(self, search_text: str, options: dict):
         """执行搜索"""
-        print(f"🔍 开始执行搜索: '{search_text}'")  # 调试输出
+        logger.debug("Perform search")
 
         if not self._text_editor:
-            print("❌ 文本编辑器为空")  # 调试输出
+            logger.warning("Perform search aborted: text editor is None")
             return
 
         try:
@@ -300,12 +300,12 @@ class FindReplaceDialog(QDialog):
             if options.get("regex", False):
                 regex = QRegularExpression(search_text)
                 if not regex.isValid():
-                    print(f"❌ 正则表达式无效: {regex.errorString()}")  # 调试输出
+                    logger.debug("Invalid regex: %s", regex.errorString())
                     self._show_regex_error(regex.errorString())
                     return
-        except Exception as e:
-            print(f"❌ 正则表达式异常: {e}")  # 调试输出
-            self._show_regex_error(str(e))
+        except Exception:
+            logger.exception("Regex validation failed")
+            self._show_regex_error("正则表达式验证失败")
             return
 
         # 构建搜索标志
@@ -324,7 +324,7 @@ class FindReplaceDialog(QDialog):
         cursor = self._text_editor.textCursor()
         original_position = cursor.position()
 
-        print(f"🔍 当前光标位置: {cursor.position()}")  # 调试输出
+        logger.debug("Cursor position: %d", cursor.position())
 
         # 直接使用QTextDocument的find方法
         if options.get("regex", False):
@@ -337,7 +337,7 @@ class FindReplaceDialog(QDialog):
             # 普通文本搜索
             found_cursor = self._text_editor.document().find(search_text, cursor, flags)
 
-        print(f"🔍 搜索结果: {not found_cursor.isNull()}")  # 调试输出
+        logger.debug("Search found=%s", not found_cursor.isNull())
 
         if not found_cursor.isNull():
             self._text_editor.setTextCursor(found_cursor)
