@@ -31,6 +31,26 @@
 - black：`pre-commit run black --all-files --hook-stage manual`
 - mypy：`pre-commit run mypy --all-files --hook-stage manual`
 
+## 严格度路线图（可执行）
+> 原则：先让工具“能跑”，再让规则“变严”，最后让门禁“默认强制”。
+
+### Phase A（当前）
+- 目标：任何人都能执行门禁命令，且不会引入大规模自动修改。
+- 默认门禁：仅运行低风险 hooks（合并冲突标记、YAML 校验等）。
+
+### Phase B（ruff）
+- B1（提示模式）：`ruff --exit-zero`，只对 `src/core/` 跑，先让团队看到问题分布。
+- B2（软门禁）：移除 `--exit-zero`，仍只覆盖 `src/core/`；允许通过 `# noqa` 做少量例外（需注明原因）。
+- B3（硬门禁）：把 ruff 从 `manual` 阶段切到默认阶段（提交时强制），并逐步扩大到 `src/` 全量。
+
+### Phase C（black）
+- C1（增量格式化）：只对新增/改动文件强制（或只覆盖 `src/core/`）。
+- C2（全量格式化）：拆分专门的“纯格式化”提交，把历史文件一次性格式化到位。
+
+### Phase D（mypy）
+- D1（宽松模式）：先 `ignore_missing_imports`，以 `src/core/` 起步。
+- D2（收紧）：逐步移除 ignore，增加 `disallow_untyped_defs` 等严格项（按模块推进）。
+
 ## 例外原则
 - 任何大规模格式化或规则收敛必须拆分 commit，避免把真实逻辑变更淹没在机械 diff 中。
 - 若某个检查在当前环境不可运行（依赖缺失/平台差异），必须在 Issue CSV 的 Notes 里记录“受限验收”与风险。
