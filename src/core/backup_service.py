@@ -9,7 +9,9 @@ corresponding Issue CSV tasks (create/restore/list).
 """
 
 import logging
+import json
 from pathlib import Path
+import re
 import shutil
 import sqlite3
 
@@ -19,6 +21,8 @@ from .backup_set import write_backup_manifest
 from .sqlite_backup import backup_sqlite_db
 
 logger = logging.getLogger(__name__)
+
+_TIMESTAMP_DIR_RE = re.compile(r"^\d{8}-\d{6}$")
 
 
 class BackupServiceError(RuntimeError):
@@ -124,3 +128,53 @@ def restore_backup_set(project_path: Path, backup_dir: Path) -> None:
         _copy_sqlite_db_files(backup_vectors_db, dest_vectors_db)
     else:
         logger.warning("vectors.db not present in backup set; skipping vectors restore: %s", backup_vectors_db)
+
+
+def list_backup_sets(project_path: Path) -> list[dict]:
+    """List available backup sets for a project (for GUI display)."""
+    project_path = Path(project_path)
+    backup_root = project_path / BackupPaths().project_backup_dir_name
+    if not backup_root.exists():
+        return []
+
+    backup_sets: list[dict] = []
+    for path in backup_root.iterdir():
+        if not path.is_dir() or not _TIMESTAMP_DIR_RE.match(path.name):
+            continue
+
+        timestamp = path.name
+        backup_project_db = path / "project.db"
+        manifest_path = path / "manifest.json"
+
+        manifest: dict | None = None
+        if manifest_path.exists():
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                logger.warning("Failed to read backup manifest: %s (%s)", manifest_path, exc)
+                manifest = None
+
+        backup_vectors_db = (
+            Path.home()
+            / BackupPaths().global_app_dir_name
+            / BackupPaths().global_backup_dir_name
+            / timestamp
+            / "vectors.db"
+        )
+
+        backup_sets.append(
+            {
+                "timestamp": timestamp,
+                "backup_dir": str(path),
+                "project_db_path": str(backup_project_db),
+                "project_db_exists": backup_project_db.exists(),
+                "manifest_path": str(manifest_path),
+                "manifest_exists": manifest_path.exists(),
+                "vectors_db_path": str(backup_vectors_db),
+                "vectors_db_exists": backup_vectors_db.exists(),
+                "manifest": manifest,
+            }
+        )
+
+    backup_sets.sort(key=lambda item: item["timestamp"], reverse=True)
+    return backup_sets
