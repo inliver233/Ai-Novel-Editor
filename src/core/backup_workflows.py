@@ -70,3 +70,25 @@ def create_pre_delete_backup(
         vectors_db=vectors_db,
         rag_config=rag_config,
     )
+
+
+def create_pre_vectors_clear_backup(
+    vectors_db: str | Path,
+    *,
+    rag_config: dict[str, Any] | None = None,
+) -> BackupSet:
+    """Create a backup set before clearing/rebuilding the global vector store."""
+    global_project_dir = Path.home() / BackupPaths().global_app_dir_name
+    backup_set = create_backup_set_now(global_project_dir)
+
+    snapshot_vectors_db(backup_set, vectors_db)
+    write_backup_manifest(
+        backup_set,
+        project_dir=global_project_dir,
+        project_db=None,
+        vectors_db=vectors_db,
+        rag_config=rag_config,
+    )
+
+    apply_retention_policy(Path.home() / BackupPaths().global_app_dir_name / BackupPaths().global_backup_dir_name)
+    return backup_set

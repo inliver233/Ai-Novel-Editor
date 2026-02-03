@@ -915,6 +915,14 @@ class SQLiteVectorStore:
     
     def clear_all(self):
         """清空所有数据"""
+        try:
+            from core.backup_workflows import create_pre_vectors_clear_backup
+
+            create_pre_vectors_clear_backup(self.db_path)
+        except Exception:
+            logger.exception("Failed to create pre-clear backup; aborting clear_all")
+            raise
+
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM document_embeddings")
