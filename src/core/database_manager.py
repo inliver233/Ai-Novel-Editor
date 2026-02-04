@@ -10,8 +10,14 @@ import threading
 from pathlib import Path
 from typing import Any, Dict
 
-from .backup_manager import BackupPaths, apply_retention_policy, format_backup_timestamp, get_project_db_backup_path
-from .sqlite_backup import backup_sqlite_db
+from .backup_manager import BackupPaths, apply_retention_policy
+from .backup_set import (
+    create_backup_set_now,
+    snapshot_project_db,
+    snapshot_vectors_db,
+    write_backup_manifest,
+)
+from .backup_workflows import get_global_vectors_db_path
 
 logger = logging.getLogger(__name__)
 
@@ -73,11 +79,32 @@ class DatabaseManager:
         
         if current_version < target_version:
             try:
-                timestamp = format_backup_timestamp()
-                backup_path = get_project_db_backup_path(self.project_path, timestamp=timestamp)
-                logger.info("Creating pre-migration backup: %s", backup_path)
-                backup_sqlite_db(self.db_path, backup_path)
+                backup_set = create_backup_set_now(self.project_path)
+                logger.info("Creating pre-migration backup: %s", backup_set.project_backup_dir)
+                snapshot_project_db(backup_set, self.db_path)
+
+                vectors_db_path = get_global_vectors_db_path()
+                vectors_db_ref = None
+                if vectors_db_path.exists():
+                    snapshot_vectors_db(backup_set, vectors_db_path)
+                    vectors_db_ref = vectors_db_path
+                else:
+                    logger.warning("Global vectors.db not found; skipping vectors snapshot: %s", vectors_db_path)
+
+                write_backup_manifest(
+                    backup_set,
+                    project_dir=self.project_path,
+                    project_db=self.db_path,
+                    vectors_db=vectors_db_ref,
+                    reason="schema_migration",
+                )
+
                 apply_retention_policy(self.project_path / BackupPaths().project_backup_dir_name)
+                apply_retention_policy(
+                    Path.home()
+                    / BackupPaths().global_app_dir_name
+                    / BackupPaths().global_backup_dir_name
+                )
             except Exception:
                 logger.exception("Failed to create pre-migration backup; aborting migration")
                 raise
