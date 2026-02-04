@@ -174,9 +174,6 @@ class ProjectManager:
                 # 触发项目变化信号（用于RAG服务初始化）
                 self._shared.projectChanged.emit(str(project_path))
                 
-                # 延迟触发自动索引（异步）
-                self._trigger_auto_indexing_async()
-                
                 logger.info(f"New project created: {name} at {path}")
                 return True
         except Exception as e:
@@ -210,9 +207,6 @@ class ProjectManager:
             
             # 触发项目变化信号（用于RAG服务初始化）
             self._shared.projectChanged.emit(str(project_path))
-            
-            # 延迟触发自动索引（异步）
-            self._trigger_auto_indexing_async()
             
             logger.info(f"Project opened: {self._current_project.name}")
             return True
@@ -568,96 +562,6 @@ class ProjectManager:
                 chapter1 = self.add_document("第一章", DocumentType.CHAPTER, act1.id, save=False)
                 if chapter1:
                     self.add_document("开场", DocumentType.SCENE, chapter1.id, save=False)
-
-
-    def _trigger_auto_indexing_async(self):
-        """智能自动索引（只索引需要索引的文档）"""
-        logger.info("开始智能自动索引检查...")
-        
-        # 启动后台线程进行智能索引
-        from PyQt6.QtCore import QThread
-        
-        class SmartIndexWorker(QThread):
-            def __init__(self, project_manager):
-                super().__init__()
-                self.project_manager = project_manager
-                
-            def run(self):
-                try:
-                    # 延迟3秒，让界面完全加载
-                    import time
-                    time.sleep(3)
-                    
-                    logger.info("[AUTO_INDEX] 开始智能索引检查...")
-                    
-                    # 通过shared获取AI管理器
-                    if hasattr(self.project_manager._shared, 'ai_manager') and self.project_manager._shared.ai_manager:
-                        ai_manager = self.project_manager._shared.ai_manager
-                        
-                        # 检查RAG服务是否可用
-                        if not hasattr(ai_manager, 'rag_service') or not ai_manager.rag_service:
-                            logger.info("[AUTO_INDEX] RAG服务不可用，跳过自动索引")
-                            return
-                            
-                        # 获取所有需要索引的文档
-                        unindexed_docs = []
-                        all_docs = self.project_manager.get_all_documents()
-                        
-                        logger.info(f"[AUTO_INDEX] 检查 {len(all_docs)} 个文档的索引状态...")
-                        
-                        for doc_id, doc_info in all_docs.items():
-                            # 跳过空文档
-                            content = self.project_manager.get_document_content(doc_id)
-                            if not content or len(content.strip()) < 50:
-                                logger.debug(f"[AUTO_INDEX] 跳过空文档: {doc_info.get('title', doc_id)}")
-                                continue
-                                
-                            # 检查是否已索引
-                            if ai_manager.rag_service._vector_store:
-                                is_indexed = ai_manager.rag_service._vector_store.document_exists(doc_id)
-                                if not is_indexed:
-                                    unindexed_docs.append((doc_id, content, doc_info.get('title', doc_id)))
-                                    logger.info(f"[AUTO_INDEX] 发现未索引文档: {doc_info.get('title', doc_id)}")
-                                else:
-                                    logger.debug(f"[AUTO_INDEX] 文档已索引: {doc_info.get('title', doc_id)}")
-                        
-                        if unindexed_docs:
-                            logger.info(f"[AUTO_INDEX] 开始自动索引 {len(unindexed_docs)} 个文档...")
-                            
-                            for i, (doc_id, content, title) in enumerate(unindexed_docs):
-                                logger.info(f"[AUTO_INDEX] 正在索引 ({i+1}/{len(unindexed_docs)}): {title}")
-                                
-                                try:
-                                    # 使用优化的同步索引方法
-                                    if hasattr(ai_manager, 'index_document_sync'):
-                                        success = ai_manager.index_document_sync(doc_id, content)
-                                        if success:
-                                            logger.info(f"[AUTO_INDEX] 索引成功: {title}")
-                                        else:
-                                            logger.warning(f"[AUTO_INDEX] 索引失败: {title}")
-                                    else:
-                                        logger.warning("[AUTO_INDEX] index_document_sync方法不可用")
-                                        break
-                                        
-                                except Exception as e:
-                                    logger.error(f"[AUTO_INDEX] 索引文档异常 {title}: {e}")
-                                    continue
-                            
-                            logger.info("[AUTO_INDEX] 自动索引完成")
-                        else:
-                            logger.info("[AUTO_INDEX] 所有文档均已索引，无需重新索引")
-                    else:
-                        logger.info("[AUTO_INDEX] AI管理器不可用，跳过自动索引")
-                        
-                except Exception as e:
-                    logger.error(f"[AUTO_INDEX] 自动索引过程异常: {e}")
-                    import traceback
-                    logger.error(f"[AUTO_INDEX] 异常详情: {traceback.format_exc()}")
-        
-        # 启动智能索引工作线程
-        self._smart_index_worker = SmartIndexWorker(self)
-        self._smart_index_worker.start()
-        logger.info("智能自动索引线程已启动")
 
 
 def _add_to_recent_projects(project_path: str, config: 'Config'):
