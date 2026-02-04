@@ -171,9 +171,6 @@ class ProjectManager:
                 self._shared.current_project_path = str(project_path)
                 _add_to_recent_projects(str(project_path), self._config)
                 
-                # 触发项目变化信号（用于RAG服务初始化）
-                self._shared.projectChanged.emit(str(project_path))
-                
                 logger.info(f"New project created: {name} at {path}")
                 return True
         except Exception as e:
@@ -204,9 +201,6 @@ class ProjectManager:
 
             self._shared.current_project_path = str(project_path)
             _add_to_recent_projects(str(project_path), self._config)
-            
-            # 触发项目变化信号（用于RAG服务初始化）
-            self._shared.projectChanged.emit(str(project_path))
             
             logger.info(f"Project opened: {self._current_project.name}")
             return True
