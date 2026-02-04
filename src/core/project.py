@@ -168,7 +168,7 @@ class ProjectManager:
             # 概念系统已移除
 
             if self.save_project():
-                self._shared.current_project_path = str(project_path)
+                self._shared.current_project_path = project_path
                 _add_to_recent_projects(str(project_path), self._config)
                 
                 logger.info(f"New project created: {name} at {path}")
@@ -199,7 +199,7 @@ class ProjectManager:
 
             self._current_project = self._dict_to_project(data['metadata'], data.get('documents', []))
 
-            self._shared.current_project_path = str(project_path)
+            self._shared.current_project_path = project_path
             _add_to_recent_projects(str(project_path), self._config)
             
             logger.info(f"Project opened: {self._current_project.name}")
