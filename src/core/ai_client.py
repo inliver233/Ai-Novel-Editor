@@ -111,6 +111,24 @@ class AIConfig:
         return config
 
 
+@dataclass(frozen=True)
+class RetryPolicy:
+    total: int = 3
+    backoff_factor: float = 1.0
+    status_forcelist: tuple[int, ...] = (429, 500, 502, 503, 504)
+    allowed_methods: tuple[str, ...] = ("HEAD", "GET", "PUT", "DELETE", "OPTIONS", "TRACE", "POST")
+
+    def to_requests_retry(self):
+        from urllib3.util.retry import Retry
+
+        return Retry(
+            total=self.total,
+            backoff_factor=self.backoff_factor,
+            status_forcelist=list(self.status_forcelist),
+            allowed_methods=list(self.allowed_methods),
+        )
+
+
 class AIClientError(Exception):
     """AI客户端异常"""
     pass
@@ -138,6 +156,37 @@ class AIClient(LLMProvider):
             )
             handler.setFormatter(formatter)
             self.logger.addHandler(handler)
+
+    def _get_retry_policy(self) -> RetryPolicy:
+        total = max(0, int(self.config.max_retries))
+        return RetryPolicy(total=total)
+
+    def _create_session(self) -> requests.Session:
+        session = requests.Session()
+        retry_strategy = self._get_retry_policy().to_requests_retry()
+        from requests.adapters import HTTPAdapter
+
+        adapter = HTTPAdapter(max_retries=retry_strategy, pool_connections=10, pool_maxsize=10)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        return session
+
+    def _classify_status(self, status_code: int) -> str:
+        if status_code == 429:
+            return "rate_limit"
+        if 500 <= status_code < 600:
+            return "server_error"
+        return "http_error"
+
+    def _raise_http_error(self, status_code: int, response_text: str) -> None:
+        category = self._classify_status(status_code)
+        raise AIClientError(f"[{category}] API请求失败: {status_code} - {response_text}")
+
+    def _raise_timeout(self, label: str) -> None:
+        raise AIClientError(f"[timeout] {label}超时 ({self.config.timeout}秒)")
+
+    def _raise_request_error(self, label: str, error: Exception) -> None:
+        raise AIClientError(f"[network_error] {label}网络请求错误: {error}")
     
     def _get_headers(self) -> Dict[str, str]:
         """获取请求头"""
@@ -272,7 +321,7 @@ class AIClient(LLMProvider):
             self.logger.debug(f"请求数据: {json.dumps(safe_data, ensure_ascii=False, indent=2)}")
             
             # 创建会话并设置适当的配置
-            session = requests.Session()
+            session = self._create_session()
             
             # 设置代理（如果需要）
             proxies = None
@@ -282,20 +331,6 @@ class AIClient(LLMProvider):
                     'https': os.environ.get('HTTPS_PROXY', '')
                 }
                 self.logger.debug(f"使用代理: {proxies}")
-            
-            # 设置请求适配器，增加重试和连接池
-            from requests.adapters import HTTPAdapter
-            from urllib3.util.retry import Retry
-            
-            retry_strategy = Retry(
-                total=3,
-                backoff_factor=1,
-                status_forcelist=[429, 500, 502, 503, 504],
-                allowed_methods=["HEAD", "GET", "PUT", "DELETE", "OPTIONS", "TRACE", "POST"]
-            )
-            adapter = HTTPAdapter(max_retries=retry_strategy, pool_connections=10, pool_maxsize=10)
-            session.mount("http://", adapter)
-            session.mount("https://", adapter)
             
             # SSL证书验证配置
             verify_ssl = True
@@ -333,18 +368,12 @@ class AIClient(LLMProvider):
                 self.logger.info(f"补全成功: {len(content) if content else 0} 字符")
                 return content
             else:
-                error_msg = f"API请求失败: {response.status_code} - {response.text}"
-                self.logger.error(error_msg)
-                raise AIClientError(error_msg)
+                self._raise_http_error(response.status_code, response.text)
                 
         except requests.exceptions.Timeout:
-            error_msg = f"请求超时 ({self.config.timeout}秒)"
-            self.logger.error(error_msg)
-            raise AIClientError(error_msg)
+            self._raise_timeout("请求")
         except requests.exceptions.RequestException as e:
-            error_msg = f"网络请求错误: {e}"
-            self.logger.error(error_msg)
-            raise AIClientError(error_msg)
+            self._raise_request_error("请求", e)
         except Exception as e:
             error_msg = f"补全请求失败: {e}"
             self.logger.error(error_msg)
@@ -369,7 +398,7 @@ class AIClient(LLMProvider):
             self.logger.debug(f"多模态请求URL: {url}")
             
             # 创建会话并设置适当的配置
-            session = requests.Session()
+            session = self._create_session()
             
             # 设置代理（如果需要）
             proxies = None
@@ -379,20 +408,6 @@ class AIClient(LLMProvider):
                     'https': os.environ.get('HTTPS_PROXY', '')
                 }
                 self.logger.debug(f"使用代理: {proxies}")
-            
-            # 设置请求适配器，增加重试和连接池
-            from requests.adapters import HTTPAdapter
-            from urllib3.util.retry import Retry
-            
-            retry_strategy = Retry(
-                total=3,
-                backoff_factor=1,
-                status_forcelist=[429, 500, 502, 503, 504],
-                allowed_methods=["HEAD", "GET", "PUT", "DELETE", "OPTIONS", "TRACE", "POST"]
-            )
-            adapter = HTTPAdapter(max_retries=retry_strategy, pool_connections=10, pool_maxsize=10)
-            session.mount("http://", adapter)
-            session.mount("https://", adapter)
             
             # SSL证书验证配置
             verify_ssl = True
@@ -425,18 +440,12 @@ class AIClient(LLMProvider):
                 self.logger.info(f"多模态补全成功: {len(content) if content else 0} 字符")
                 return content
             else:
-                error_msg = f"多模态API请求失败: {response.status_code} - {response.text}"
-                self.logger.error(error_msg)
-                raise AIClientError(error_msg)
+                self._raise_http_error(response.status_code, response.text)
                 
         except requests.exceptions.Timeout:
-            error_msg = f"多模态请求超时 ({self.config.timeout}秒)"
-            self.logger.error(error_msg)
-            raise AIClientError(error_msg)
+            self._raise_timeout("多模态请求")
         except requests.exceptions.RequestException as e:
-            error_msg = f"多模态网络请求错误: {e}"
-            self.logger.error(error_msg)
-            raise AIClientError(error_msg)
+            self._raise_request_error("多模态", e)
         except Exception as e:
             error_msg = f"多模态补全请求失败: {e}"
             self.logger.error(error_msg)
@@ -483,21 +492,7 @@ class AIClient(LLMProvider):
                 headers = self._get_headers()
                 url = self._get_endpoint_url()
                 
-                session = requests.Session()
-                
-                # 设置重试和超时
-                from requests.adapters import HTTPAdapter
-                from urllib3.util.retry import Retry
-                
-                retry_strategy = Retry(
-                    total=3,
-                    backoff_factor=1,
-                    status_forcelist=[429, 500, 502, 503, 504],
-                    allowed_methods=["HEAD", "GET", "PUT", "DELETE", "OPTIONS", "TRACE", "POST"]
-                )
-                adapter = HTTPAdapter(max_retries=retry_strategy)
-                session.mount("http://", adapter)
-                session.mount("https://", adapter)
+                session = self._create_session()
                 
                 verify_ssl = True
                 if self.config.provider == AIProvider.CUSTOM and hasattr(self.config, 'disable_ssl_verify'):
@@ -512,10 +507,8 @@ class AIClient(LLMProvider):
                 )
                 
                 if response.status_code != 200:
-                    error_msg = f"API请求失败: {response.status_code} - {response.text}"
-                    self.logger.error(error_msg)
                     session.close()
-                    raise AIClientError(error_msg)
+                    self._raise_http_error(response.status_code, response.text)
                 
                 result = response.json()
                 
@@ -572,6 +565,10 @@ class AIClient(LLMProvider):
             final_content = self._extract_content(result) if 'result' in locals() else None
             return final_content
             
+        except requests.exceptions.Timeout:
+            self._raise_timeout("工具调用请求")
+        except requests.exceptions.RequestException as e:
+            self._raise_request_error("工具调用", e)
         except Exception as e:
             error_msg = f"工具调用补全失败: {e}"
             self.logger.error(error_msg)
@@ -638,14 +635,12 @@ class AsyncAIClient(AIClient):
                     return content
                 else:
                     error_text = await response.text()
-                    error_msg = f"异步API请求失败: {response.status} - {error_text}"
-                    self.logger.error(error_msg)
-                    raise AIClientError(error_msg)
+                    self._raise_http_error(response.status, error_text)
 
         except asyncio.TimeoutError:
-            error_msg = f"异步请求超时 ({self.config.timeout}秒)"
-            self.logger.error(error_msg)
-            raise AIClientError(error_msg)
+            self._raise_timeout("异步请求")
+        except aiohttp.ClientError as e:
+            self._raise_request_error("异步请求", e)
         except Exception as e:
             error_msg = f"异步补全请求失败: {e}"
             self.logger.error(error_msg)
@@ -687,14 +682,12 @@ class AsyncAIClient(AIClient):
                     return content
                 else:
                     error_text = await response.text()
-                    error_msg = f"异步多模态API请求失败: {response.status} - {error_text}"
-                    self.logger.error(error_msg)
-                    raise AIClientError(error_msg)
+                    self._raise_http_error(response.status, error_text)
 
         except asyncio.TimeoutError:
-            error_msg = f"异步多模态请求超时 ({self.config.timeout}秒)"
-            self.logger.error(error_msg)
-            raise AIClientError(error_msg)
+            self._raise_timeout("异步多模态请求")
+        except aiohttp.ClientError as e:
+            self._raise_request_error("异步多模态", e)
         except Exception as e:
             error_msg = f"异步多模态补全请求失败: {e}"
             self.logger.error(error_msg)
@@ -728,9 +721,7 @@ class AsyncAIClient(AIClient):
             ) as response:
                 if response.status != 200:
                     error_text = await response.text()
-                    error_msg = f"多模态流式API请求失败: {response.status} - {error_text}"
-                    self.logger.error(error_msg)
-                    raise AIClientError(error_msg)
+                    self._raise_http_error(response.status, error_text)
 
                 self.logger.debug("开始接收多模态流式数据")
 
@@ -766,9 +757,9 @@ class AsyncAIClient(AIClient):
                 self.logger.info(f"多模态流式补全完成，总耗时: {elapsed_time:.2f}秒")
 
         except asyncio.TimeoutError:
-            error_msg = f"多模态流式请求超时 ({self.config.timeout}秒)"
-            self.logger.error(error_msg)
-            raise AIClientError(error_msg)
+            self._raise_timeout("多模态流式请求")
+        except aiohttp.ClientError as e:
+            self._raise_request_error("多模态流式", e)
         except Exception as e:
             error_msg = f"多模态流式补全请求失败: {e}"
             self.logger.error(error_msg)
@@ -811,9 +802,7 @@ class AsyncAIClient(AIClient):
                 ) as response:
                     if response.status != 200:
                         error_text = await response.text()
-                        error_msg = f"异步工具调用API请求失败: {response.status} - {error_text}"
-                        self.logger.error(error_msg)
-                        raise AIClientError(error_msg)
+                        self._raise_http_error(response.status, error_text)
                     
                     result = await response.json()
                     
@@ -868,6 +857,10 @@ class AsyncAIClient(AIClient):
             final_content = self._extract_content(result) if 'result' in locals() else None
             return final_content
             
+        except asyncio.TimeoutError:
+            self._raise_timeout("异步工具调用请求")
+        except aiohttp.ClientError as e:
+            self._raise_request_error("异步工具调用", e)
         except Exception as e:
             error_msg = f"异步工具调用补全失败: {e}"
             self.logger.error(error_msg)
@@ -901,9 +894,7 @@ class AsyncAIClient(AIClient):
             ) as response:
                 if response.status != 200:
                     error_text = await response.text()
-                    error_msg = f"流式API请求失败: {response.status} - {error_text}"
-                    self.logger.error(error_msg)
-                    raise AIClientError(error_msg)
+                    self._raise_http_error(response.status, error_text)
 
                 self.logger.debug("开始接收流式数据")
 
@@ -939,9 +930,9 @@ class AsyncAIClient(AIClient):
                 self.logger.info(f"流式补全完成，总耗时: {elapsed_time:.2f}秒")
 
         except asyncio.TimeoutError:
-            error_msg = f"流式请求超时 ({self.config.timeout}秒)"
-            self.logger.error(error_msg)
-            raise AIClientError(error_msg)
+            self._raise_timeout("流式请求")
+        except aiohttp.ClientError as e:
+            self._raise_request_error("流式请求", e)
         except Exception as e:
             error_msg = f"流式补全请求失败: {e}"
             self.logger.error(error_msg)
