@@ -56,8 +56,10 @@ class Shared(QObject):
         return self._current_project_path
     
     @current_project_path.setter
-    def current_project_path(self, path: Optional[Path]):
+    def current_project_path(self, path: Path | str | None):
         """设置当前项目路径"""
+        if isinstance(path, str):
+            path = Path(path)
         if self._current_project_path != path:
             self._current_project_path = path
             if path:
