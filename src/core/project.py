@@ -404,6 +404,21 @@ class ProjectManager:
             doc.updated_at = datetime.now()
             if 'content' in kwargs:
                 doc.word_count = len(doc.content.split()) if doc.content else 0
+            meta_changes = {}
+            for key in ('name', 'parent_id', 'order', 'doc_type', 'status'):
+                if key in kwargs and original_data.get(key) != getattr(doc, key):
+                    new_value = getattr(doc, key)
+                    if hasattr(new_value, 'value'):
+                        new_value = new_value.value
+                    meta_changes[key] = {
+                        'old': original_data.get(key),
+                        'new': new_value,
+                    }
+            if 'content' in kwargs and original_data.get('word_count') != doc.word_count:
+                meta_changes['word_count'] = {
+                    'old': original_data.get('word_count'),
+                    'new': doc.word_count,
+                }
             if save:
                 try:
                     if self._repository:
@@ -421,6 +436,8 @@ class ProjectManager:
                         if key in kwargs: # 只恢复被尝试修改的字段
                              setattr(doc, key, value)
                     raise e
+            if meta_changes and self._shared:
+                self._shared.documentMetaChanged.emit(doc_id, meta_changes)
             logger.info(f"Document updated: {doc.name}")
         return doc
 

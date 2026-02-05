@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from core.config import Config
     from core.shared import Shared
     from core.project import ProjectManager, ProjectDocument, DocumentType
+from gui.models.outline_model import OutlineModel
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,7 @@ class OutlinePanel(QWidget):
         if self._task_manager:
             self._task_manager.taskFinished.connect(self._on_task_finished)
             self._task_manager.taskFailed.connect(self._on_task_failed)
+        self._outline_model = OutlineModel()
         
         self._init_ui()
         self._init_signals()
@@ -274,6 +276,8 @@ class OutlinePanel(QWidget):
         # 连接共享信号
         self._shared.documentChanged.connect(self._on_document_changed)
         self._shared.projectChanged.connect(self._on_project_changed)
+        if hasattr(self._shared, 'documentMetaChanged'):
+            self._shared.documentMetaChanged.connect(self._on_document_meta_changed)
         
         # 连接项目管理器信号
         if hasattr(self._project_manager, 'documentUpdated'):
@@ -292,6 +296,12 @@ class OutlinePanel(QWidget):
             project = self._project_manager.get_current_project()
             if not project:
                 return
+
+            docs_for_outline = [
+                doc for doc in project.documents.values()
+                if doc.doc_type.value in ['act', 'chapter', 'scene']
+            ]
+            self._outline_model.rebuild(docs_for_outline)
             
             # 构建文档树
             root_docs = []
@@ -396,6 +406,11 @@ class OutlinePanel(QWidget):
             return
 
         docs = project.documents
+        docs_for_outline = [
+            doc for doc in docs.values()
+            if doc.doc_type.value in ['act', 'chapter', 'scene']
+        ]
+        self._outline_model.rebuild(docs_for_outline)
 
         def apply_node(node, parent_item=None):
             doc = docs.get(node['id'])
@@ -718,9 +733,10 @@ class OutlinePanel(QWidget):
                 # 记住当前选中的文档ID
                 current_doc_id = doc.id
                 
-                # 刷新大纲视图（debounce + worker）
-                self._queue_post_refresh_actions(select_doc_id=current_doc_id, emit_outline_updated=True)
-                self._request_outline_refresh(debounce_ms=0, reason="move")
+                # 增量更新顺序（不全量重建）
+                self._apply_incremental_reorder(doc.parent_id)
+                self._select_document(current_doc_id)
+                self.outlineUpdated.emit()
                 
                 direction_text = "上移" if direction == -1 else "下移"
                 logger.info(f"成功{direction_text}文档: {doc.name}")
@@ -785,12 +801,107 @@ class OutlinePanel(QWidget):
     def _on_document_changed(self):
         """文档变化处理"""
         self._schedule_update()
-    
+
+    @pyqtSlot(str, dict)
+    def _on_document_meta_changed(self, doc_id: str, changes: dict):
+        """文档元数据变化处理（增量更新）"""
+        if not self._project_manager.has_project():
+            return
+
+        doc = self._project_manager.get_document(doc_id)
+        if not doc:
+            return
+
+        item = self._outline_items.get(doc_id)
+        if not item:
+            self._request_outline_refresh(debounce_ms=0, reason="meta_missing")
+            return
+
+        if any(key in changes for key in ('name', 'word_count', 'doc_type', 'status')):
+            item.update_display()
+
+        if 'parent_id' in changes or 'order' in changes:
+            old_parent, new_parent, changed_parent = self._outline_model.update_node(doc)
+            if changed_parent:
+                self._move_tree_item(doc_id, old_parent, new_parent)
+                if old_parent != new_parent:
+                    self._apply_incremental_reorder(old_parent)
+            self._apply_incremental_reorder(new_parent)
+
     @pyqtSlot()
     def _on_project_changed(self):
         """项目变化处理"""
         self._request_outline_refresh(debounce_ms=300, reason="project_changed")
-    
+
+    def _apply_incremental_reorder(self, parent_id: Optional[str]):
+        ordered_docs = self._project_manager.get_children(parent_id)
+        self._outline_model.reorder_children(parent_id, ordered_docs)
+        ordered_ids = [doc.id for doc in ordered_docs if doc.id in self._outline_items]
+        self._reorder_tree_children(parent_id, ordered_ids)
+
+    def _reorder_tree_children(self, parent_id: Optional[str], ordered_ids: List[str]):
+        if not ordered_ids:
+            return
+
+        if parent_id:
+            parent_item = self._outline_items.get(parent_id)
+            if not parent_item:
+                return
+
+            for doc_id in ordered_ids:
+                item = self._outline_items.get(doc_id)
+                if item:
+                    idx = parent_item.indexOfChild(item)
+                    if idx != -1:
+                        parent_item.takeChild(idx)
+
+            for idx, doc_id in enumerate(ordered_ids):
+                item = self._outline_items.get(doc_id)
+                if item:
+                    parent_item.insertChild(idx, item)
+            return
+
+        for doc_id in ordered_ids:
+            item = self._outline_items.get(doc_id)
+            if item:
+                idx = self._outline_tree.indexOfTopLevelItem(item)
+                if idx != -1:
+                    self._outline_tree.takeTopLevelItem(idx)
+
+        for idx, doc_id in enumerate(ordered_ids):
+            item = self._outline_items.get(doc_id)
+            if item:
+                self._outline_tree.insertTopLevelItem(idx, item)
+
+    def _move_tree_item(self, doc_id: str, old_parent_id: Optional[str], new_parent_id: Optional[str]):
+        item = self._outline_items.get(doc_id)
+        if not item:
+            return
+
+        if old_parent_id:
+            old_parent_item = self._outline_items.get(old_parent_id)
+            if old_parent_item:
+                idx = old_parent_item.indexOfChild(item)
+                if idx != -1:
+                    old_parent_item.takeChild(idx)
+            else:
+                idx = self._outline_tree.indexOfTopLevelItem(item)
+                if idx != -1:
+                    self._outline_tree.takeTopLevelItem(idx)
+        else:
+            idx = self._outline_tree.indexOfTopLevelItem(item)
+            if idx != -1:
+                self._outline_tree.takeTopLevelItem(idx)
+
+        if new_parent_id:
+            new_parent_item = self._outline_items.get(new_parent_id)
+            if new_parent_item:
+                new_parent_item.addChild(item)
+            else:
+                self._outline_tree.addTopLevelItem(item)
+        else:
+            self._outline_tree.addTopLevelItem(item)
+
     def _scan_project_structure(self):
         """扫描项目结构并更新大纲"""
         try:

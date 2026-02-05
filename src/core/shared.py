@@ -20,6 +20,7 @@ class Shared(QObject):
     # 信号定义
     projectChanged = pyqtSignal(str)  # 项目变化信号
     documentChanged = pyqtSignal(str)  # 文档变化信号
+    documentMetaChanged = pyqtSignal(str, dict)  # 文档元数据变化信号 (document_id, changes)
     documentSaved = pyqtSignal(str, str)  # 文档保存信号 (document_id, content)
     themeChanged = pyqtSignal(str)  # 主题变化信号
     configChanged = pyqtSignal(str, str)  # 配置变化信号
