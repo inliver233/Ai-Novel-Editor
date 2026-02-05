@@ -14,6 +14,7 @@ This roadmap fixes the intended incremental persistence route for Project data.
 
 **Phase 3**
 - Reserve full rewrites only for structural operations (bulk import / full tree reorder).
+- All non-structural edits must use incremental APIs (no full-table rewrites).
 
 ## Outline implications
 
