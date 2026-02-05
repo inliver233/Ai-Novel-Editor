@@ -16,7 +16,7 @@ class ProjectRepository:
 
     def save_project_full(self, data: Dict[str, Any]) -> None:
         """Persist full project state (Phase 1)."""
-        raise NotImplementedError
+        self._db_manager.save_project_data(data)
 
     def upsert_document(self, doc: Dict[str, Any]) -> None:
         """Insert or update a single document (Phase 2)."""
