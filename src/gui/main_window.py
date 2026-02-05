@@ -392,10 +392,6 @@ class MainWindow(QMainWindow):
         # 连接ProjectController的信号
         self._connect_controller_signals()
         
-        # 连接共享对象的文档保存信号到自动索引
-        if self._shared and hasattr(self._shared, 'documentSaved'):
-            self._shared.documentSaved.connect(self._on_document_saved_auto_index)
-
         if hasattr(self._editor_panel, 'documentSaved'):
             self._editor_panel.documentSaved.connect(self._on_document_saved)
         if hasattr(self._editor_panel, 'completionRequested'):
@@ -679,16 +675,6 @@ class MainWindow(QMainWindow):
                 self._editor_panel.documentModified.emit(document_id, False)
             logger.info(f"Document saved: {document_id}")
             
-            # 延迟自动更新RAG索引（避免阻塞保存操作）
-            if self._ai_manager and hasattr(self._ai_manager, 'index_document'):
-                try:
-                    # 使用定时器延迟索引，避免阻塞UI
-                    from PyQt6.QtCore import QTimer
-                    QTimer.singleShot(1000, lambda: self._delayed_index_document(document_id, content))
-                    logger.debug(f"Document indexing scheduled: {document_id}")
-                except Exception as e:
-                    logger.error(f"Failed to schedule document indexing: {e}")
-                    # 不影响保存操作，只记录错误
         else:
             QMessageBox.critical(self, "错误", "文档保存失败")
     
@@ -745,19 +731,8 @@ class MainWindow(QMainWindow):
             try:
                 self._index_scheduler.schedule_document_index(document_id, content)
                 logger.debug(f"Auto indexing scheduled via IndexScheduler: {document_id}")
-                return
             except Exception as e:
                 logger.error(f"IndexScheduler自动索引失败: {e}")
-
-        # 使用延迟异步索引，避免阻塞UI（fallback）
-        try:
-            from PyQt6.QtCore import QTimer
-            # 延迟2秒，让保存操作完全完成
-            QTimer.singleShot(2000, lambda: self._delayed_index_document(document_id, content))
-            logger.debug(f"Auto indexing scheduled for document: {document_id}")
-        except Exception as e:
-            logger.error(f"Failed to schedule auto indexing: {e}")
-            # 不影响其他操作，只记录错误
 
     @pyqtSlot(str, str, dict)
     def _on_task_failed(self, key: str, error: str, details: dict):
