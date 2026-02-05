@@ -47,7 +47,7 @@ class IndexScheduler(QObject):
         """Bind a project manager for full-scan indexing."""
         self._project_manager = project_manager
 
-    def schedule_document_index(self, document_id: str, content: str, *, throttle_ms: int = 1500) -> None:
+    def schedule_document_index(self, document_id: str, content: str, *, throttle_ms: int = 2000) -> None:
         key = f"rag/index/doc:{document_id}"
         self._task_manager.submit(
             key,
