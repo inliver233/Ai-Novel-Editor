@@ -45,3 +45,11 @@ Expected event groups (non‑exhaustive):
 Rules:
 - Producers emit on AppEvents; consumers subscribe in UI/application layers.
 - Avoid emitting signals from Shared directly once migration completes.
+
+## Migration plan (incremental)
+
+1. **Document current usage** (this doc) and freeze new additions to Shared.
+2. **Introduce AppServices/AppEvents** as explicit boundaries; register core services there.
+3. **Move service registry fields** (ai_manager, task_manager, rag_service, etc.) from Shared to AppServices.
+4. **Route signals through AppEvents**; Shared becomes a thin compatibility facade.
+5. **Gradually retire Shared fields** once all call sites are migrated.
