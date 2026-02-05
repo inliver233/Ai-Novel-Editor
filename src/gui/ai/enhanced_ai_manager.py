@@ -547,6 +547,98 @@ class DynamicPromptGenerator:
         return prompt
 
 
+class AIRequestDispatcher:
+    """AI网络请求调度器 - 统一请求发送与TaskManager协作"""
+
+    def __init__(self, ai_client=None, task_manager=None, cancelled_task_keys=None):
+        self._ai_client = ai_client
+        self._task_manager = task_manager
+        self._cancelled_task_keys = cancelled_task_keys if cancelled_task_keys is not None else set()
+
+    def update_client(self, ai_client):
+        self._ai_client = ai_client
+
+    def update_task_manager(self, task_manager):
+        self._task_manager = task_manager
+
+    def send_request(self, prompt: str, request_context: Dict[str, Any],
+                     max_tokens: int, temperature: float, task_key: str) -> bool:
+        if not self._ai_client:
+            logger.warning("AIRequestDispatcher: AI客户端不可用")
+            return False
+
+        # 新请求到来时，清除取消标记
+        if task_key:
+            self._cancelled_task_keys.discard(task_key)
+
+        if self._task_manager:
+            def _start_ai_request(token):
+                if token.cancelled:
+                    return
+                request_context['cancel_token'] = token
+                self._ai_client.complete_async(
+                    prompt=prompt,
+                    context=request_context,
+                    max_tokens=max_tokens,
+                    temperature=temperature
+                )
+
+            try:
+                self._task_manager.submit_external(
+                    task_key,
+                    _start_ai_request,
+                    cancel_previous=True,
+                    coalesce=True,
+                    throttle_ms=150,
+                    description="AI completion request",
+                )
+            except Exception as e:
+                logger.warning(f"TaskManager submit_external failed, fallback to direct request: {e}")
+                self._ai_client.complete_async(
+                    prompt=prompt,
+                    context=request_context,
+                    max_tokens=max_tokens,
+                    temperature=temperature
+                )
+        else:
+            self._ai_client.complete_async(
+                prompt=prompt,
+                context=request_context,
+                max_tokens=max_tokens,
+                temperature=temperature
+            )
+
+        return True
+
+
+class AICompletionRenderer:
+    """AI补全渲染器 - 统一清理与元数据构建"""
+
+    def __init__(self):
+        self._prefixes_to_remove = ["续写：", "续写:", "【续写】", "[续写]", "续写内容："]
+
+    def format_completion(self, response: str, context: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+        completion = response.strip()
+        for prefix in self._prefixes_to_remove:
+            if completion.startswith(prefix):
+                completion = completion[len(prefix):].strip()
+
+        original_context = context.get('context', '')
+        cursor_pos = context.get('cursor_position', -1)
+        user_tags = context.get('user_tags', [])
+        completion_type = context.get('completion_type', 'text')
+
+        metadata = {
+            'context': original_context,
+            'cursor_position': cursor_pos,
+            'completion_type': completion_type,
+            'user_tags': user_tags,
+            'enhanced': True
+        }
+
+        return completion, metadata
+
+
 class EnhancedAIManager(QObject):
     """
     增强AI管理器 - 集成所有AI子系统的完整解决方案
@@ -572,6 +664,9 @@ class EnhancedAIManager(QObject):
         self._parent = parent
         self._task_manager = getattr(shared, "task_manager", None) if shared else None
         self._cancelled_task_keys: set[str] = set()
+        self._request_dispatcher = AIRequestDispatcher(task_manager=self._task_manager,
+                                                      cancelled_task_keys=self._cancelled_task_keys)
+        self._completion_renderer = AICompletionRenderer()
         
         # 基础AI组件
         self._ai_client = None
@@ -632,6 +727,8 @@ class EnhancedAIManager(QObject):
                 
                 # 创建新的AI客户端
                 self._ai_client = QtAIClient(ai_config, self)
+                if self._request_dispatcher:
+                    self._request_dispatcher.update_client(self._ai_client)
                 
                 # 连接信号
                 self._ai_client.responseReceived.connect(self._on_completion_ready)
@@ -642,10 +739,14 @@ class EnhancedAIManager(QObject):
                 logger.info(f"AI客户端初始化成功: {ai_config.provider.value if hasattr(ai_config, 'provider') else 'unknown'}")
             else:
                 logger.warning("AI配置无效，无法初始化AI客户端")
+                if self._request_dispatcher:
+                    self._request_dispatcher.update_client(None)
                 
         except Exception as e:
             logger.error(f"AI客户端初始化失败: {e}")
             self._ai_client = None
+            if self._request_dispatcher:
+                self._request_dispatcher.update_client(None)
     
     def _init_enhanced_components(self):
         """初始化增强功能组件"""
@@ -725,6 +826,8 @@ class EnhancedAIManager(QObject):
     def set_task_manager(self, task_manager) -> None:
         """绑定TaskManager实例（用于统一取消/去重/错误上报）"""
         self._task_manager = task_manager
+        if self._request_dispatcher:
+            self._request_dispatcher.update_task_manager(task_manager)
 
     def _get_ai_task_key(self, editor=None) -> str:
         editor_obj = editor or getattr(self, "_current_editor", None)
@@ -801,8 +904,6 @@ class EnhancedAIManager(QObject):
             
             # 3. 发送AI请求
             task_key = self._get_ai_task_key(self._current_editor)
-            # 新请求到来时，清除取消标记
-            self._cancelled_task_keys.discard(task_key)
             request_context = {
                 'context': context,
                 'cursor_position': cursor_position,
@@ -813,42 +914,19 @@ class EnhancedAIManager(QObject):
                 'task_key': task_key
             }
 
-            if self._task_manager:
-                def _start_ai_request(token):
-                    if token.cancelled:
-                        return
-                    request_context['cancel_token'] = token
-                    self._ai_client.complete_async(
-                        prompt=prompt,
-                        context=request_context,
-                        max_tokens=self._get_max_tokens(context_mode),
-                        temperature=self._get_temperature()
-                    )
+            if not self._request_dispatcher:
+                raise RuntimeError("AI请求调度器未初始化")
 
-                try:
-                    self._task_manager.submit_external(
-                        task_key,
-                        _start_ai_request,
-                        cancel_previous=True,
-                        coalesce=True,
-                        throttle_ms=150,
-                        description="AI completion request",
-                    )
-                except Exception as e:
-                    logger.warning(f"TaskManager submit_external failed, fallback to direct request: {e}")
-                    self._ai_client.complete_async(
-                        prompt=prompt,
-                        context=request_context,
-                        max_tokens=self._get_max_tokens(context_mode),
-                        temperature=self._get_temperature()
-                    )
-            else:
-                self._ai_client.complete_async(
-                    prompt=prompt,
-                    context=request_context,
-                    max_tokens=self._get_max_tokens(context_mode),
-                    temperature=self._get_temperature()
-                )
+            dispatched = self._request_dispatcher.send_request(
+                prompt,
+                request_context,
+                max_tokens=self._get_max_tokens(context_mode),
+                temperature=self._get_temperature(),
+                task_key=task_key
+            )
+
+            if not dispatched:
+                return False
             
             logger.info(f"增强AI补全请求已发送 - 类型: {completion_type}, 标签: {user_tags}")
             return True
@@ -953,40 +1031,17 @@ class EnhancedAIManager(QObject):
                     self._task_manager.finish_external(task_key, result=None)
                 return
 
-            # 清理和格式化响应
-            completion = response.strip()
-            
-            # 移除AI响应前缀
-            prefixes_to_remove = ["续写：", "续写:", "【续写】", "[续写]", "续写内容："]
-            for prefix in prefixes_to_remove:
-                if completion.startswith(prefix):
-                    completion = completion[len(prefix):].strip()
-            
-            # 从上下文获取请求信息
-            original_context = context.get('context', '')
-            cursor_pos = context.get('cursor_position', -1)
-            user_tags = context.get('user_tags', [])
-            completion_type = context.get('completion_type', 'text')
-            
-            # 缓存系统已移除，直接处理结果
-            
+            # 清理和格式化响应（交给渲染层）
+            completion, metadata = self._completion_renderer.format_completion(response, context)
+
             # 发送信号
-            self.completionReady.emit(completion, original_context)
-            
-            # 兼容性信号
-            metadata = {
-                'context': original_context,
-                'cursor_position': cursor_pos,
-                'completion_type': completion_type,
-                'user_tags': user_tags,
-                'enhanced': True  # 标记为增强版本
-            }
+            self.completionReady.emit(completion, metadata.get('context', ''))
             self.completionReceived.emit(completion, metadata)
 
             if self._task_manager and task_key:
                 self._task_manager.finish_external(task_key, result=completion)
             
-            logger.info(f"增强AI补全完成 - 长度: {len(completion)}, 类型: {completion_type}")
+            logger.info(f"增强AI补全完成 - 长度: {len(completion)}, 类型: {metadata.get('completion_type', 'text')}")
             
         except Exception as e:
             logger.error(f"处理增强补全响应失败: {e}")
