@@ -71,6 +71,16 @@ class ProjectRepository:
                 conn.commit()
 
     @contextmanager
-    def transaction(self) -> Iterator[None]:
+    def transaction(self) -> Iterator[Any]:
         """Explicit transaction boundary."""
-        yield
+        with self._db_manager._lock:
+            conn = self._db_manager._get_connection()
+            try:
+                conn.execute("BEGIN")
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
