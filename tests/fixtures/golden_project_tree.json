@@ -1,0 +1,30 @@
+{
+  "project_name": "GoldenMasterDemo",
+  "author": "测试作者",
+  "language": "zh_CN",
+  "acts": [
+    {
+      "title": "第一幕",
+      "chapters": [
+        {
+          "title": "第一章",
+          "scenes": [
+            {
+              "title": "开场",
+              "content_ref": "golden_story.txt"
+            }
+          ]
+        },
+        {
+          "title": "第二章",
+          "scenes": [
+            {
+              "title": "雨声",
+              "content": "街角的钟楼敲了三下，雨声像细线落在伞面。"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
