@@ -18,6 +18,7 @@ from .backup_service import create_backup_set
 from .backup_workflows import create_pre_delete_backup, get_global_vectors_db_path
 from .config import Config
 from .database_manager import DatabaseManager
+from .project_repository import ProjectRepository
 from .shared import Shared
 
 logger = logging.getLogger(__name__)
@@ -130,6 +131,7 @@ class ProjectManager:
         self._current_project: Optional[ProjectData] = None
         self._project_path: Optional[Path] = None
         self._db_manager: Optional[DatabaseManager] = None
+        self._repository: Optional[ProjectRepository] = None
         self._project_version = "2.0" # 升级版本号以反映新的存储结构
         self._session_baseline_backups: set[str] = set()
         logger.info("Project manager initialized with dependencies")
@@ -153,6 +155,7 @@ class ProjectManager:
             project_path.mkdir(parents=True, exist_ok=True)
             self._project_path = project_path
             self._db_manager = DatabaseManager(str(project_path))
+            self._repository = ProjectRepository(self._db_manager)
 
             project_data = ProjectData(
                 id=str(uuid.uuid4()),
@@ -194,8 +197,9 @@ class ProjectManager:
             self.close_project() # 关闭当前项目
             self._project_path = project_path
             self._db_manager = DatabaseManager(str(project_path))
+            self._repository = ProjectRepository(self._db_manager)
             
-            data = self._db_manager.load_project_data()
+            data = self._repository.load_project() if self._repository else self._db_manager.load_project_data()
             if not data or 'metadata' not in data:
                 raise ProjectCorruptedError("Project data is empty or metadata is missing.")
 
@@ -258,7 +262,10 @@ class ProjectManager:
                 'documents': documents_data
             }
             
-            self._db_manager.save_project_data(full_data)
+            if self._repository:
+                self._repository.save_project_full(full_data)
+            else:
+                self._db_manager.save_project_data(full_data)
             logger.info(f"Project saved: {self._current_project.name}")
             return True
         except Exception as e:
@@ -280,6 +287,7 @@ class ProjectManager:
             self._current_project = None
             self._project_path = None
             self._db_manager = None
+            self._repository = None
             self._shared.current_project_path = None
             # 概念系统已移除
             logger.info("Project closed.")
