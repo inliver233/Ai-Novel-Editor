@@ -19,3 +19,16 @@ To reduce Shared’s scope, we introduce two explicit boundaries:
 - **AppEvents**: a centralized event bus (Qt signals) for cross‑module notifications.
 
 These boundaries keep stateful services and signal wiring explicit, avoiding hidden coupling in Shared.
+
+## AppServices (service registry)
+
+Purpose: host long‑lived services with explicit lifecycle and ownership.
+
+Expected contents (non‑exhaustive):
+- `Config`, `ProjectManager`, `TaskManager`, `IndexScheduler`
+- `RAGService`, `SQLiteVectorStore`
+- `CodexManager`, `ReferenceDetector`, prompt registries
+
+Rules:
+- Construct once at app startup; pass via explicit accessors (not global).
+- Services should not emit UI signals directly; use `AppEvents` for cross‑module notifications.
