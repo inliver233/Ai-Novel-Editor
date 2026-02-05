@@ -4,11 +4,19 @@ Esc键处理逻辑分析测试
 验证optimal_ghost_text.py中Esc键处理的各个方面
 """
 
-import pytest
+import unittest
+try:
+    import pytest
+except ImportError as exc:  # pragma: no cover - optional dependency
+    raise unittest.SkipTest(f"pytest not available: {exc}") from exc
 from unittest.mock import Mock, patch
-from PyQt6.QtWidgets import QApplication, QTextEdit
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QKeyEvent
+
+try:
+    from PyQt6.QtWidgets import QApplication, QTextEdit
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QKeyEvent
+except ImportError as exc:  # pragma: no cover - optional dependency
+    raise unittest.SkipTest(f"PyQt6 not available: {exc}") from exc
 import sys
 import os
 

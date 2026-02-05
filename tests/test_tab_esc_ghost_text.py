@@ -7,10 +7,15 @@
 import os
 import sys
 import logging
+import unittest
 from unittest.mock import Mock, patch
-from PyQt6.QtWidgets import QApplication, QPlainTextEdit
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QKeyEvent
+
+try:
+    from PyQt6.QtWidgets import QApplication, QPlainTextEdit
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QKeyEvent
+except ImportError as exc:  # pragma: no cover - optional dependency
+    raise unittest.SkipTest(f"PyQt6 not available: {exc}") from exc
 
 # 添加src路径
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))

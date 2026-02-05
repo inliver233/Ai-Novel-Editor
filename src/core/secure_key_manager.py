@@ -12,7 +12,13 @@ from typing import Any, Dict, Optional
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from loguru import logger
+
+try:
+    from loguru import logger
+except ImportError:  # pragma: no cover - optional dependency
+    import logging
+
+    logger = logging.getLogger(__name__)
 
 
 class SecureKeyManager:

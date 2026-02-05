@@ -12,7 +12,12 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 
-import aiohttp
+try:
+    import aiohttp
+    AIOHTTP_AVAILABLE = True
+except ImportError:  # pragma: no cover - optional dependency
+    aiohttp = None
+    AIOHTTP_AVAILABLE = False
 import requests
 
 from .multimodal_types import MultimodalMessage
@@ -333,24 +338,32 @@ class AIClient:
                 if thinking_config:
                     generation_config["thinkingConfig"] = thinking_config
             
-            # 处理系统消息和用户消息
+            # 处理系统消息和用户消息（系统消息合并进首个用户消息）
+            system_buffer: list[str] = []
             for msg in messages:
                 if msg["role"] == "system":
-                    # Gemini将系统消息合并到用户消息中
-                    if contents and contents[-1].get("role") == "user":
-                        contents[-1]["parts"][0]["text"] = f"{msg['content']}\n\n{contents[-1]['parts'][0]['text']}"
-                    else:
-                        contents.append({
-                            "role": "user",
-                            "parts": [{"text": msg["content"]}]
-                        })
-                else:
-                    # 转换role格式
-                    gemini_role = "model" if msg["role"] == "assistant" else msg["role"]
-                    contents.append({
-                        "role": gemini_role,
-                        "parts": [{"text": msg["content"]}]
-                    })
+                    system_buffer.append(msg["content"])
+                    continue
+
+                gemini_role = "model" if msg["role"] == "assistant" else msg["role"]
+                text = msg["content"]
+                if gemini_role == "user" and system_buffer:
+                    separator = "\n\n"
+                    prefix = separator.join(system_buffer)
+                    text = f"{prefix}{separator}{text}" if text else prefix
+                    system_buffer = []
+
+                contents.append({
+                    "role": gemini_role,
+                    "parts": [{"text": text}]
+                })
+
+            # 如果只有系统消息，降级为用户消息
+            if system_buffer and not contents:
+                contents.append({
+                    "role": "user",
+                    "parts": [{"text": "\\n\\n".join(system_buffer)}]
+                })
             
             data = {
                 "contents": contents,
@@ -860,7 +873,7 @@ class AIClient:
                 # Ollama使用OpenAI兼容格式
                 if 'choices' in response_data and len(response_data['choices']) > 0:
                     choice = response_data['choices'][0]
-                    return (
+                    return bool(
                         'message' in choice and 
                         'tool_calls' in choice['message'] and 
                         choice['message']['tool_calls']
@@ -868,7 +881,7 @@ class AIClient:
             else:
                 if 'choices' in response_data and len(response_data['choices']) > 0:
                     choice = response_data['choices'][0]
-                    return (
+                    return bool(
                         'message' in choice and 
                         'tool_calls' in choice['message'] and 
                         choice['message']['tool_calls']
@@ -1010,6 +1023,8 @@ class AsyncAIClient(AIClient):
 
     def __init__(self, config: AIConfig):
         super().__init__(config)
+        if not AIOHTTP_AVAILABLE:
+            raise AIClientError("aiohttp not available for AsyncAIClient")
         self._session = None
 
     async def __aenter__(self):

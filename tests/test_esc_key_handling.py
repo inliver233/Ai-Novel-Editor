@@ -9,9 +9,14 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 import logging
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QKeyEvent
+import unittest
+
+try:
+    from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QKeyEvent
+except ImportError as exc:  # pragma: no cover - optional dependency
+    raise unittest.SkipTest(f"PyQt6 not available: {exc}") from exc
 
 # 配置日志
 logging.basicConfig(
@@ -31,7 +36,7 @@ def test_esc_key_processing():
     from gui.editor.text_editor import IntelligentTextEditor
     
     config = Config()
-    shared = Shared()
+    shared = Shared(config)
     editor = IntelligentTextEditor(config, shared)
     
     # 检查Ghost Text系统初始化状态
@@ -68,7 +73,7 @@ def test_esc_key_processing():
     
     # 测试场景1：没有Ghost Text时按Esc键
     print("\n--- 场景1：没有Ghost Text时按Esc键 ---")
-    result1 = test_key_press_scenario(editor, esc_event, "无Ghost Text")
+    result1 = _key_press_scenario(editor, esc_event, "无Ghost Text")
     
     # 测试场景2：有Ghost Text时按Esc键
     print("\n--- 场景2：有Ghost Text时按Esc键 ---")
@@ -78,7 +83,7 @@ def test_esc_key_processing():
             ghost_completion.show_completion("这是一个测试的Ghost Text补全")
             print(f"Ghost Text显示后状态: {ghost_completion.has_active_ghost_text()}")
             
-            result2 = test_key_press_scenario(editor, esc_event, "有Ghost Text")
+            result2 = _key_press_scenario(editor, esc_event, "有Ghost Text")
             
             # 检查Ghost Text是否被正确清理
             if hasattr(ghost_completion, 'has_active_ghost_text'):
@@ -94,7 +99,7 @@ def test_esc_key_processing():
             completion_widget.show()
             print(f"Completion widget显示后状态: {completion_widget.isVisible()}")
             
-            result3 = test_key_press_scenario(editor, esc_event, "completion_widget可见")
+            result3 = _key_press_scenario(editor, esc_event, "completion_widget可见")
             
             # 检查completion_widget是否被隐藏
             print(f"Esc键处理后completion_widget状态: {completion_widget.isVisible()}")
@@ -105,7 +110,7 @@ def test_esc_key_processing():
     
     app.quit()
 
-def test_key_press_scenario(editor, event, scenario_name):
+def _key_press_scenario(editor, event, scenario_name):
     """测试特定场景下的键盘事件处理"""
     print(f"测试场景: {scenario_name}")
     

@@ -10,8 +10,12 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
+try:
+    from PyQt6.QtCore import QObject, pyqtSignal
+except ImportError as exc:  # pragma: no cover - optional dependency
+    raise unittest.SkipTest(f"PyQt6 not available: {exc}") from exc
+
 from src.gui.editor.ghost_text_state_manager import GhostTextStateManager, GhostTextState
-from PyQt6.QtCore import QObject, pyqtSignal
 
 class TestGhostTextStateManager(unittest.TestCase):
 

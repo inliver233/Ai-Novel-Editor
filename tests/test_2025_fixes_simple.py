@@ -6,6 +6,17 @@
 
 import sys
 from pathlib import Path
+
+
+def _try_force_utf8(stream) -> None:
+    try:
+        stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        return
+
+
+_try_force_utf8(sys.stdout)
+_try_force_utf8(sys.stderr)
 import json
 
 # 添加src目录到路径

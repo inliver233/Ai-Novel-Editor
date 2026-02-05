@@ -1,7 +1,11 @@
 import ast
 from pathlib import Path
 
-import pytest
+import unittest
+try:
+    import pytest
+except ImportError as exc:  # pragma: no cover - optional dependency
+    raise unittest.SkipTest(f"pytest not available: {exc}") from exc
 
 
 _BANNED_TOP_LEVEL_MODULES = {"archive", "temp_research"}

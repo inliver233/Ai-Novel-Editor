@@ -10,6 +10,7 @@ corresponding Issue CSV tasks (create/restore/list).
 
 import logging
 import json
+from datetime import datetime, timedelta
 from pathlib import Path
 import re
 import shutil
@@ -70,13 +71,31 @@ def _create_pre_restore_backup(project_path: Path) -> None:
         logger.warning("No existing database files found; skipping pre-restore backup")
         return
 
-    backup_dir = create_backup_set(project_path, db_paths, reason="pre_restore")
+    backup_dir = create_backup_set(
+        project_path,
+        db_paths,
+        reason="pre_restore",
+        timestamp=_unique_backup_timestamp(project_path),
+    )
     logger.info("Pre-restore backup created: %s", backup_dir)
 
 
-def create_backup_set(project_path: Path, db_paths: list[Path], reason: str) -> Path:
+def _unique_backup_timestamp(project_path: Path) -> str:
+    """Generate a timestamp that does not collide with existing project backup dirs."""
+    base_dt = datetime.now()
+    backup_root = project_path / BackupPaths().project_backup_dir_name
+
+    for offset in range(0, 60):
+        ts = format_backup_timestamp(base_dt + timedelta(seconds=offset))
+        if not (backup_root / ts).exists():
+            return ts
+
+    return format_backup_timestamp(base_dt + timedelta(seconds=61))
+
+
+def create_backup_set(project_path: Path, db_paths: list[Path], reason: str, *, timestamp: str | None = None) -> Path:
     """Create a backup set directory for the given databases and return the project backup dir."""
-    timestamp = format_backup_timestamp()
+    timestamp = timestamp or format_backup_timestamp()
     backup_set = create_backup_set_paths(project_path, timestamp=timestamp)
 
     project_db = None

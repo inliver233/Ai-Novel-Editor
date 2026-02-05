@@ -60,11 +60,9 @@ class IntelligentContextCollector:
         if not text:
             return self._create_empty_result(cursor_position)
         
-        # 修复光标位置：如果是-1或无效值，使用文本末尾
-        if cursor_position < 0:
-            cursor_position = len(text)
-        elif cursor_position > len(text):
-            cursor_position = len(text)
+        # 无效光标位置直接返回空结果
+        if cursor_position < 0 or cursor_position > len(text):
+            return self._create_empty_result(cursor_position)
 
         # 1. 使用改进的上下文提取器获取基础上下文
         extracted_context = self.context_extractor.extract_context_for_completion(

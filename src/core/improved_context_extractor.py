@@ -88,7 +88,7 @@ class ImprovedContextExtractor:
         Returns:
             ExtractedContext: 提取的上下文信息
         """
-        if not text or cursor_position < 0:
+        if not text or cursor_position < 0 or cursor_position > len(text):
             return self._create_empty_context(cursor_position)
         
         # 调整光标位置，确保不超出文本范围
@@ -352,6 +352,9 @@ class ImprovedContextExtractor:
             
             if keyword in self.stop_words:
                 continue
+
+            if any(stop_word in keyword for stop_word in self.stop_words):
+                continue
             
             if self._is_meaningless_word(keyword):
                 continue
@@ -365,7 +368,13 @@ class ImprovedContextExtractor:
             # 策略1: 直接提取中文词汇，大幅放宽条件
             chinese_words = re.findall(r'[\u4e00-\u9fff]{2,4}', text)
             for word in chinese_words:
-                if word not in seen and len(word) >= 2 and not self._is_meaningless_word(word):
+                if (
+                    word not in seen
+                    and len(word) >= 2
+                    and word not in self.stop_words
+                    and not any(stop_word in word for stop_word in self.stop_words)
+                    and not self._is_meaningless_word(word)
+                ):
                     seen.add(word)
                     unique_keywords.append(word)
                     if len(unique_keywords) >= 10:  # 增加限制数量
@@ -377,7 +386,12 @@ class ImprovedContextExtractor:
                 chars = re.findall(r'[\u4e00-\u9fff]', text)
                 for i in range(len(chars)-1):
                     word = chars[i] + chars[i+1]
-                    if word not in seen and not self._is_meaningless_word(word):
+                    if (
+                        word not in seen
+                        and word not in self.stop_words
+                        and not any(stop_word in word for stop_word in self.stop_words)
+                        and not self._is_meaningless_word(word)
+                    ):
                         seen.add(word)
                         unique_keywords.append(word)
                         if len(unique_keywords) >= 8:
@@ -416,6 +430,7 @@ class ImprovedContextExtractor:
             for word, flag in words:
                 if (len(word) >= 2 and 
                     word not in self.stop_words and
+                    not any(stop_word in word for stop_word in self.stop_words) and
                     flag in ['n', 'nr', 'ns', 'nt', 'nz']):  # 只提取名词
                     keywords.append(word)
         
