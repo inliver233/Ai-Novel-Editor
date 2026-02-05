@@ -10,3 +10,12 @@ Shared currently bundles multiple concerns that should be separated over time:
 - **Caches / data**: project-scoped data dict and document cache.
 
 This document will define the target boundaries and the incremental migration plan.
+
+## Target replacements (directional)
+
+To reduce Shared’s scope, we introduce two explicit boundaries:
+
+- **AppServices**: a service registry / dependency injection container for long‑lived services.
+- **AppEvents**: a centralized event bus (Qt signals) for cross‑module notifications.
+
+These boundaries keep stateful services and signal wiring explicit, avoiding hidden coupling in Shared.
