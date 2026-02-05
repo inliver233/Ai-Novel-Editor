@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import json
 from typing import Any, Dict, Iterable, Iterator, Optional
 
 
@@ -20,7 +21,19 @@ class ProjectRepository:
 
     def upsert_document(self, doc: Dict[str, Any]) -> None:
         """Insert or update a single document (Phase 2)."""
-        raise NotImplementedError
+        doc_copy = doc.copy()
+        doc_copy["metadata"] = json.dumps(doc_copy.get("metadata", {}))
+        with self._db_manager._lock:
+            with self._db_manager._get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO documents
+                    (id, parent_id, name, doc_type, status, "order", content, word_count, created_at, updated_at, metadata)
+                    VALUES (:id, :parent_id, :name, :doc_type, :status, :order, :content, :word_count, :created_at, :updated_at, :metadata)
+                    """,
+                    doc_copy,
+                )
+                conn.commit()
 
     def delete_document(self, doc_id: str) -> None:
         """Delete a single document by id."""
