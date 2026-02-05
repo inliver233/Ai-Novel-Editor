@@ -10,7 +10,7 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QSplitter,
-    QMessageBox, QApplication, QDialog,
+    QMessageBox, QApplication, QDialog, QFileDialog,
     QTabWidget
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot
@@ -838,6 +838,7 @@ class MainWindow(QMainWindow):
             "auto_replace_settings": self._show_auto_replace_settings,
             "concept_manager": self._show_concept_manager,
             "codex_manager": self._show_codex_manager,
+            "restore_project": self._restore_project_from_backup,
             
             # Toolbar Actions
             "toggle_ai_toolbar": self._toggle_ai_toolbar,
@@ -852,6 +853,39 @@ class MainWindow(QMainWindow):
             actions[action_id]()
         else:
             logger.warning(f"Unhandled menu action: {action_id}")
+
+    def _restore_project_from_backup(self):
+        """从备份目录恢复当前项目数据库。"""
+        project = self._project_manager.get_current_project()
+        if not project or not project.project_path:
+            QMessageBox.warning(self, "恢复失败", "请先打开一个项目再执行恢复。")
+            return
+
+        project_path = Path(project.project_path)
+        backup_root = project_path / "backups"
+        initial_dir = str(backup_root) if backup_root.exists() else str(project_path)
+
+        backup_dir = QFileDialog.getExistingDirectory(self, "选择备份目录", initial_dir)
+        if not backup_dir:
+            return
+
+        try:
+            from core.backup_service import restore_backup_set, BackupServiceError
+            restore_backup_set(project_path, Path(backup_dir))
+        except BackupServiceError as exc:
+            logger.error("Restore backup failed: %s", exc)
+            QMessageBox.critical(self, "恢复失败", f"恢复备份失败：\n{exc}")
+            return
+        except Exception as exc:
+            logger.exception("Unexpected restore failure")
+            QMessageBox.critical(self, "恢复失败", f"恢复备份时发生异常：\n{exc}")
+            return
+
+        if self._project_manager.open_project(str(project_path)):
+            self._project_controller.project_opened.emit(str(project_path))
+            self._project_controller.project_structure_changed.emit()
+
+        QMessageBox.information(self, "恢复完成", "备份恢复完成，项目已重新载入。")
 
     def _toggle_fullscreen(self):
         self.showNormal() if self.isFullScreen() else self.showFullScreen()
