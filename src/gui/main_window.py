@@ -109,6 +109,8 @@ class MainWindow(QMainWindow):
         self._index_scheduler = IndexScheduler(self._task_manager, self)
         self._shared.task_manager = self._task_manager
         self._shared.index_scheduler = self._index_scheduler
+        self._index_scheduler.bind_shared(self._shared)
+        self._index_scheduler.bind_project_manager(self._project_manager)
         if self._ai_manager:
             try:
                 self._ai_manager.set_task_manager(self._task_manager)

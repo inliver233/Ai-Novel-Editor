@@ -20,6 +20,8 @@ class IndexScheduler(QObject):
         super().__init__(parent)
         self._task_manager = task_manager
         self._ai_manager: Any | None = None
+        self._shared: QObject | None = None
+        self._project_manager: Any | None = None
 
     def bind_ai_manager(self, ai_manager: Any) -> None:
         """Bind an AI manager that exposes indexing entrypoints.
@@ -34,8 +36,15 @@ class IndexScheduler(QObject):
 
     def bind_shared(self, shared: QObject) -> None:
         """Bind to Shared signals (e.g. Shared.documentSaved)."""
+        self._shared = shared
+        if hasattr(shared, "projectChanged"):
+            shared.projectChanged.connect(self._on_project_changed)  # type: ignore[attr-defined]
         if hasattr(shared, "documentSaved"):
             shared.documentSaved.connect(self._on_document_saved)  # type: ignore[attr-defined]
+
+    def bind_project_manager(self, project_manager: Any) -> None:
+        """Bind a project manager for full-scan indexing."""
+        self._project_manager = project_manager
 
     def schedule_document_index(self, document_id: str, content: str, *, throttle_ms: int = 1500) -> None:
         key = f"rag/index/doc:{document_id}"
@@ -72,6 +81,10 @@ class IndexScheduler(QObject):
     def _on_document_saved(self, document_id: str, content: str) -> None:
         logger.debug("IndexScheduler received documentSaved: %s", document_id)
         self.schedule_document_index(document_id, content)
+
+    @pyqtSlot(str)
+    def _on_project_changed(self, project_path: str) -> None:
+        logger.debug("IndexScheduler received projectChanged: %s", project_path)
 
     def _index_document(self, token: CancelToken, document_id: str, content: str) -> bool:
         if token.cancelled:
