@@ -311,7 +311,10 @@ class ProjectManager:
 
         if save:
             try:
-                self.save_project()
+                if self._repository:
+                    self._repository.upsert_document(document.to_dict())
+                else:
+                    self.save_project()
             except Exception as e:
                 # 如果保存失败，从内存中移除刚刚添加的文档以回滚状态
                 logger.error(f"Save failed after adding document. Rolling back memory state for doc id {doc_id}.")
@@ -370,7 +373,12 @@ class ProjectManager:
             # 不影响文档删除操作，只记录错误
         
         if save:
-            self.save_project()
+            if self._repository:
+                with self._repository.transaction() as conn:
+                    for id_to_remove in docs_to_remove:
+                        conn.execute("DELETE FROM documents WHERE id = ?", (id_to_remove,))
+            else:
+                self.save_project()
         return True
 
     def update_document(self, doc_id: str, save: bool = True, **kwargs) -> Optional[ProjectDocument]:
@@ -398,7 +406,10 @@ class ProjectManager:
                 doc.word_count = len(doc.content.split()) if doc.content else 0
             if save:
                 try:
-                    self.save_project()
+                    if self._repository:
+                        self._repository.upsert_document(doc.to_dict())
+                    else:
+                        self.save_project()
                     # 发出文档保存信号以触发自动索引
                     if 'content' in kwargs and self._shared:
                         self._shared.documentSaved.emit(doc_id, doc.content)
@@ -517,7 +528,11 @@ class ProjectManager:
             self.update_document(target_sibling.id, order=old_doc_order, save=False)
             
             # 保存项目
-            self.save_project()
+            if self._repository:
+                ordered_ids = [sibling.id for sibling in self.get_children(doc.parent_id)]
+                self._repository.reorder_children(doc.parent_id, ordered_ids)
+            else:
+                self.save_project()
             
             logger.info(f"成功移动文档: {doc.name} (方向: {direction})")
             return True
