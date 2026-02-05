@@ -66,7 +66,7 @@ class IndexStats:
 class RAGService:
     """RAG服务实现"""
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], embedder: Optional[Any] = None):
         self.config = config
         # 从安全存储获取API密钥
         self.api_key = self._get_secure_api_key(config)
@@ -74,6 +74,7 @@ class RAGService:
         self.embedding_model = config.get('embedding', {}).get('model', 'BAAI/bge-large-zh-v1.5')
         self.rerank_model = config.get('rerank', {}).get('model', 'BAAI/bge-reranker-v2-m3')
         self.rerank_enabled = config.get('rerank', {}).get('enabled', True)
+        self._embedder = embedder
         
         # 网络状态和重试配置
         self._network_available = True
@@ -96,6 +97,42 @@ class RAGService:
         
         # 向量存储引用
         self._vector_store = None
+
+    async def _embed_override(self, text: str) -> Optional[List[float]]:
+        """使用注入的 embedder 生成嵌入向量（若可用）"""
+        embedder = self._embedder
+        if embedder is None:
+            return None
+        try:
+            if hasattr(embedder, "embed"):
+                result = embedder.embed(text)
+            elif callable(embedder):
+                result = embedder(text)
+            else:
+                logger.error("Embedder does not provide embed() or callable interface")
+                return None
+            if asyncio.iscoroutine(result):
+                result = await result
+            return result
+        except Exception as e:
+            logger.error(f"Embedder override failed: {e}")
+            return None
+
+    async def _embed_batch_override(self, texts: List[str]) -> Optional[List[Optional[List[float]]]]:
+        """使用注入的 embedder 批量生成嵌入向量（若可用）"""
+        embedder = self._embedder
+        if embedder is None:
+            return None
+        try:
+            if hasattr(embedder, "embed_batch"):
+                result = embedder.embed_batch(texts)
+                if asyncio.iscoroutine(result):
+                    result = await result
+                return result
+            return [await self._embed_override(text) for text in texts]
+        except Exception as e:
+            logger.error(f"Embedder batch override failed: {e}")
+            return None
         
     def _get_secure_api_key(self, config: Dict[str, Any]) -> str:
         """从安全存储获取API密钥"""
@@ -267,6 +304,10 @@ class RAGService:
         """异步创建文本嵌入向量（带缓存、重试机制和降级策略）"""
         if max_retries is None:
             max_retries = self._max_retries
+
+        override = await self._embed_override(text)
+        if override is not None:
+            return override
             
         if not AIOHTTP_AVAILABLE:
             logger.error("aiohttp not available, cannot create embeddings")
@@ -391,6 +432,9 @@ class RAGService:
     
     async def create_embeddings_batch_async(self, texts: List[str]) -> List[Optional[List[float]]]:
         """批量创建嵌入向量"""
+        override = await self._embed_batch_override(texts)
+        if override is not None:
+            return override
         tasks = [self.create_embedding_async(text) for text in texts]
         return await asyncio.gather(*tasks)
     
