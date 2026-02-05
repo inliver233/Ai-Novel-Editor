@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from PyQt6.QtCore import QObject, pyqtSlot
@@ -85,6 +86,27 @@ class IndexScheduler(QObject):
     @pyqtSlot(str)
     def _on_project_changed(self, project_path: str) -> None:
         logger.debug("IndexScheduler received projectChanged: %s", project_path)
+        if project_path:
+            self._ensure_vector_store(project_path)
+        self.schedule_full_scan()
+
+    def _ensure_vector_store(self, project_path: str) -> None:
+        if not project_path or self._shared is None:
+            return
+        try:
+            from core.sqlite_vector_store import SQLiteVectorStore
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("IndexScheduler: SQLiteVectorStore unavailable: %s", exc)
+            return
+
+        rag_dir = Path(project_path) / ".rag"
+        rag_dir.mkdir(parents=True, exist_ok=True)
+        db_path = rag_dir / "vectors.db"
+        new_store = SQLiteVectorStore(str(db_path))
+        setattr(self._shared, "vector_store", new_store)
+        rag_service = getattr(self._shared, "rag_service", None)
+        if rag_service and hasattr(rag_service, "set_vector_store"):
+            rag_service.set_vector_store(new_store)
 
     def _index_document(self, token: CancelToken, document_id: str, content: str) -> bool:
         if token.cancelled:
@@ -135,9 +157,76 @@ class IndexScheduler(QObject):
         except Exception:  # noqa: BLE001
             logger.exception("IndexScheduler: failed full-scan indexing")
             return False
+        return self._index_missing_documents(token)
 
-        logger.warning("IndexScheduler: ai_manager has no index_full_scan entrypoint; skipping")
-        return False
+    def _index_missing_documents(self, token: CancelToken) -> bool:
+        if token.cancelled:
+            return False
+        if self._project_manager is None:
+            logger.debug("IndexScheduler: project_manager not bound; skipping missing-doc scan")
+            return False
+        if self._ai_manager is None:
+            logger.debug("IndexScheduler: ai_manager not bound; skipping missing-doc scan")
+            return False
+
+        try:
+            docs = self._project_manager.get_all_documents()
+        except Exception:  # noqa: BLE001
+            logger.exception("IndexScheduler: failed to list documents")
+            return False
+
+        if not docs:
+            return True
+
+        rag_service = getattr(self._ai_manager, "rag_service", None)
+        vector_store = getattr(rag_service, "_vector_store", None) if rag_service else None
+
+        success_count = 0
+        total = 0
+        for doc_id in docs:
+            if token.cancelled:
+                return False
+
+            total += 1
+            if vector_store and hasattr(vector_store, "document_exists"):
+                try:
+                    if vector_store.document_exists(doc_id):
+                        continue
+                except Exception:  # noqa: BLE001
+                    logger.debug("IndexScheduler: document_exists failed for %s", doc_id)
+
+            try:
+                content = self._project_manager.get_document_content(doc_id)
+            except Exception:  # noqa: BLE001
+                logger.debug("IndexScheduler: failed to get content for %s", doc_id)
+                continue
+
+            if not content:
+                continue
+
+            try:
+                if hasattr(self._ai_manager, "index_document_sync"):
+                    try:
+                        ok = bool(self._ai_manager.index_document_sync(doc_id, content, cancel_token=token))
+                    except TypeError:
+                        ok = bool(self._ai_manager.index_document_sync(doc_id, content))
+                elif rag_service and hasattr(rag_service, "index_document"):
+                    try:
+                        ok = bool(rag_service.index_document(doc_id, content, cancel_token=token))
+                    except TypeError:
+                        ok = bool(rag_service.index_document(doc_id, content))
+                else:
+                    logger.warning("IndexScheduler: no index_document entrypoint; skipping %s", doc_id)
+                    ok = False
+            except Exception:  # noqa: BLE001
+                logger.exception("IndexScheduler: failed to index %s", doc_id)
+                ok = False
+
+            if ok:
+                success_count += 1
+
+        logger.info("IndexScheduler full-scan completed: %s/%s indexed", success_count, total)
+        return True
 
     def _rebuild_index(self, token: CancelToken) -> bool:
         if token.cancelled:
