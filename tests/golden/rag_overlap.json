@@ -1,0 +1,75 @@
+{
+  "top_n": 10,
+  "queries": [
+    {
+      "query": "雾城的书店发生了什么？",
+      "result_ids": [
+        "rag_corpus:2"
+      ]
+    },
+    {
+      "query": "季遥看到了什么信？",
+      "result_ids": [
+        "rag_corpus:2",
+        "rag_corpus:0"
+      ]
+    },
+    {
+      "query": "雨声与钟楼有什么关联？",
+      "result_ids": [
+        "rag_corpus:0",
+        "rag_corpus:1"
+      ]
+    },
+    {
+      "query": "林泽去了哪里？",
+      "result_ids": [
+        "rag_corpus:1",
+        "rag_corpus:3"
+      ]
+    },
+    {
+      "query": "谁在旧桥边等人？",
+      "result_ids": [
+        "rag_corpus:3"
+      ]
+    },
+    {
+      "query": "山谷里发现了什么？",
+      "result_ids": [
+        "rag_corpus:0",
+        "rag_corpus:2"
+      ]
+    },
+    {
+      "query": "港口里远航队在做什么？",
+      "result_ids": [
+        "rag_corpus:0",
+        "rag_corpus:2"
+      ]
+    },
+    {
+      "query": "灯塔的光在夜里做了什么？",
+      "result_ids": [
+        "rag_corpus:3",
+        "rag_corpus:2",
+        "rag_corpus:1"
+      ]
+    },
+    {
+      "query": "苏岚在集市买了什么？",
+      "result_ids": [
+        "rag_corpus:1",
+        "rag_corpus:0",
+        "rag_corpus:2"
+      ]
+    },
+    {
+      "query": "城北的风向和火光有什么线索？",
+      "result_ids": [
+        "rag_corpus:2",
+        "rag_corpus:1"
+      ]
+    }
+  ]
+}

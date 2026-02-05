@@ -118,7 +118,7 @@ ANE-0116,[1.2] 现状 embedding 生成在 RAGService.create_embedding_async()（
 ANE-0117,[1.2] Phase 1（测试优先，最小改动）：让 RAGService 支持注入 embedder（接口）,From 完全重构计划.md:805. Epic 1.2 (Golden Master：为 AI 上下文/提示词/RAG 查询建立固定用例). Task: Phase 1（测试优先，最小改动）：让 RAGService 支持注入 embedder（接口）,Implemented this requirement without violating the epic Must NOT do constraints; epic acceptance checklist still passes.,python -m compileall -q src (and when env ready: pytest -q),manual,DONE,DONE,TODO,src/core/rag_service.py,none,source: 完全重构计划.md:805 | done_at:2026-02-05 | evidence:RAGService accepts embedder override; python -m compileall -q src OK; pytest -q OK (TEMP/TMP/SQLITE_TMPDIR=.tmp; warnings:PytestReturnNotNoneWarning+PytestCollectionWarning)
 ANE-0118,[1.2] 默认实现：网络 embedder（保留现有逻辑）,From 完全重构计划.md:806. Epic 1.2 (Golden Master：为 AI 上下文/提示词/RAG 查询建立固定用例). Task: 默认实现：网络 embedder（保留现有逻辑）,Implemented this requirement without violating the epic Must NOT do constraints; epic acceptance checklist still passes.,python -m compileall -q src (and when env ready: pytest -q),manual,DONE,DONE,TODO,docs/reviews/ANE-0118.md,none,source: 完全重构计划.md:806 | done_at:2026-02-05 | evidence:docs/reviews/ANE-0118.md clarifies network default; python -m compileall -q src OK; pytest -q OK (TEMP/TMP/SQLITE_TMPDIR=.tmp; warnings:PytestReturnNotNoneWarning+PytestCollectionWarning)
 ANE-0119,[1.2] 测试实现：FakeEmbedder（例如用 sha256(text) 生成固定维度向量；不依赖网络/模型）,From 完全重构计划.md:807. Epic 1.2 (Golden Master：为 AI 上下文/提示词/RAG 查询建立固定用例). Task: 测试实现：FakeEmbedder（例如用 sha256(text) 生成固定维度向量；不依赖网络/模型）,Implemented this requirement without violating the epic Must NOT do constraints; epic acceptance checklist still passes.,python -m compileall -q src (and when env ready: pytest -q),manual,DONE,DONE,TODO,tests/fixtures/fake_embedder.py,none,source: 完全重构计划.md:807 | done_at:2026-02-05 | evidence:tests/fixtures/fake_embedder.py added; python -m compileall -q src OK; pytest -q OK (TEMP/TMP/SQLITE_TMPDIR=.tmp; warnings:PytestReturnNotNoneWarning+PytestCollectionWarning)
-ANE-0120,[1.2] Golden Master 与 overlap 指标默认用 FakeEmbedder 跑；真实网络 embedding 仅作为手工/集成验证，不进入 CI 基线。,From 完全重构计划.md:808. Epic 1.2 (Golden Master：为 AI 上下文/提示词/RAG 查询建立固定用例). Task: Golden Master 与 overlap 指标默认用 FakeEmbedder 跑；真实网络 embedding 仅作为手工/集成验证，不进入 CI 基线。,Implemented this requirement without violating the epic Must NOT do constraints; epic acceptance checklist still passes.,python -m compileall -q src (and when env ready: pytest -q),manual,TODO,TODO,TODO,TBD,none,source: 完全重构计划.md:808
+ANE-0120,[1.2] Golden Master 与 overlap 指标默认用 FakeEmbedder 跑；真实网络 embedding 仅作为手工/集成验证，不进入 CI 基线。,From 完全重构计划.md:808. Epic 1.2 (Golden Master：为 AI 上下文/提示词/RAG 查询建立固定用例). Task: Golden Master 与 overlap 指标默认用 FakeEmbedder 跑；真实网络 embedding 仅作为手工/集成验证，不进入 CI 基线。,Implemented this requirement without violating the epic Must NOT do constraints; epic acceptance checklist still passes.,python -m compileall -q src (and when env ready: pytest -q),manual,DONE,DONE,TODO,tests/test_rag_overlap_metrics.py | tests/golden/rag_overlap.json | tests/fixtures/rag_queries.txt | tests/fixtures/rag_corpus.txt,none,source: 完全重构计划.md:808 | done_at:2026-02-05 | evidence:FakeEmbedder overlap baseline+test added; python -m compileall -q src OK; pytest -q OK (TEMP/TMP/SQLITE_TMPDIR=.tmp; warnings:PytestReturnNotNoneWarning+PytestCollectionWarning)
 ANE-0121,[EPIC 2.1] 清理 core ↔ gui 耦合：把 QThread 自动索引从 src/core/project.py 移出,Epic extracted from 完全重构计划.md:827. Scope: implement the full epic end-to-end while preserving existing behavior/data compatibility.,本任务范围内，src/core/project.py 不再 import PyQt6，且不再启动/依赖 QThread（核心耦合点先切断）。 | “core 全部去 Qt 化”作为后续里程碑，由 5.1（Codex 去 Qt 化）等任务逐步承接，不在本任务强制一次性清零。 | UI 仍可在打开项目后自动索引（功能不丢）。 | 验证：打开项目后 5 秒内 UI 不冻结；索引任务可取消；重复打开/切换项目不会启动多个并行索引。,python -m compileall -q src (and when env ready: pytest -q),manual,TODO,TODO,TODO,src/core/project.py:556 | src/gui/main_window.py | src/core/project.py,none,source: 完全重构计划.md:827
 ANE-0122,[2.1] 移除 src/core/project.py 中 _trigger_auto_indexing_async() 及其所有调用点：,From 完全重构计划.md:833. Epic 2.1 (清理 core ↔ gui 耦合：把 QThread 自动索引从 src/core/project.py 移出). Task: 移除 src/core/project.py 中 _trigger_auto_indexing_async() 及其所有调用点：,Implemented this requirement without violating the epic Must NOT do constraints; epic acceptance checklist still passes.,python -m compileall -q src (and when env ready: pytest -q),manual,DONE,DONE,TODO,src/core/project.py,none,source: 完全重构计划.md:833 | done_at:2026-02-03 | validation_limited:pytest -q fails in collection (ModuleNotFoundError: archive; ghost_text_*) | manual_test:none | evidence:removed _trigger_auto_indexing_async from src/core/project.py; python -m compileall -q src OK | risk:medium auto-indexing now depends on future scheduler wiring
 ANE-0123,[2.1] 当前调用点：src/core/project.py:177（create_project）、src/core/project.py:214（open_project）,From 完全重构计划.md:834. Epic 2.1 (清理 core ↔ gui 耦合：把 QThread 自动索引从 src/core/project.py 移出). Task: 当前调用点：src/core/project.py:177（create_project）、src/core/project.py:214（open_project）,Implemented this requirement without violating the epic Must NOT do constraints; epic acceptance checklist still passes.,python -m compileall -q src (and when env ready: pytest -q),manual,DONE,DONE,TODO,src/core/project.py:177 | src/core/project.py:214,none,source: 完全重构计划.md:834 | done_at:2026-02-03 | validation_limited:pytest -q fails in collection (ModuleNotFoundError: archive; ghost_text_*) | manual_test:none | evidence:docs/reviews/ANE-0123.md; python -m compileall -q src OK | risk:low documentation only
@@ -304,27 +304,3 @@ ANE-0302,[SEC] Stop storing plaintext API keys in config.json from UI,Unified AI
 ANE-0303,"[SEC] Redact sensitive fields from logs (api_key, prompts, document text)",Current logs include rag_config and potentially prompts/content. Implement structured redaction and avoid logging large/sensitive payloads.,Logs never contain api keys or full prompt/document content; redaction is unit-tested; debug mode still useful.,manual: enable debug -> trigger AI/RAG -> inspect logs; automated: unit test redaction helper,manual,TODO,TODO,TODO,src/main.py | src/core/log.py | src/core/config.py | src/core/rag_service.py,none,source: src/main.py logs rag_config
 ANE-0304,[UX] Replace os.system open file with QDesktopServices,"export dialog uses os.system(""open ..."")/""xdg-open"". Use QDesktopServices.openUrl(QUrl.fromLocalFile(...)) for safety and cross-platform behavior.","After export, clicking “open file” works on Windows/macOS/Linux without shell invocation.",manual: export -> choose open -> file opens; no shell executed,manual,TODO,TODO,TODO,src/gui/dialogs/export_dialog.py,none,ref: Qt QDesktopServices docs
 ANE-0305,[BUILD] Define supported Python versions and dev env bootstrap,"Repo claims Python 3.8+, but current tooling/tests expect modern deps; current local env may be Python 3.14 without PyQt wheels. Define supported versions and provide bootstrap scripts.","README/docs specify supported Python (e.g., 3.10/3.11) + venv setup; CI uses same; contributors can run app.",manual: fresh venv -> pip install -r requirements.txt -> python src/main.py starts,manual,TODO,TODO,TODO,README.md | requirements.txt | docs/,none,source: repo audit (PyQt6 not installed in current env)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
