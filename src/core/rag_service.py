@@ -639,8 +639,12 @@ class RAGService:
     def set_vector_store(self, vector_store):
         """设置向量存储引用"""
         self._vector_store = vector_store
-    
-    def index_document(self, document_id: str, content: str) -> bool:
+
+    @staticmethod
+    def _is_cancelled(cancel_token) -> bool:
+        return bool(cancel_token and getattr(cancel_token, "cancelled", False))
+
+    def index_document(self, document_id: str, content: str, cancel_token=None) -> bool:
         """索引单个文档内容（轻量级版本 - 防止卡死，添加详细调试）"""
         import time
         start_time = time.time()
@@ -654,6 +658,10 @@ class RAGService:
         if not content or not content.strip():
             logger.info(f"[INDEX_SKIP] 文档内容为空，跳过索引: {document_id}")
             return True
+
+        if self._is_cancelled(cancel_token):
+            logger.info("[INDEX_CANCEL] 任务已取消，跳过索引: %s", document_id)
+            return False
         
         try:
             # 步骤1: 分块
@@ -665,6 +673,10 @@ class RAGService:
             
             if not chunks:
                 logger.warning(f"[INDEX_ERROR] 文档分块失败: {document_id}")
+                return False
+
+            if self._is_cancelled(cancel_token):
+                logger.info("[INDEX_CANCEL] 任务已取消，停止分块后流程: %s", document_id)
                 return False
             
             # 步骤2: 创建嵌入向量（批量处理，带超时保护）
@@ -695,6 +707,10 @@ class RAGService:
                 logger.error(f"[INDEX_ERROR] 嵌入向量数量不匹配: {document_id}, 期望: {len(chunks)}, 实际: {len(embeddings) if embeddings else 0}")
                 return False
             
+            if self._is_cancelled(cancel_token):
+                logger.info("[INDEX_CANCEL] 任务已取消，停止存储前流程: %s", document_id)
+                return False
+
             # 步骤3: 存储索引
             logger.info(f"[INDEX_STEP3] 开始存储索引: {document_id}")
             step_start = time.time()

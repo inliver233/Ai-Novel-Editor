@@ -88,6 +88,7 @@ class SmartCompletionManager(QObject):
         self._auto_completion_timer.timeout.connect(self._trigger_auto_completion)
         
         self._init_connections()
+        QTimer.singleShot(0, self._bind_cancel_signal)
         
         # FloatingStatusIndicator已被移除，状态显示由ModernAIStatusIndicator负责
         logger.info("SmartCompletionManager initialized without FloatingStatusIndicator")
@@ -107,6 +108,35 @@ class SmartCompletionManager(QObject):
 
         # 文本编辑器信号
         self._text_editor.textChanged.connect(self._on_text_changed)
+
+    def _bind_cancel_signal(self):
+        """延迟绑定AI取消信号（等待AIStatusManager初始化）"""
+        try:
+            if hasattr(self._text_editor, '_ai_status_manager'):
+                self._text_editor._ai_status_manager.connect_cancel_signal(self._on_ai_cancel_requested)
+                logger.debug("AI取消信号已连接到SmartCompletionManager")
+        except Exception as e:
+            logger.warning(f"绑定AI取消信号失败: {e}")
+
+    def _on_ai_cancel_requested(self):
+        """处理AI取消请求（来自状态指示器）"""
+        logger.info("收到AI取消请求")
+        self.cancel_current_completion()
+        try:
+            shared = getattr(self._text_editor, "_shared", None)
+            ai_manager = getattr(shared, "ai_manager", None) if shared else None
+            if ai_manager and hasattr(ai_manager, "cancel_ai_completion"):
+                ai_manager.cancel_ai_completion(self._text_editor)
+        except Exception as e:
+            logger.warning(f"调用AI管理器取消失败: {e}")
+
+    def cancel_current_completion(self):
+        """取消当前补全并重置状态"""
+        if hasattr(self, '_ai_timeout_timer') and self._ai_timeout_timer.isActive():
+            self._ai_timeout_timer.stop()
+        self.hide_all_completions()
+        self._is_completing = False
+        self._last_completion_pos = -1
         
     def set_completion_mode(self, mode: str):
         """设置补全模式

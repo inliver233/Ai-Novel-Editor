@@ -35,6 +35,8 @@ from gui.dialogs import (
 from gui.dialogs.import_export_dialog import ImportExportDialog
 from gui.dialogs.simple_find_dialog import SimpleFindDialog
 from gui.dialogs.enhanced_find_dialog import EnhancedFindDialog
+from gui.services.task_manager import TaskManager
+from gui.services.index_scheduler import IndexScheduler
 
 
 logger = logging.getLogger(__name__)
@@ -101,6 +103,18 @@ class MainWindow(QMainWindow):
             logger.error(f"AI管理器初始化失败: {e}")
             self._ai_manager = None
             self._ai_control_panel = None
+
+        # TaskManager/IndexScheduler 初始化（统一取消/去重/节流/错误上报）
+        self._task_manager = TaskManager(self)
+        self._index_scheduler = IndexScheduler(self._task_manager, self)
+        self._shared.task_manager = self._task_manager
+        self._shared.index_scheduler = self._index_scheduler
+        if self._ai_manager:
+            try:
+                self._ai_manager.set_task_manager(self._task_manager)
+                self._index_scheduler.bind_ai_manager(self._ai_manager)
+            except Exception as e:
+                logger.warning(f"TaskManager绑定AI管理器失败: {e}")
 
         self._theme_manager = ThemeManager(self)
         self._find_replace_dialog = None
@@ -365,6 +379,8 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self._status_bar)
         if self._ai_manager:
             self._status_bar.aiConfigRequested.connect(lambda: self._ai_manager.show_config_dialog(self))
+        if hasattr(self, "_task_manager") and self._task_manager:
+            self._task_manager.taskFailed.connect(self._on_task_failed)
 
     def _init_signals(self):
         self._shared.projectChanged.connect(self._on_project_changed)
@@ -723,8 +739,15 @@ class MainWindow(QMainWindow):
     def _on_document_saved_auto_index(self, document_id: str, content: str):
         """文档保存后自动索引处理（从项目管理器触发）"""
         logger.debug(f"收到文档保存信号，准备异步索引: {document_id}")
-        
-        # 使用延迟异步索引，避免阻塞UI
+        if hasattr(self, "_index_scheduler") and self._index_scheduler and self._ai_manager:
+            try:
+                self._index_scheduler.schedule_document_index(document_id, content)
+                logger.debug(f"Auto indexing scheduled via IndexScheduler: {document_id}")
+                return
+            except Exception as e:
+                logger.error(f"IndexScheduler自动索引失败: {e}")
+
+        # 使用延迟异步索引，避免阻塞UI（fallback）
         try:
             from PyQt6.QtCore import QTimer
             # 延迟2秒，让保存操作完全完成
@@ -733,6 +756,13 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Failed to schedule auto indexing: {e}")
             # 不影响其他操作，只记录错误
+
+    @pyqtSlot(str, str, dict)
+    def _on_task_failed(self, key: str, error: str, details: dict):
+        """任务失败统一入口（UI可见）"""
+        logger.error(f"任务失败: {key} - {error}")
+        if hasattr(self, "_status_bar"):
+            self._status_bar.show_message(f"任务失败: {key} - {error}", 5000)
 
     @pyqtSlot(str)
     def _on_document_selected(self, document_id: str):

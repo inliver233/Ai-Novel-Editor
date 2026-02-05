@@ -82,10 +82,16 @@ class IndexScheduler(QObject):
 
         try:
             if hasattr(self._ai_manager, "index_document_sync"):
-                return bool(self._ai_manager.index_document_sync(document_id, content))
+                try:
+                    return bool(self._ai_manager.index_document_sync(document_id, content, cancel_token=token))
+                except TypeError:
+                    return bool(self._ai_manager.index_document_sync(document_id, content))
 
             if hasattr(self._ai_manager, "index_document"):
-                self._ai_manager.index_document(document_id, content)
+                try:
+                    self._ai_manager.index_document(document_id, content, cancel_token=token)
+                except TypeError:
+                    self._ai_manager.index_document(document_id, content)
                 return True
         except Exception:  # noqa: BLE001
             logger.exception("IndexScheduler: failed to index document: %s", document_id)
@@ -103,9 +109,15 @@ class IndexScheduler(QObject):
 
         try:
             if hasattr(self._ai_manager, "index_full_scan_sync"):
-                return bool(self._ai_manager.index_full_scan_sync())
+                try:
+                    return bool(self._ai_manager.index_full_scan_sync(cancel_token=token))
+                except TypeError:
+                    return bool(self._ai_manager.index_full_scan_sync())
             if hasattr(self._ai_manager, "index_full_scan"):
-                self._ai_manager.index_full_scan()
+                try:
+                    self._ai_manager.index_full_scan(cancel_token=token)
+                except TypeError:
+                    self._ai_manager.index_full_scan()
                 return True
         except Exception:  # noqa: BLE001
             logger.exception("IndexScheduler: failed full-scan indexing")
@@ -123,9 +135,15 @@ class IndexScheduler(QObject):
 
         try:
             if hasattr(self._ai_manager, "rebuild_index_sync"):
-                return bool(self._ai_manager.rebuild_index_sync())
+                try:
+                    return bool(self._ai_manager.rebuild_index_sync(cancel_token=token))
+                except TypeError:
+                    return bool(self._ai_manager.rebuild_index_sync())
             if hasattr(self._ai_manager, "rebuild_index"):
-                self._ai_manager.rebuild_index()
+                try:
+                    self._ai_manager.rebuild_index(cancel_token=token)
+                except TypeError:
+                    self._ai_manager.rebuild_index()
                 return True
         except Exception:  # noqa: BLE001
             logger.exception("IndexScheduler: failed rebuild")
@@ -133,4 +151,3 @@ class IndexScheduler(QObject):
 
         logger.warning("IndexScheduler: ai_manager has no rebuild_index entrypoint; skipping")
         return False
-

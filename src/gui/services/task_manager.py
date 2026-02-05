@@ -30,13 +30,22 @@ Runner = Callable[[CancelToken], Any]
 
 @dataclass
 class _PendingTask:
-    runner: Runner
+    runner: Runner | None
+    starter: Callable[[CancelToken], None] | None
     token: CancelToken
     description: str | None
     cancel_previous: bool
     coalesce: bool
     throttle_ms: int
+    external: bool = False
     ready: bool = False
+
+
+@dataclass
+class _RunningTask:
+    token: CancelToken
+    description: str | None
+    external: bool
 
 
 class _TaskRunnable(QRunnable):
@@ -92,7 +101,7 @@ class TaskManager(QObject):
         super().__init__(parent)
         self._threadpool = threadpool or QThreadPool.globalInstance()
         self._lock = RLock()
-        self._running: dict[str, CancelToken] = {}
+        self._running: dict[str, _RunningTask] = {}
         self._pending: dict[str, _PendingTask] = {}
         self._timers: dict[str, QTimer] = {}
 
@@ -119,6 +128,7 @@ class TaskManager(QObject):
 
         task = _PendingTask(
             runner=runner,
+            starter=None,
             token=CancelToken(),
             description=description,
             cancel_previous=cancel_previous,
@@ -128,7 +138,7 @@ class TaskManager(QObject):
 
         with self._lock:
             if cancel_previous and key in self._running:
-                self._running[key].cancel()
+                self._running[key].token.cancel()
 
             existing_pending = self._pending.get(key)
             if existing_pending is not None:
@@ -157,12 +167,73 @@ class TaskManager(QObject):
 
         self._start_if_possible(key)
 
+    def submit_external(
+        self,
+        key: str,
+        starter: Callable[[CancelToken], None],
+        *,
+        cancel_previous: bool = False,
+        coalesce: bool = False,
+        throttle_ms: int = 0,
+        description: str | None = None,
+    ) -> CancelToken:
+        """Submit an external task that manages its own lifecycle.
+
+        The `starter` is expected to kick off async work without blocking the UI thread.
+        Completion must be reported via `finish_external` / `fail_external`.
+        """
+        if not key:
+            raise ValueError("key must be non-empty")
+        if throttle_ms < 0:
+            raise ValueError("throttle_ms must be >= 0")
+
+        task = _PendingTask(
+            runner=None,
+            starter=starter,
+            token=CancelToken(),
+            description=description,
+            cancel_previous=cancel_previous,
+            coalesce=coalesce,
+            throttle_ms=throttle_ms,
+            external=True,
+        )
+
+        with self._lock:
+            if cancel_previous and key in self._running:
+                self._running[key].token.cancel()
+
+            existing_pending = self._pending.get(key)
+            if existing_pending is not None:
+                existing_pending.token.cancel()
+
+            self._pending[key] = task
+
+            if throttle_ms > 0:
+                timer = self._timers.get(key)
+                if timer is None:
+                    timer = QTimer(self)
+                    timer.setSingleShot(True)
+                    timer.timeout.connect(lambda k=key: self._mark_ready_and_maybe_start(k))
+                    self._timers[key] = timer
+                task.ready = False
+                timer.start(throttle_ms)
+                return task.token
+
+            if coalesce:
+                QTimer.singleShot(0, lambda k=key: self._mark_ready_and_maybe_start(k))
+                return task.token
+
+            task.ready = True
+
+        self._start_if_possible(key)
+        return task.token
+
     def cancel(self, key: str) -> bool:
         with self._lock:
             cancelled = False
-            token = self._running.get(key)
-            if token is not None:
-                token.cancel()
+            running = self._running.get(key)
+            if running is not None:
+                running.token.cancel()
                 cancelled = True
 
             pending = self._pending.pop(key, None)
@@ -174,7 +245,16 @@ class TaskManager(QObject):
             if timer is not None and timer.isActive():
                 timer.stop()
 
-            return cancelled
+            external = running.external if running else False
+
+            if running is not None and running.external:
+                self._running.pop(key, None)
+
+        if running is not None and external:
+            self.taskCancelled.emit(key)
+            self._finalize_task(key, running.token, status="cancelled")
+
+        return cancelled
 
     def cancel_prefix(self, prefix: str) -> int:
         if not prefix:
@@ -192,6 +272,24 @@ class TaskManager(QObject):
     def is_running(self, key: str) -> bool:
         with self._lock:
             return key in self._running
+
+    def finish_external(self, key: str, result: Any = None) -> bool:
+        with self._lock:
+            running = self._running.get(key)
+        if running is None or not running.external:
+            return False
+        self.taskFinished.emit(key, result)
+        self._finalize_task(key, running.token, status="finished")
+        return True
+
+    def fail_external(self, key: str, error: str, details: dict) -> bool:
+        with self._lock:
+            running = self._running.get(key)
+        if running is None or not running.external:
+            return False
+        self.taskFailed.emit(key, error, details)
+        self._finalize_task(key, running.token, status="failed")
+        return True
 
     def _mark_ready_and_maybe_start(self, key: str) -> None:
         with self._lock:
@@ -213,16 +311,38 @@ class TaskManager(QObject):
 
             # Pop pending only when we actually start it.
             task = self._pending.pop(key)
-            self._running[key] = task.token
+            self._running[key] = _RunningTask(token=task.token, description=task.description, external=task.external)
+
+        if task.external:
+            meta = {"key": key, "description": task.description}
+            self.taskStarted.emit(key, meta)
+            try:
+                if task.token.cancelled:
+                    self.taskCancelled.emit(key)
+                    self._finalize_task(key, task.token, status="cancelled")
+                    return
+                if task.starter is None:
+                    raise RuntimeError("External task starter missing")
+                task.starter(task.token)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("External task failed: %s", key)
+                details = {
+                    "exception_type": type(exc).__name__,
+                    "message": str(exc),
+                    "traceback": "".join(traceback.format_exception(exc)),
+                    "description": task.description,
+                }
+                self.taskFailed.emit(key, str(exc), details)
+                self._finalize_task(key, task.token, status="failed")
+            return
 
         self._threadpool.start(_TaskRunnable(key, task, self))
 
     def _finalize_task(self, key: str, token: CancelToken, *, status: str) -> None:
         with self._lock:
             current = self._running.get(key)
-            if current is token:
+            if current is not None and current.token is token:
                 self._running.pop(key, None)
 
         # If there is a pending task for the same key and it is ready, start it next.
         self._start_if_possible(key)
-

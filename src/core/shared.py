@@ -43,6 +43,10 @@ class Shared(QObject):
         
         # AI管理器引用（延迟设置）
         self._ai_manager = None
+
+        # TaskManager/IndexScheduler（延迟设置）
+        self._task_manager = None
+        self._index_scheduler = None
         
         logger.info("Shared data manager initialized")
     
@@ -117,6 +121,26 @@ class Shared(QObject):
     def ai_manager(self, manager):
         """设置AI管理器引用"""
         self._ai_manager = manager
+
+    @property
+    def task_manager(self):
+        """获取TaskManager引用"""
+        return self._task_manager
+
+    @task_manager.setter
+    def task_manager(self, manager):
+        """设置TaskManager引用"""
+        self._task_manager = manager
+
+    @property
+    def index_scheduler(self):
+        """获取IndexScheduler引用"""
+        return self._index_scheduler
+
+    @index_scheduler.setter
+    def index_scheduler(self, scheduler):
+        """设置IndexScheduler引用"""
+        self._index_scheduler = scheduler
     
     def get_project_data(self, key: str, default: Any = None) -> Any:
         """获取项目数据"""

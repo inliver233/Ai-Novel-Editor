@@ -570,6 +570,8 @@ class EnhancedAIManager(QObject):
         self._config = config
         self._shared = shared
         self._parent = parent
+        self._task_manager = getattr(shared, "task_manager", None) if shared else None
+        self._cancelled_task_keys: set[str] = set()
         
         # 基础AI组件
         self._ai_client = None
@@ -719,6 +721,37 @@ class EnhancedAIManager(QObject):
             self._prompt_function_registry = prompt_function_registry
         
         logger.info("Codex系统集成完成 - 增强AI管理器现在可以完全访问Codex数据")
+
+    def set_task_manager(self, task_manager) -> None:
+        """绑定TaskManager实例（用于统一取消/去重/错误上报）"""
+        self._task_manager = task_manager
+
+    def _get_ai_task_key(self, editor=None) -> str:
+        editor_obj = editor or getattr(self, "_current_editor", None)
+        editor_id = None
+        if editor_obj is not None:
+            editor_id = getattr(editor_obj, "objectName", None) or str(id(editor_obj))
+        if not editor_id:
+            editor_id = "unknown"
+        return f"ai/complete/request:{editor_id}"
+
+    def cancel_ai_completion(self, editor=None) -> bool:
+        """取消当前AI补全请求（协作式取消 + TaskManager统一通道）"""
+        task_key = self._get_ai_task_key(editor)
+        self._cancelled_task_keys.add(task_key)
+        cancelled = False
+        if self._task_manager:
+            try:
+                cancelled = self._task_manager.cancel(task_key) or cancelled
+            except Exception as e:
+                logger.warning(f"TaskManager cancel failed for {task_key}: {e}")
+        if self._ai_client:
+            try:
+                self._ai_client.cancel_request()
+                cancelled = True
+            except Exception as e:
+                logger.warning(f"AI client cancel failed: {e}")
+        return cancelled
     
     def request_completion(self, context_or_mode=None, cursor_position: int = -1, 
                          user_tags: List[str] = None, completion_type: str = "text") -> bool:
@@ -754,6 +787,9 @@ class EnhancedAIManager(QObject):
         # 缓存系统已移除，直接进行AI请求
         
         try:
+            # 如果已有任务在跑，先取消（可取消/去重）
+            self.cancel_ai_completion(self._current_editor)
+
             # 1. 智能上下文收集
             context_mode = self._get_context_mode()
             context_data = self.context_builder.collect_context(context, cursor_position, context_mode)
@@ -764,21 +800,55 @@ class EnhancedAIManager(QObject):
             )
             
             # 3. 发送AI请求
+            task_key = self._get_ai_task_key(self._current_editor)
+            # 新请求到来时，清除取消标记
+            self._cancelled_task_keys.discard(task_key)
             request_context = {
                 'context': context,
                 'cursor_position': cursor_position,
                 'prompt': prompt,
                 'user_tags': user_tags or [],
                 'completion_type': completion_type,
-                'context_data': context_data
+                'context_data': context_data,
+                'task_key': task_key
             }
-            
-            self._ai_client.complete_async(
-                prompt=prompt,
-                context=request_context,
-                max_tokens=self._get_max_tokens(context_mode),
-                temperature=self._get_temperature()
-            )
+
+            if self._task_manager:
+                def _start_ai_request(token):
+                    if token.cancelled:
+                        return
+                    request_context['cancel_token'] = token
+                    self._ai_client.complete_async(
+                        prompt=prompt,
+                        context=request_context,
+                        max_tokens=self._get_max_tokens(context_mode),
+                        temperature=self._get_temperature()
+                    )
+
+                try:
+                    self._task_manager.submit_external(
+                        task_key,
+                        _start_ai_request,
+                        cancel_previous=True,
+                        coalesce=True,
+                        throttle_ms=150,
+                        description="AI completion request",
+                    )
+                except Exception as e:
+                    logger.warning(f"TaskManager submit_external failed, fallback to direct request: {e}")
+                    self._ai_client.complete_async(
+                        prompt=prompt,
+                        context=request_context,
+                        max_tokens=self._get_max_tokens(context_mode),
+                        temperature=self._get_temperature()
+                    )
+            else:
+                self._ai_client.complete_async(
+                    prompt=prompt,
+                    context=request_context,
+                    max_tokens=self._get_max_tokens(context_mode),
+                    temperature=self._get_temperature()
+                )
             
             logger.info(f"增强AI补全请求已发送 - 类型: {completion_type}, 标签: {user_tags}")
             return True
@@ -869,6 +939,20 @@ class EnhancedAIManager(QObject):
     def _on_completion_ready(self, response: str, context: dict):
         """处理补全完成 - 增强版本"""
         try:
+            cancel_token = context.get("cancel_token")
+            task_key = context.get("task_key")
+            if cancel_token is not None and getattr(cancel_token, "cancelled", False):
+                logger.info("AI补全已取消，忽略响应")
+                if self._task_manager and task_key:
+                    self._task_manager.finish_external(task_key, result=None)
+                return
+            if task_key and task_key in self._cancelled_task_keys:
+                logger.info("AI补全已取消（标记），忽略响应")
+                self._cancelled_task_keys.discard(task_key)
+                if self._task_manager and task_key:
+                    self._task_manager.finish_external(task_key, result=None)
+                return
+
             # 清理和格式化响应
             completion = response.strip()
             
@@ -898,6 +982,9 @@ class EnhancedAIManager(QObject):
                 'enhanced': True  # 标记为增强版本
             }
             self.completionReceived.emit(completion, metadata)
+
+            if self._task_manager and task_key:
+                self._task_manager.finish_external(task_key, result=completion)
             
             logger.info(f"增强AI补全完成 - 长度: {len(completion)}, 类型: {completion_type}")
             
@@ -908,12 +995,35 @@ class EnhancedAIManager(QObject):
     @pyqtSlot(str, dict)
     def _on_completion_error(self, error: str, context: dict):
         """处理补全错误"""
+        cancel_token = context.get("cancel_token")
+        task_key = context.get("task_key")
+        if cancel_token is not None and getattr(cancel_token, "cancelled", False):
+            logger.info("AI补全错误已取消，忽略错误上报")
+            if self._task_manager and task_key:
+                self._task_manager.finish_external(task_key, result=None)
+            return
+        if task_key and task_key in self._cancelled_task_keys:
+            logger.info("AI补全错误已取消（标记），忽略错误上报")
+            self._cancelled_task_keys.discard(task_key)
+            if self._task_manager and task_key:
+                self._task_manager.finish_external(task_key, result=None)
+            return
         logger.error(f"AI补全错误: {error}")
+        if self._task_manager and task_key:
+            details = {
+                "exception_type": "AIClientError",
+                "message": error,
+                "description": "AI completion request",
+            }
+            self._task_manager.fail_external(task_key, error, details)
         self.completionError.emit(error)
     
     @pyqtSlot(str, dict)
     def _on_stream_update(self, partial_text: str, context: dict):
         """处理流式更新"""
+        cancel_token = context.get("cancel_token")
+        if cancel_token is not None and getattr(cancel_token, "cancelled", False):
+            return
         self.streamUpdate.emit(partial_text)
     
     # 兼容性方法 - 保持与SimpleAIManager的接口兼容
@@ -1278,7 +1388,7 @@ class EnhancedAIManager(QObject):
             "请通过AI配置对话框中的'智能提示词'页面管理模板。"
         )
     
-    def index_document_sync(self, document_id: str, content: str) -> bool:
+    def index_document_sync(self, document_id: str, content: str, cancel_token=None) -> bool:
         """同步索引文档"""
         try:
             logger.info(f"增强AI管理器同步索引文档: {document_id}")
@@ -1287,9 +1397,13 @@ class EnhancedAIManager(QObject):
             if not self.rag_service:
                 logger.warning(f"RAG服务不可用，无法索引文档: {document_id}")
                 return False
+
+            if cancel_token is not None and getattr(cancel_token, "cancelled", False):
+                logger.info("索引任务已取消，跳过: %s", document_id)
+                return False
                 
             # 使用RAG服务的index_document方法
-            success = self.rag_service.index_document(document_id, content)
+            success = self.rag_service.index_document(document_id, content, cancel_token=cancel_token)
             
             if success:
                 logger.info(f"文档索引成功: {document_id}")
