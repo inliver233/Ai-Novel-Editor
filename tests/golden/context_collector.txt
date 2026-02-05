@@ -1,0 +1,13 @@
+trigger_position: 80
+full_context:
+《雾城来信》
+晨雾里，季遥推开旧书店的门，门铃轻响。她在柜台上看到一封没有署名的信，信里只有一句话：“不要回头。”
+她抬头时，雨开始落下，街角的钟楼敲了三下。
+
+primary_keywords: 雾城来信, 季遥推开, 门铃轻响, 她抬头时, 雨开始落, 雾城来, 遥推开旧书
+secondary_keywords: 
+detected_entities: 
+rag_query: 雾城来信 季遥推开 门铃轻响 她抬头时 雨开始落 雾城来 遥推开旧书
+context_summary: 关键词: 雾城来信, 季遥推开, 门铃轻响, 她抬头时, 雨开始落 | 类型: narrative | 相关性: 0.51
+relevance_score: 0.5602
+collection_method: intelligent_extraction
