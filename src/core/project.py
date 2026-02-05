@@ -14,7 +14,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .backup_workflows import create_pre_delete_backup
+from .backup_service import create_backup_set
+from .backup_workflows import create_pre_delete_backup, get_global_vectors_db_path
 from .config import Config
 from .database_manager import DatabaseManager
 from .shared import Shared
@@ -130,6 +131,7 @@ class ProjectManager:
         self._project_path: Optional[Path] = None
         self._db_manager: Optional[DatabaseManager] = None
         self._project_version = "2.0" # 升级版本号以反映新的存储结构
+        self._session_baseline_backups: set[str] = set()
         logger.info("Project manager initialized with dependencies")
     
     def get_current_project(self) -> Optional[ProjectData]:
@@ -201,6 +203,7 @@ class ProjectManager:
 
             self._shared.current_project_path = project_path
             _add_to_recent_projects(str(project_path), self._config)
+            self._create_session_baseline_backup(project_path)
             
             logger.info(f"Project opened: {self._current_project.name}")
             return True
@@ -208,6 +211,35 @@ class ProjectManager:
             logger.error(f"Failed to open project at {path}: {e}", exc_info=True)
             self.close_project()
             return False
+
+    def _create_session_baseline_backup(self, project_path: Path) -> None:
+        """Create a single baseline backup per session when opening a project."""
+        try:
+            key = str(project_path.resolve())
+        except OSError:
+            key = str(project_path)
+
+        if key in self._session_baseline_backups:
+            return
+
+        project_db = project_path / "project.db"
+        if not project_db.exists():
+            logger.warning("Session baseline backup skipped; project.db not found: %s", project_db)
+            return
+
+        db_paths = [project_db]
+        vectors_db = get_global_vectors_db_path()
+        if vectors_db.exists():
+            db_paths.append(vectors_db)
+        else:
+            logger.warning("Session baseline backup skipping vectors.db; not found: %s", vectors_db)
+
+        try:
+            backup_dir = create_backup_set(project_path, db_paths, reason="session_baseline")
+            logger.info("Session baseline backup created: %s", backup_dir)
+            self._session_baseline_backups.add(key)
+        except Exception:
+            logger.exception("Failed to create session baseline backup; continuing without baseline")
     
     def save_project(self) -> bool:
         """保存当前项目到数据库"""
