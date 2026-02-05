@@ -20,3 +20,4 @@ This roadmap fixes the intended incremental persistence route for Project data.
 
 - Phase 1: debounce + worker calculation + main-thread apply to reduce UI jank.
 - Phase 2: introduce an outline model (e.g., `QAbstractItemModel`) to enable incremental updates for rename/move/reorder.
+- Phase 2: avoid full tree rebuilds on rename/move/reorder; update only affected nodes.
