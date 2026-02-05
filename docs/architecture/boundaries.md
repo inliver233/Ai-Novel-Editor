@@ -32,3 +32,16 @@ Expected contents (non‑exhaustive):
 Rules:
 - Construct once at app startup; pass via explicit accessors (not global).
 - Services should not emit UI signals directly; use `AppEvents` for cross‑module notifications.
+
+## AppEvents (event bus)
+
+Purpose: centralize cross‑module signals so producers/consumers are explicit and testable.
+
+Expected event groups (non‑exhaustive):
+- Project lifecycle: `projectChanged`, `projectOpened`, `projectClosed`
+- Document lifecycle: `documentChanged`, `documentSaved`
+- UI preferences: `themeChanged`, `configChanged`
+
+Rules:
+- Producers emit on AppEvents; consumers subscribe in UI/application layers.
+- Avoid emitting signals from Shared directly once migration completes.
