@@ -25,6 +25,7 @@ from .ai_providers import get_provider_strategy
 from .secure_key_manager import get_secure_key_manager
 from .tool_manager import ToolManager, get_tool_manager
 from .tool_types import ToolCall, ToolDefinition
+from .llm_provider import LLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +116,7 @@ class AIClientError(Exception):
     pass
 
 
-class AIClient:
+class AIClient(LLMProvider):
     """AI客户端基础类"""
     
     def __init__(self, config: AIConfig):
@@ -228,6 +229,9 @@ class AIClient:
             )
         except Exception as e:
             raise AIClientError(str(e))
+
+    def supports_tools(self) -> bool:
+        return self._provider_strategy.supports_tools()
     
     def test_connection(self) -> bool:
         """测试连接"""

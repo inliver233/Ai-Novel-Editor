@@ -86,3 +86,8 @@ class OpenAIProvider(OpenAICompatibleProvider):
                 data["top_p"] = value
 
         return data
+
+    def supports_tools(self) -> bool:
+        if self._is_reasoning_model():
+            return any(model in self.config.model.lower() for model in ["o3-mini", "o4-mini"])
+        return True

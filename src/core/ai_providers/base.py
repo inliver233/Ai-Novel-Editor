@@ -39,6 +39,9 @@ class BaseProviderStrategy:
     ) -> Dict[str, Any]:
         raise NotImplementedError
 
+    def supports_tools(self) -> bool:
+        return True
+
     def extract_content(self, response_data: Dict[str, Any]) -> Optional[str]:
         return None
 
