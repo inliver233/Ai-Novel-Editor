@@ -19,6 +19,7 @@ from .backup_manager import BackupPaths, apply_retention_policy, format_backup_t
 from .backup_set import create_backup_set as create_backup_set_paths
 from .backup_set import write_backup_manifest
 from .sqlite_backup import backup_sqlite_db
+from .backup_workflows import get_global_vectors_db_path
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,25 @@ def _copy_sqlite_db_files(source_db: Path, dest_db: Path) -> None:
             dest_aux.unlink(missing_ok=True)
         if source_aux.exists():
             shutil.copy2(source_aux, dest_aux)
+
+
+def _create_pre_restore_backup(project_path: Path) -> None:
+    project_path = Path(project_path)
+    project_db = project_path / "project.db"
+    vectors_db = get_global_vectors_db_path()
+
+    db_paths: list[Path] = []
+    if project_db.exists():
+        db_paths.append(project_db)
+    if vectors_db.exists():
+        db_paths.append(vectors_db)
+
+    if not db_paths:
+        logger.warning("No existing database files found; skipping pre-restore backup")
+        return
+
+    backup_dir = create_backup_set(project_path, db_paths, reason="pre_restore")
+    logger.info("Pre-restore backup created: %s", backup_dir)
 
 
 def create_backup_set(project_path: Path, db_paths: list[Path], reason: str) -> Path:
@@ -114,6 +134,11 @@ def restore_backup_set(project_path: Path, backup_dir: Path) -> None:
     )
     if backup_vectors_db.exists() and not _sqlite_integrity_check(backup_vectors_db):
         raise BackupServiceError(f"Backup vectors.db failed integrity_check: {backup_vectors_db}")
+
+    try:
+        _create_pre_restore_backup(project_path)
+    except Exception as exc:
+        raise BackupServiceError("Failed to create pre-restore backup; aborting restore") from exc
 
     dest_project_db = project_path / "project.db"
     _copy_sqlite_db_files(backup_project_db, dest_project_db)
