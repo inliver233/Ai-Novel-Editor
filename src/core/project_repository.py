@@ -12,7 +12,7 @@ class ProjectRepository:
 
     def load_project(self) -> Dict[str, Any]:
         """Load project metadata + documents."""
-        raise NotImplementedError
+        return self._db_manager.load_project_data()
 
     def save_project_full(self, data: Dict[str, Any]) -> None:
         """Persist full project state (Phase 1)."""
