@@ -261,7 +261,7 @@ class IntelligentContextBuilder:
             return full_context[-100:] if len(full_context) > 100 else full_context
             
         except Exception as e:
-            logger.critical("❌[JIEBA_DEBUG] enhanced_ai_manager中jieba相关处理失败: %s", e)
+            logger.debug("[JIEBA_DEBUG] ai_context中jieba相关处理失败: %s", e)
             logger.warning(f"智能查询提取失败: {e}")
             # 最终降级
             return full_context[-100:] if len(full_context) > 100 else full_context

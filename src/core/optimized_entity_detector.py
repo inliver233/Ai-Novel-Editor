@@ -457,7 +457,7 @@ class OptimizedEntityDetector(ReferenceDetector):
             # 使用简单的中文分词提取关键词
             # 提取名词、动词、形容词等
             import jieba.posseg as pseg
-            logger.critical("🎯[JIEBA_DEBUG] optimized_entity_detector中jieba导入成功，准备提取上下文关键词")
+            logger.debug("[JIEBA_DEBUG] optimized_entity_detector中jieba导入成功，准备提取上下文关键词")
             
             # 分析主要上下文（触发位置之前）
             primary_words = pseg.cut(primary_context)
@@ -485,7 +485,7 @@ class OptimizedEntityDetector(ReferenceDetector):
             return unique_keywords[:10]
         
         except ImportError as e:
-            logger.critical("❌[JIEBA_DEBUG] optimized_entity_detector中jieba导入失败: %s", e)
+            logger.debug("[JIEBA_DEBUG] optimized_entity_detector中jieba导入失败: %s", e)
             logger.warning("jieba not available, using simple keyword extraction")
             # 简单的关键词提取作为后备方案
             return self._simple_keyword_extraction(primary_context + secondary_context)
