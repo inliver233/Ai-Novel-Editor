@@ -84,25 +84,15 @@ def main():
         shared_instance = Shared(config=config_instance)
         project_manager_instance = ProjectManager(config=config_instance, shared=shared_instance)
         
-        # 初始化RAG服务和向量存储
+        # 初始化RAG服务（向量库会在打开项目后由 IndexScheduler 按项目隔离绑定）
         rag_service = None
-        vector_store = None
         try:
             # 尝试初始化RAG服务 - 修复类名：RagService -> RAGService
             from core.rag_service import RAGService
-            from core.sqlite_vector_store import SQLiteVectorStore
-            
+
             logger.info(f"导入的RAGService类型: {type(RAGService)}")
             logger.info(f"RAGService模块: {RAGService.__module__ if hasattr(RAGService, '__module__') else 'Unknown'}")
-            
-            # 创建向量存储
-            import os
-            db_dir = os.path.expanduser("~/.ai-novel-editor/vector_store")
-            os.makedirs(db_dir, exist_ok=True)
-            db_path = os.path.join(db_dir, "vectors.db")
-            vector_store = SQLiteVectorStore(db_path)
-            logger.info("SQLiteVectorStore创建成功")
-            
+
             # 获取RAG配置
             rag_config = config_instance.get_section('rag')
             if not rag_config:
@@ -117,19 +107,18 @@ def main():
                 ai_config = config_instance.get_section('ai')
                 if ai_config and ai_config.get('api_key'):
                     rag_config['api_key'] = ai_config['api_key']
-                    
+
             logger.info(f"RAG配置: {rag_config}")
-            
-            # 创建RAG服务
+
+            # 创建RAG服务（vector_store 先保持未绑定；项目打开后会切换到 <project>/.rag/vectors.db）
             rag_service = RAGService(rag_config)
-            rag_service.set_vector_store(vector_store)
-            
-            # 设置到shared对象中
+
+            # 设置到shared对象中（vector_store 默认为空，避免启动时创建/使用旧版全局库）
             shared_instance.rag_service = rag_service
-            shared_instance.vector_store = vector_store
-            
-            logger.info("RAG服务和向量存储初始化成功")
-            
+            shared_instance.vector_store = None
+
+            logger.info("RAG服务初始化成功（vector_store 将在打开项目后按项目隔离绑定）")
+
         except ImportError as e:
             logger.warning(f"RAG服务初始化失败，将使用基础模式: {e}")
         except Exception as e:
