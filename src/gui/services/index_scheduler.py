@@ -95,13 +95,13 @@ class IndexScheduler(QObject):
             return
         try:
             from core.sqlite_vector_store import SQLiteVectorStore
+            from core.vector_store_paths import get_project_vectors_db_path
         except Exception as exc:  # noqa: BLE001
             logger.warning("IndexScheduler: SQLiteVectorStore unavailable: %s", exc)
             return
 
-        rag_dir = Path(project_path) / ".rag"
-        rag_dir.mkdir(parents=True, exist_ok=True)
-        db_path = rag_dir / "vectors.db"
+        db_path = get_project_vectors_db_path(Path(project_path))
+        db_path.parent.mkdir(parents=True, exist_ok=True)
         new_store = SQLiteVectorStore(str(db_path))
         setattr(self._shared, "vector_store", new_store)
         rag_service = getattr(self._shared, "rag_service", None)
