@@ -1959,8 +1959,8 @@ class MainWindow(QMainWindow):
         ai_status = self._ai_manager.get_ai_status()
         if not ai_status['rag_service_available']:
             reply = QMessageBox.question(
-                self, "RAG服务不可用", 
-                "RAG向量搜索服务未初始化，可能需要配置。\n" +
+                self, "RAG 未启用",
+                "RAG 向量搜索服务未启用/未初始化，可能需要配置。\n" +
                 "是否要打开RAG配置对话框进行设置？",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
@@ -1993,8 +1993,8 @@ class MainWindow(QMainWindow):
         ai_status = self._ai_manager.get_ai_status()
         if not ai_status['rag_service_available']:
             reply = QMessageBox.question(
-                self, "RAG服务不可用", 
-                "RAG向量搜索服务未初始化，需要先配置RAG服务。\n" +
+                self, "RAG 未启用",
+                "RAG 向量搜索服务未启用/未初始化，需要先配置 RAG 服务。\n" +
                 "是否要打开RAG配置对话框进行设置？",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )

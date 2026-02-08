@@ -465,10 +465,13 @@ class IndexScheduler(QObject):
         db_path = ensure_project_vectors_db_path(Path(project_path))
         new_store = SQLiteVectorStore(str(db_path), project_id=str(Path(project_path).resolve()))
         setattr(self._shared, "vector_store", new_store)
-        self._rag_disabled = False
         rag_service = getattr(self._shared, "rag_service", None)
         if rag_service and hasattr(rag_service, "set_vector_store"):
+            self._rag_disabled = False
             rag_service.set_vector_store(new_store)
+        else:
+            self._rag_disabled = True
+            logger.info("IndexScheduler: rag_service unavailable; set shared.vector_store only (RAG disabled)")
 
     def _index_document(self, token: CancelToken, document_id: str, content: str) -> bool:
         if token.cancelled:
