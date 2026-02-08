@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from core.reference_detector import ReferenceDetector
 
 from core.codex_manager import CodexEntryType
+from ..services.qt_codex_adapter import QtCodexAdapter
 from .modern_codex_card import ModernCodexCard
 
 logger = logging.getLogger(__name__)
@@ -262,6 +263,7 @@ class CodexPanel(QWidget):
         self._config = config
         self._shared = shared
         self._codex_manager = codex_manager
+        self._qt_codex_adapter = QtCodexAdapter(codex_manager, parent=self) if codex_manager else None
         self._reference_detector = reference_detector
         
         self._current_filter = None  # 当前过滤类型
@@ -804,11 +806,11 @@ class CodexPanel(QWidget):
         # 排序信号
         self._sort_combo.currentIndexChanged.connect(self._on_filter_changed)
         
-        # Codex管理器信号
-        if self._codex_manager:
-            self._codex_manager.entryAdded.connect(self._refresh_entries)
-            self._codex_manager.entryUpdated.connect(self._refresh_entries)
-            self._codex_manager.entryDeleted.connect(self._refresh_entries)
+        # Codex domain events -> Qt signals
+        if self._qt_codex_adapter:
+            self._qt_codex_adapter.entryAdded.connect(self._refresh_entries)
+            self._qt_codex_adapter.entryUpdated.connect(self._refresh_entries)
+            self._qt_codex_adapter.entryDeleted.connect(self._refresh_entries)
         
         # 设置快捷键
         self._setup_shortcuts()

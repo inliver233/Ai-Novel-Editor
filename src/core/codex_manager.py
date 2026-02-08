@@ -6,27 +6,10 @@ Codex知识库管理系统
 import logging
 import re
 import uuid
+from collections.abc import Callable
 from dataclasses import asdict
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
-
-try:
-    from PyQt6.QtCore import QObject, pyqtSignal
-    HAS_QT = True
-except ImportError:
-    # 提供Qt的替代实现
-    class QObject:
-        def __init__(self):
-            pass
-    
-    class pyqtSignal:
-        def __init__(self, *args):
-            pass
-        def emit(self, *args):
-            pass
-        def connect(self, *args):
-            pass
-    HAS_QT = False
 
 from .database_manager import DatabaseManager
 from domain.codex_models import CodexEntry, CodexEntryType, CodexReference, ValidationResult
@@ -34,23 +17,25 @@ from .codex_repository import CodexRepository
  
 logger = logging.getLogger(__name__)
  
-class CodexManager(QObject):
+EntryListener = Callable[[str], None]
+ReferencesListener = Callable[[str, int], None]
+
+
+class CodexManager:
     """Codex知识库管理器"""
     
-    # 信号定义
-    entryAdded = pyqtSignal(str)        # 条目添加信号
-    entryUpdated = pyqtSignal(str)      # 条目更新信号
-    entryDeleted = pyqtSignal(str)      # 条目删除信号
-    referencesUpdated = pyqtSignal(str, int)  # 引用更新信号 (document_id, count)
-    
     def __init__(self, database_manager: DatabaseManager):
-        super().__init__()
         self.db_manager = database_manager
         self._repository = CodexRepository(database_manager)
         self._entries: Dict[str, CodexEntry] = {}
         self._references: List[CodexReference] = []
         self._title_to_id: Dict[str, str] = {}  # 标题到ID的映射
         self._alias_to_id: Dict[str, str] = {}  # 别名到ID的映射
+
+        self._entry_added_listeners: List[EntryListener] = []
+        self._entry_updated_listeners: List[EntryListener] = []
+        self._entry_deleted_listeners: List[EntryListener] = []
+        self._references_updated_listeners: List[ReferencesListener] = []
         
         # 引用检测的正则模式缓存
         self._reference_patterns: Dict[str, re.Pattern] = {}
@@ -58,6 +43,81 @@ class CodexManager(QObject):
         
         self._load_data()
         logger.info("CodexManager initialized")
+
+    def on_entry_added(self, listener: EntryListener) -> Callable[[], None]:
+        """Register a listener for `entry_added` events.
+
+        Returns an unsubscribe function.
+        """
+        self._entry_added_listeners.append(listener)
+
+        def unsubscribe() -> None:
+            self._remove_listener(self._entry_added_listeners, listener)
+
+        return unsubscribe
+
+    def on_entry_updated(self, listener: EntryListener) -> Callable[[], None]:
+        """Register a listener for `entry_updated` events.
+
+        Returns an unsubscribe function.
+        """
+        self._entry_updated_listeners.append(listener)
+
+        def unsubscribe() -> None:
+            self._remove_listener(self._entry_updated_listeners, listener)
+
+        return unsubscribe
+
+    def on_entry_deleted(self, listener: EntryListener) -> Callable[[], None]:
+        """Register a listener for `entry_deleted` events.
+
+        Returns an unsubscribe function.
+        """
+        self._entry_deleted_listeners.append(listener)
+
+        def unsubscribe() -> None:
+            self._remove_listener(self._entry_deleted_listeners, listener)
+
+        return unsubscribe
+
+    def on_references_updated(self, listener: ReferencesListener) -> Callable[[], None]:
+        """Register a listener for `references_updated` events.
+
+        Returns an unsubscribe function.
+        """
+        self._references_updated_listeners.append(listener)
+
+        def unsubscribe() -> None:
+            self._remove_listener(self._references_updated_listeners, listener)
+
+        return unsubscribe
+
+    @staticmethod
+    def _remove_listener(listeners: List[Callable[..., None]], listener: Callable[..., None]) -> None:
+        try:
+            listeners.remove(listener)
+        except ValueError:
+            pass
+
+    @staticmethod
+    def _emit_listeners(listeners: List[Callable[..., None]], *args: object) -> None:
+        for listener in list(listeners):
+            try:
+                listener(*args)
+            except Exception:
+                logger.exception("CodexManager event listener failed")
+
+    def _emit_entry_added(self, entry_id: str) -> None:
+        self._emit_listeners(self._entry_added_listeners, entry_id)
+
+    def _emit_entry_updated(self, entry_id: str) -> None:
+        self._emit_listeners(self._entry_updated_listeners, entry_id)
+
+    def _emit_entry_deleted(self, entry_id: str) -> None:
+        self._emit_listeners(self._entry_deleted_listeners, entry_id)
+
+    def _emit_references_updated(self, document_id: str, count: int) -> None:
+        self._emit_listeners(self._references_updated_listeners, document_id, count)
 
     def _validate_entry_data(self, title: str, entry_type: CodexEntryType, 
                            description: str = "", aliases: List[str] = None,
@@ -426,9 +486,8 @@ class CodexManager(QObject):
             self._rebuild_reference_patterns()
             return None
         
-        # 发送信号
-        if HAS_QT:
-            self.entryAdded.emit(entry_id)
+        # Notify listeners
+        self._emit_entry_added(entry_id)
         
         logger.info(f"Added codex entry: {title} ({entry_type.value})")
         return entry_id
@@ -550,9 +609,8 @@ class CodexManager(QObject):
             self._rebuild_reference_patterns()
             return False
         
-        # 发送信号
-        if HAS_QT:
-            self.entryUpdated.emit(entry_id)
+        # Notify listeners
+        self._emit_entry_updated(entry_id)
         
         logger.info(f"Updated codex entry: {entry.title}")
         return True
@@ -602,9 +660,8 @@ class CodexManager(QObject):
             self._rebuild_reference_patterns()
             return False
         
-        # 发送信号
-        if HAS_QT:
-            self.entryDeleted.emit(entry_id)
+        # Notify listeners
+        self._emit_entry_deleted(entry_id)
         
         logger.info(f"Deleted codex entry: {entry.title}")
         return True
@@ -741,9 +798,8 @@ class CodexManager(QObject):
         # 保存到数据库
         self._save_data()
         
-        # 发送信号
-        if HAS_QT:
-            self.referencesUpdated.emit(document_id, len(detected_refs))
+        # Notify listeners
+        self._emit_references_updated(document_id, len(detected_refs))
         
         logger.debug(f"Updated references for document {document_id}: {len(detected_refs)} found")
 
@@ -839,9 +895,8 @@ class CodexManager(QObject):
             # 保存数据
             self._save_data()
             
-            # 发送信号
-            if HAS_QT:
-                self.entryUpdated.emit(entry_id)
+            # Notify listeners
+            self._emit_entry_updated(entry_id)
             
             logger.info(f"Added alias '{alias}' to entry '{entry.title}'")
             return True
@@ -886,9 +941,8 @@ class CodexManager(QObject):
         # 保存数据
         self._save_data()
         
-        # 发送信号
-        if HAS_QT:
-            self.entryUpdated.emit(entry_id)
+        # Notify listeners
+        self._emit_entry_updated(entry_id)
         
         logger.info(f"Removed alias '{alias}' from entry '{entry.title}'")
         return True
@@ -996,9 +1050,8 @@ class CodexManager(QObject):
         # 保存数据
         self._save_data()
         
-        # 发送信号
-        if HAS_QT:
-            self.entryUpdated.emit(entry_id)
+        # Notify listeners
+        self._emit_entry_updated(entry_id)
         
         logger.info(f"Updated aliases for entry '{entry.title}': {len(new_aliases)} aliases")
         return True
@@ -1061,9 +1114,8 @@ class CodexManager(QObject):
         # 保存数据
         self._save_data()
         
-        # 发送信号
-        if HAS_QT:
-            self.entryUpdated.emit(entry_id)
+        # Notify listeners
+        self._emit_entry_updated(entry_id)
         
         target_entry = self._entries[target_id]
         logger.info(f"Added relationship: '{entry.title}' -{relationship_type}-> '{target_entry.title}'")
@@ -1108,9 +1160,8 @@ class CodexManager(QObject):
         # 保存数据
         self._save_data()
         
-        # 发送信号
-        if HAS_QT:
-            self.entryUpdated.emit(entry_id)
+        # Notify listeners
+        self._emit_entry_updated(entry_id)
         
         logger.info(f"Removed {removed_count} relationship(s) from entry '{entry.title}'")
         return True
@@ -1237,9 +1288,8 @@ class CodexManager(QObject):
         # 保存数据
         self._save_data()
         
-        # 发送信号
-        if HAS_QT:
-            self.entryUpdated.emit(entry_id)
+        # Notify listeners
+        self._emit_entry_updated(entry_id)
         
         logger.info(f"Updated relationships for entry '{entry.title}': {len(normalized_relationships)} relationships")
         return True
@@ -1449,9 +1499,8 @@ class CodexManager(QObject):
         # 保存数据
         self._save_data()
         
-        # 发送信号
-        if HAS_QT:
-            self.entryUpdated.emit(entry_id)
+        # Notify listeners
+        self._emit_entry_updated(entry_id)
         
         logger.info(f"Added progression event to '{entry.title}': {event_type} - {description}")
         return True
@@ -1479,9 +1528,8 @@ class CodexManager(QObject):
             # 保存数据
             self._save_data()
             
-            # 发送信号
-            if HAS_QT:
-                self.entryUpdated.emit(entry_id)
+            # Notify listeners
+            self._emit_entry_updated(entry_id)
             
             logger.info(f"Removed progression event from '{entry.title}': {removed_event.get('event_type', '')} - {removed_event.get('description', '')}")
             return True
@@ -1612,9 +1660,8 @@ class CodexManager(QObject):
         # 保存数据
         self._save_data()
         
-        # 发送信号
-        if HAS_QT:
-            self.entryUpdated.emit(entry_id)
+        # Notify listeners
+        self._emit_entry_updated(entry_id)
         
         logger.info(f"Updated progression events for entry '{entry.title}': {len(normalized_events)} events")
         return True
