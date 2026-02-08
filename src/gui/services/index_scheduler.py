@@ -109,6 +109,9 @@ class IndexScheduler(QObject):
             if choice == "disable_rag":
                 self._disable_rag()
                 return
+            self._ensure_vector_store(project_path)
+            self.schedule_rebuild()
+            return
 
         self._ensure_vector_store(project_path)
         self.schedule_full_scan()
@@ -342,5 +345,52 @@ class IndexScheduler(QObject):
             logger.exception("IndexScheduler: failed rebuild")
             return False
 
-        logger.warning("IndexScheduler: ai_manager has no rebuild_index entrypoint; skipping")
-        return False
+        rag_service = getattr(self._ai_manager, "rag_service", None)
+        if rag_service is None:
+            logger.warning("IndexScheduler: rag_service unavailable; skipping rebuild")
+            return False
+        if not hasattr(rag_service, "index_document"):
+            logger.warning("IndexScheduler: rag_service has no index_document; skipping rebuild")
+            return False
+        if self._project_manager is None:
+            logger.warning("IndexScheduler: project_manager not bound; skipping rebuild")
+            return False
+
+        try:
+            docs = self._project_manager.get_all_documents()
+        except Exception:  # noqa: BLE001
+            logger.exception("IndexScheduler: failed to list documents for rebuild")
+            return False
+
+        if not docs:
+            return True
+
+        success_count = 0
+        total = 0
+        for doc_id in docs:
+            if token.cancelled:
+                return False
+            total += 1
+            try:
+                content = self._project_manager.get_document_content(doc_id)
+            except Exception:  # noqa: BLE001
+                logger.debug("IndexScheduler: failed to get content for %s", doc_id)
+                continue
+
+            if not content:
+                continue
+
+            try:
+                try:
+                    ok = bool(rag_service.index_document(doc_id, content, cancel_token=token))
+                except TypeError:
+                    ok = bool(rag_service.index_document(doc_id, content))
+            except Exception:  # noqa: BLE001
+                logger.exception("IndexScheduler: rebuild failed to index %s", doc_id)
+                ok = False
+
+            if ok:
+                success_count += 1
+
+        logger.info("IndexScheduler rebuild completed: %s/%s indexed", success_count, total)
+        return True
