@@ -124,6 +124,8 @@ class IndexScheduler(QObject):
             return
 
         self._ensure_vector_store(project_path)
+        if self._handle_incompatible_vector_store():
+            return
         self.schedule_full_scan()
 
     def _legacy_vectors_db_has_embeddings(self, legacy_db_path: Path) -> bool:
@@ -223,6 +225,74 @@ class IndexScheduler(QObject):
             setattr(self._shared, "vector_store", None)
         except Exception:  # noqa: BLE001
             logger.exception("IndexScheduler: failed to clear shared.vector_store")
+
+    def _handle_incompatible_vector_store(self) -> bool:
+        if self._rag_disabled or self._shared is None:
+            return False
+
+        rag_service = getattr(self._shared, "rag_service", None)
+        vector_store = getattr(self._shared, "vector_store", None)
+        if rag_service is None or vector_store is None:
+            return False
+        if not hasattr(vector_store, "get_store_metadata"):
+            return False
+
+        try:
+            store_meta = vector_store.get_store_metadata()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("IndexScheduler: failed to read vector store metadata: %s", exc)
+            store_meta = {}
+
+        expected = {
+            "embedding_model": getattr(rag_service, "embedding_model", None),
+            "chunk_size": getattr(rag_service, "chunk_size", None),
+            "chunk_overlap": getattr(rag_service, "chunk_overlap", None),
+            "chunker_version": getattr(rag_service, "chunker_version", None),
+        }
+
+        mismatches: list[str] = []
+        for key, expected_value in expected.items():
+            if expected_value is None:
+                continue
+            actual_value = store_meta.get(key)
+            if actual_value != expected_value:
+                mismatches.append(f"- {key}: expected={expected_value} got={actual_value}")
+
+        if not mismatches:
+            return False
+
+        try:
+            from PyQt6.QtWidgets import QMessageBox, QWidget
+        except Exception:  # noqa: BLE001
+            logger.warning("IndexScheduler: PyQt unavailable; skipping incompatible prompt")
+            return False
+
+        parent = self.parent()
+        if not isinstance(parent, QWidget):
+            parent = None
+
+        box = QMessageBox(parent)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("RAG 向量库不兼容")
+        box.setText("检测到向量库与当前配置不兼容，建议重建索引。")
+        box.setInformativeText(
+            "不兼容项：\n"
+            + "\n".join(mismatches)
+            + "\n\n将以后台任务方式重建索引（可取消）。"
+        )
+
+        rebuild_btn = box.addButton("重建索引（推荐）", QMessageBox.ButtonRole.AcceptRole)
+        disable_btn = box.addButton("禁用 RAG", QMessageBox.ButtonRole.DestructiveRole)
+        box.setDefaultButton(rebuild_btn)  # type: ignore[arg-type]
+        box.exec()
+
+        clicked = box.clickedButton()
+        if clicked is disable_btn:
+            self._disable_rag()
+            return True
+
+        self.schedule_rebuild()
+        return True
 
     def _ensure_vector_store(self, project_path: str) -> None:
         if not project_path or self._shared is None:
