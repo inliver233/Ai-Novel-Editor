@@ -35,99 +35,8 @@ except ImportError as e:
     AI_AVAILABLE = False
 
 
-from application.ai_context import IntelligentContextBuilder, DynamicPromptGenerator
-
-
-class AIRequestDispatcher:
-    """AI网络请求调度器 - 统一请求发送与TaskManager协作"""
-
-    def __init__(self, ai_client=None, task_manager=None, cancelled_task_keys=None):
-        self._ai_client = ai_client
-        self._task_manager = task_manager
-        self._cancelled_task_keys = cancelled_task_keys if cancelled_task_keys is not None else set()
-
-    def update_client(self, ai_client):
-        self._ai_client = ai_client
-
-    def update_task_manager(self, task_manager):
-        self._task_manager = task_manager
-
-    def send_request(self, prompt: str, request_context: Dict[str, Any],
-                     max_tokens: int, temperature: float, task_key: str) -> bool:
-        if not self._ai_client:
-            logger.warning("AIRequestDispatcher: AI客户端不可用")
-            return False
-
-        # 新请求到来时，清除取消标记
-        if task_key:
-            self._cancelled_task_keys.discard(task_key)
-
-        if self._task_manager:
-            def _start_ai_request(token):
-                if token.cancelled:
-                    return
-                request_context['cancel_token'] = token
-                self._ai_client.complete_async(
-                    prompt=prompt,
-                    context=request_context,
-                    max_tokens=max_tokens,
-                    temperature=temperature
-                )
-
-            try:
-                self._task_manager.submit_external(
-                    task_key,
-                    _start_ai_request,
-                    cancel_previous=True,
-                    coalesce=True,
-                    throttle_ms=150,
-                    description="AI completion request",
-                )
-            except Exception as e:
-                logger.warning(f"TaskManager submit_external failed, fallback to direct request: {e}")
-                self._ai_client.complete_async(
-                    prompt=prompt,
-                    context=request_context,
-                    max_tokens=max_tokens,
-                    temperature=temperature
-                )
-        else:
-            self._ai_client.complete_async(
-                prompt=prompt,
-                context=request_context,
-                max_tokens=max_tokens,
-                temperature=temperature
-            )
-
-        return True
-
-
-class AICompletionRenderer:
-    """AI补全渲染器 - 统一清理与元数据构建"""
-
-    def __init__(self):
-        self._prefixes_to_remove = ["续写：", "续写:", "【续写】", "[续写]", "续写内容："]
-
-    def format_completion(self, response: str, context: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
-        completion = response.strip()
-        for prefix in self._prefixes_to_remove:
-            if completion.startswith(prefix):
-                completion = completion[len(prefix):].strip()
-
-        original_context = context.get('context', '')
-        cursor_pos = context.get('cursor_position', -1)
-        user_tags = context.get('user_tags', [])
-        completion_type = context.get('completion_type', 'text')
-
-        metadata = {
-            'context': original_context,
-            'cursor_position': cursor_pos,
-            'completion_type': completion_type,
-            'user_tags': user_tags,
-            'enhanced': True
-        }
-
-        return completion, metadata
+from application.ai_completion_service import AICompletionService
+from application.ai_context import DynamicPromptGenerator, IntelligentContextBuilder
 
 
 class EnhancedAIManager(QObject):
@@ -155,9 +64,12 @@ class EnhancedAIManager(QObject):
         self._parent = parent
         self._task_manager = getattr(shared, "task_manager", None) if shared else None
         self._cancelled_task_keys: set[str] = set()
-        self._request_dispatcher = AIRequestDispatcher(task_manager=self._task_manager,
-                                                      cancelled_task_keys=self._cancelled_task_keys)
-        self._completion_renderer = AICompletionRenderer()
+        self._ai_service = AICompletionService(
+            config,
+            shared,
+            task_manager=self._task_manager,
+            cancelled_task_keys=self._cancelled_task_keys,
+        )
         
         # 基础AI组件
         self._ai_client = None
@@ -170,8 +82,7 @@ class EnhancedAIManager(QObject):
         self._style_tags = []
         
         # 增强功能组件
-        self.context_builder = IntelligentContextBuilder(shared)
-        self.prompt_generator = DynamicPromptGenerator(shared, config)
+        # 由应用层服务统一管理上下文/提示词/请求调度
         
         # Codex系统组件
         self._codex_manager = None
@@ -218,8 +129,8 @@ class EnhancedAIManager(QObject):
                 
                 # 创建新的AI客户端
                 self._ai_client = QtAIClient(ai_config, self)
-                if self._request_dispatcher:
-                    self._request_dispatcher.update_client(self._ai_client)
+                if self._ai_service:
+                    self._ai_service.update_ai_client(self._ai_client)
                 
                 # 连接信号
                 self._ai_client.responseReceived.connect(self._on_completion_ready)
@@ -230,14 +141,14 @@ class EnhancedAIManager(QObject):
                 logger.info(f"AI客户端初始化成功: {ai_config.provider.value if hasattr(ai_config, 'provider') else 'unknown'}")
             else:
                 logger.warning("AI配置无效，无法初始化AI客户端")
-                if self._request_dispatcher:
-                    self._request_dispatcher.update_client(None)
+                if self._ai_service:
+                    self._ai_service.update_ai_client(None)
                 
         except Exception as e:
             logger.error(f"AI客户端初始化失败: {e}")
             self._ai_client = None
-            if self._request_dispatcher:
-                self._request_dispatcher.update_client(None)
+            if self._ai_service:
+                self._ai_service.update_ai_client(None)
     
     def _init_enhanced_components(self):
         """初始化增强功能组件"""
@@ -264,10 +175,8 @@ class EnhancedAIManager(QObject):
             logger.info(f"配置加载完成 - RAG: {self._rag_config.get('enabled', False)}, 提示词标签: {len(self._prompt_config.get('style_tags', []))}")
             
             # 更新子组件配置
-            if self.context_builder:
-                self.context_builder.update_config(self._rag_config)
-            if self.prompt_generator:
-                self.prompt_generator.update_config(self._prompt_config)
+            if self._ai_service:
+                self._ai_service.update_configs(self._rag_config, self._prompt_config)
                 
         except Exception as e:
             logger.error(f"加载配置失败: {e}")
@@ -302,23 +211,26 @@ class EnhancedAIManager(QObject):
         """
         if codex_manager:
             self._codex_manager = codex_manager
-            # 同时更新上下文构建器的引用
-            self.context_builder.codex_manager = codex_manager
             
         if reference_detector:
             self._reference_detector = reference_detector
-            self.context_builder.reference_detector = reference_detector
             
         if prompt_function_registry:
             self._prompt_function_registry = prompt_function_registry
+
+        if self._ai_service:
+            self._ai_service.integrate_codex_system(
+                codex_manager=codex_manager,
+                reference_detector=reference_detector,
+            )
         
         logger.info("Codex系统集成完成 - 增强AI管理器现在可以完全访问Codex数据")
 
     def set_task_manager(self, task_manager) -> None:
         """绑定TaskManager实例（用于统一取消/去重/错误上报）"""
         self._task_manager = task_manager
-        if self._request_dispatcher:
-            self._request_dispatcher.update_task_manager(task_manager)
+        if self._ai_service:
+            self._ai_service.update_task_manager(task_manager)
 
     def _get_ai_task_key(self, editor=None) -> str:
         editor_obj = editor or getattr(self, "_current_editor", None)
@@ -384,36 +296,20 @@ class EnhancedAIManager(QObject):
             # 如果已有任务在跑，先取消（可取消/去重）
             self.cancel_ai_completion(self._current_editor)
 
-            # 1. 智能上下文收集
+            # 1. 由应用层服务统一完成上下文、提示词与请求调度
             context_mode = self._get_context_mode()
-            context_data = self.context_builder.collect_context(context, cursor_position, context_mode)
-            
-            # 2. 动态提示词生成
-            prompt = self.prompt_generator.generate_prompt(
-                context_data, user_tags, completion_type, context_mode
-            )
-            
-            # 3. 发送AI请求
             task_key = self._get_ai_task_key(self._current_editor)
-            request_context = {
-                'context': context,
-                'cursor_position': cursor_position,
-                'prompt': prompt,
-                'user_tags': user_tags or [],
-                'completion_type': completion_type,
-                'context_data': context_data,
-                'task_key': task_key
-            }
 
-            if not self._request_dispatcher:
-                raise RuntimeError("AI请求调度器未初始化")
+            if not self._ai_service:
+                raise RuntimeError("AI补全服务未初始化")
 
-            dispatched = self._request_dispatcher.send_request(
-                prompt,
-                request_context,
-                max_tokens=self._get_max_tokens(context_mode),
-                temperature=self._get_temperature(),
-                task_key=task_key
+            dispatched = self._ai_service.dispatch_completion(
+                context=context,
+                cursor_position=cursor_position,
+                user_tags=user_tags or [],
+                completion_type=completion_type,
+                context_mode=context_mode,
+                task_key=task_key,
             )
 
             if not dispatched:
@@ -452,55 +348,6 @@ class EnhancedAIManager(QObject):
         # 默认平衡模式
         return "balanced"
     
-    def _get_max_tokens(self, context_mode: str) -> int:
-        """根据上下文模式获取最大token数"""
-        try:
-            # 从AI配置获取用户设置的max_tokens
-            ai_config = self._config.get_ai_config()
-            if ai_config and hasattr(ai_config, 'max_tokens'):
-                base_tokens = ai_config.max_tokens
-            else:
-                # 回退到配置文件中的值
-                ai_section = self._config.get_section('ai')
-                base_tokens = ai_section.get('max_tokens', 2000)
-        except Exception as e:
-            logger.warning(f"获取max_tokens配置失败: {e}")
-            base_tokens = 2000  # 合理的默认值
-        
-        # 🔧 修复：如果用户设置了较大的max_tokens值（>2500），则不进行模式缩减
-        # 这样用户的自定义设置能够完全生效
-        if base_tokens > 2500:
-            logger.debug(f"Token计算: base={base_tokens}, mode={context_mode}, 用户设置较大值，不进行缩减, result={base_tokens}")
-            return base_tokens
-        
-        # 对于默认或较小的值，仍然根据上下文模式调整token数量
-        mode_multipliers = {
-            "fast": 0.4,      # 40% - 快速模式
-            "balanced": 0.6,  # 60% - 平衡模式  
-            "full": 1.0       # 100% - 全局模式
-        }
-        
-        multiplier = mode_multipliers.get(context_mode, 0.6)
-        adjusted_tokens = int(base_tokens * multiplier)
-        
-        # 确保有合理的最小值和最大值
-        min_tokens = 50
-        max_tokens = 8000
-        
-        result = max(min_tokens, min(adjusted_tokens, max_tokens))
-        logger.debug(f"Token计算: base={base_tokens}, mode={context_mode}, multiplier={multiplier}, result={result}")
-        
-        return result
-    
-    def _get_temperature(self) -> float:
-        """获取AI生成的温度参数"""
-        # 从配置获取，默认0.7
-        try:
-            ai_config = self._config.get_section('ai')
-            return ai_config.get('temperature', 0.7)
-        except:
-            return 0.7
-    
     # 缓存系统已完全移除
     
     # 信号处理 - 增强版本
@@ -522,8 +369,10 @@ class EnhancedAIManager(QObject):
                     self._task_manager.finish_external(task_key, result=None)
                 return
 
-            # 清理和格式化响应（交给渲染层）
-            completion, metadata = self._completion_renderer.format_completion(response, context)
+            # 清理和格式化响应（交给应用层渲染）
+            if not self._ai_service:
+                raise RuntimeError("AI补全服务未初始化")
+            completion, metadata = self._ai_service.format_completion(response, context)
 
             # 发送信号
             self.completionReady.emit(completion, metadata.get('context', ''))
@@ -597,8 +446,8 @@ class EnhancedAIManager(QObject):
     
     def get_available_tags(self) -> Dict[str, List[str]]:
         """获取可用的风格标签"""
-        if self.prompt_generator.prompt_manager:
-            return self.prompt_generator.prompt_manager.get_available_tags()
+        if self._ai_service:
+            return self._ai_service.get_available_tags()
         
         # 降级返回基础标签
         return {
@@ -621,8 +470,8 @@ class EnhancedAIManager(QObject):
             'cache_enabled': False,  # 缓存已禁用
             'enhanced_features': {
                 'codex_integration': bool(self._codex_manager),
-                'rag_available': bool(self.context_builder.rag_service),
-                'prompt_manager': bool(self.prompt_generator.prompt_manager)
+                'rag_available': bool(self._ai_service and self._ai_service.has_rag_service()),
+                'prompt_manager': bool(self._ai_service and self._ai_service.has_prompt_manager())
             }
         }
     
@@ -636,8 +485,8 @@ class EnhancedAIManager(QObject):
     
     def clear_cache(self):
         """清空缓存（缓存已移除，保持接口兼容性）"""
-        if self.prompt_generator.prompt_manager:
-            self.prompt_generator.prompt_manager.clear_cache()
+        if self._ai_service:
+            self._ai_service.clear_cache()
         logger.info("增强AI补全缓存已移除，此方法保持兼容性")
     
     # 自动触发功能
@@ -751,7 +600,7 @@ class EnhancedAIManager(QObject):
             issues.append("编辑器未设置")
         if not self._codex_manager:
             issues.append("Codex系统未集成")
-        if not self.context_builder.rag_service:
+        if not self._ai_service or not self._ai_service.has_rag_service():
             issues.append("RAG服务不可用")
             
         return {
@@ -1123,13 +972,13 @@ class EnhancedAIManager(QObject):
     @property
     def prompt_manager(self):
         """获取提示词管理器"""
-        if self.prompt_generator and hasattr(self.prompt_generator, 'prompt_manager'):
-            return self.prompt_generator.prompt_manager
+        if self._ai_service:
+            return self._ai_service.get_prompt_manager()
         return None
     
     @property
     def rag_service(self):
         """获取RAG服务（用于兼容性访问）"""
-        if self.context_builder and hasattr(self.context_builder, 'rag_service'):
-            return self.context_builder.rag_service
+        if self._ai_service:
+            return self._ai_service.get_rag_service()
         return None
