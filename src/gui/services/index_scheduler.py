@@ -23,6 +23,7 @@ class IndexScheduler(QObject):
         self._ai_manager: Any | None = None
         self._shared: QObject | None = None
         self._project_manager: Any | None = None
+        self._rag_disabled = False
 
     def bind_ai_manager(self, ai_manager: Any) -> None:
         """Bind an AI manager that exposes indexing entrypoints.
@@ -48,6 +49,9 @@ class IndexScheduler(QObject):
         self._project_manager = project_manager
 
     def schedule_document_index(self, document_id: str, content: str, *, throttle_ms: int = 2000) -> None:
+        if self._rag_disabled:
+            logger.debug("IndexScheduler: RAG disabled; skipping doc index: %s", document_id)
+            return
         key = f"rag/index/doc:{document_id}"
         self._task_manager.submit(
             key,
@@ -59,6 +63,9 @@ class IndexScheduler(QObject):
         )
 
     def schedule_full_scan(self, *, throttle_ms: int = 1500) -> None:
+        if self._rag_disabled:
+            logger.debug("IndexScheduler: RAG disabled; skipping full scan")
+            return
         self._task_manager.submit(
             "rag/index/full_scan",
             lambda token: self._index_full_scan(token),
@@ -69,6 +76,9 @@ class IndexScheduler(QObject):
         )
 
     def schedule_rebuild(self, *, throttle_ms: int = 0) -> None:
+        if self._rag_disabled:
+            logger.debug("IndexScheduler: RAG disabled; skipping rebuild")
+            return
         self._task_manager.submit(
             "rag/rebuild",
             lambda token: self._rebuild_index(token),
@@ -173,6 +183,13 @@ class IndexScheduler(QObject):
         if self._shared is None:
             return
 
+        self._rag_disabled = True
+        try:
+            if hasattr(self._task_manager, "cancel_prefix"):
+                self._task_manager.cancel_prefix("rag/")
+        except Exception:  # noqa: BLE001
+            logger.exception("IndexScheduler: failed to cancel RAG tasks")
+
         try:
             rag_service = getattr(self._shared, "rag_service", None)
             if rag_service and hasattr(rag_service, "set_vector_store"):
@@ -198,12 +215,15 @@ class IndexScheduler(QObject):
         db_path = ensure_project_vectors_db_path(Path(project_path))
         new_store = SQLiteVectorStore(str(db_path))
         setattr(self._shared, "vector_store", new_store)
+        self._rag_disabled = False
         rag_service = getattr(self._shared, "rag_service", None)
         if rag_service and hasattr(rag_service, "set_vector_store"):
             rag_service.set_vector_store(new_store)
 
     def _index_document(self, token: CancelToken, document_id: str, content: str) -> bool:
         if token.cancelled:
+            return False
+        if self._rag_disabled:
             return False
         if self._ai_manager is None:
             logger.debug("IndexScheduler: ai_manager not bound; skipping doc index: %s", document_id)
@@ -231,6 +251,8 @@ class IndexScheduler(QObject):
 
     def _index_full_scan(self, token: CancelToken) -> bool:
         if token.cancelled:
+            return False
+        if self._rag_disabled:
             return False
         if self._ai_manager is None:
             logger.debug("IndexScheduler: ai_manager not bound; skipping full scan")
@@ -324,6 +346,8 @@ class IndexScheduler(QObject):
 
     def _rebuild_index(self, token: CancelToken) -> bool:
         if token.cancelled:
+            return False
+        if self._rag_disabled:
             return False
         if self._ai_manager is None:
             logger.debug("IndexScheduler: ai_manager not bound; skipping rebuild")
