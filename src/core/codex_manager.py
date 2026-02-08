@@ -30,6 +30,7 @@ except ImportError:
 
 from .database_manager import DatabaseManager
 from domain.codex_models import CodexEntry, CodexEntryType, CodexReference, ValidationResult
+from .codex_repository import CodexRepository
  
 logger = logging.getLogger(__name__)
  
@@ -45,6 +46,7 @@ class CodexManager(QObject):
     def __init__(self, database_manager: DatabaseManager):
         super().__init__()
         self.db_manager = database_manager
+        self._repository = CodexRepository(database_manager)
         self._entries: Dict[str, CodexEntry] = {}
         self._references: List[CodexReference] = []
         self._title_to_id: Dict[str, str] = {}  # 标题到ID的映射
@@ -274,25 +276,21 @@ class CodexManager(QObject):
     def _load_data(self):
         """从数据库加载Codex数据"""
         try:
-            codex_data = self.db_manager.load_codex_data()
-            
+            entries, references = self._repository.load_all()
+             
             # 加载条目
-            for entry_data in codex_data.get('entries', []):
-                entry_data['entry_type'] = CodexEntryType(entry_data['entry_type'])
-                entry = CodexEntry(**entry_data)
+            for entry in entries:
                 self._entries[entry.id] = entry
-                
+                 
                 # 更新映射
                 self._title_to_id[entry.title.lower()] = entry.id
                 for alias in entry.aliases:
                     if alias.strip():
                         self._alias_to_id[alias.lower().strip()] = entry.id
-            
+             
             # 加载引用
-            for ref_data in codex_data.get('references', []):
-                reference = CodexReference(**ref_data)
-                self._references.append(reference)
-            
+            self._references.extend(references)
+             
             # 重建引用模式缓存
             self._rebuild_reference_patterns()
             
@@ -307,18 +305,9 @@ class CodexManager(QObject):
         建议使用增量更新方法以获得更好的性能
         """
         try:
-            entries_data = []
-            for entry in self._entries.values():
-                entry_dict = asdict(entry)
-                entry_dict['entry_type'] = entry.entry_type.value
-                entry_dict['updated_at'] = datetime.now().isoformat()
-                entries_data.append(entry_dict)
-            
-            references_data = [asdict(ref) for ref in self._references]
-            
-            self.db_manager.save_codex_data(entries_data, references_data)
+            self._repository.save_all(list(self._entries.values()), self._references)
             logger.info("Codex data saved successfully")
-            
+             
         except Exception as e:
             logger.error(f"Error saving codex data: {e}")
 
@@ -333,11 +322,7 @@ class CodexManager(QObject):
             bool: 保存是否成功
         """
         try:
-            entry_dict = asdict(entry)
-            entry_dict['entry_type'] = entry.entry_type.value
-            entry_dict['updated_at'] = datetime.now().isoformat()
-            
-            return self.db_manager.insert_codex_entry(entry_dict)
+            return self._repository.insert_entry(entry)
         except Exception as e:
             logger.error(f"Error saving entry incrementally: {e}")
             return False
@@ -353,11 +338,7 @@ class CodexManager(QObject):
             bool: 更新是否成功
         """
         try:
-            entry_dict = asdict(entry)
-            entry_dict['entry_type'] = entry.entry_type.value
-            entry_dict['updated_at'] = datetime.now().isoformat()
-            
-            return self.db_manager.update_codex_entry(entry.id, entry_dict)
+            return self._repository.update_entry(entry)
         except Exception as e:
             logger.error(f"Error updating entry incrementally: {e}")
             return False
@@ -373,7 +354,7 @@ class CodexManager(QObject):
             bool: 删除是否成功
         """
         try:
-            return self.db_manager.delete_codex_entry(entry_id)
+            return self._repository.delete_entry(entry_id)
         except Exception as e:
             logger.error(f"Error deleting entry incrementally: {e}")
             return False
@@ -1933,24 +1914,10 @@ class CodexManager(QObject):
             increment_access: 是否增加访问计数
         """
         try:
-            # 更新数据库中的访问统计
-            with self.db_manager._get_connection() as conn:
-                if increment_access:
-                    conn.execute("""
-                        UPDATE codex_references 
-                        SET access_count = access_count + 1,
-                            last_accessed_at = ?
-                        WHERE id = ?
-                    """, (datetime.now().isoformat(), ref_id))
-                else:
-                    conn.execute("""
-                        UPDATE codex_references 
-                        SET last_accessed_at = ?
-                        WHERE id = ?
-                    """, (datetime.now().isoformat(), ref_id))
-                
-                conn.commit()
-                
+            ok = self._repository.update_reference_access(ref_id, increment_access=increment_access)
+            if not ok:
+                return
+                 
             # 更新内存中的引用对象
             for ref in self._references:
                 if hasattr(ref, 'id') and ref.id == ref_id:
@@ -1971,15 +1938,10 @@ class CodexManager(QObject):
             ref_id: 引用ID
         """
         try:
-            with self.db_manager._get_connection() as conn:
-                conn.execute("""
-                    UPDATE codex_references 
-                    SET deleted_at = ?,
-                        status = 'deleted'
-                    WHERE id = ?
-                """, (datetime.now().isoformat(), ref_id))
-                conn.commit()
-                
+            ok = self._repository.mark_reference_as_deleted(ref_id)
+            if not ok:
+                return
+                 
             # 更新内存中的引用
             for ref in self._references:
                 if hasattr(ref, 'id') and ref.id == ref_id:
