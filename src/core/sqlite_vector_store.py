@@ -44,7 +44,8 @@ class SQLiteVectorStore:
         
     def _init_database(self):
         """初始化数据库表"""
-        with sqlite3.connect(self.db_path) as conn:
+        conn = sqlite3.connect(self.db_path)
+        try:
             cursor = conn.cursor()
             
             # 文档嵌入表
@@ -98,9 +99,104 @@ class SQLiteVectorStore:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+
+            # 向量库元数据（用于兼容性/重建策略判断）
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS vector_store_metadata (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    embedding_model TEXT,
+                    embedding_dim INTEGER,
+                    chunk_size INTEGER,
+                    chunk_overlap INTEGER,
+                    chunker_version TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO vector_store_metadata (id, chunker_version)
+                VALUES (1, 'v1')
+                """
+            )
             
             conn.commit()
-    
+        finally:
+            conn.close()
+
+    def get_store_metadata(self) -> Dict[str, Any]:
+        """读取 vectors.db 的元数据（单行）"""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT embedding_model, embedding_dim, chunk_size, chunk_overlap, chunker_version
+                FROM vector_store_metadata
+                WHERE id = 1
+                """
+            )
+            row = cursor.fetchone()
+        finally:
+            conn.close()
+
+        if not row:
+            return {}
+
+        embedding_model, embedding_dim, chunk_size, chunk_overlap, chunker_version = row
+        return {
+            "embedding_model": embedding_model,
+            "embedding_dim": embedding_dim,
+            "chunk_size": chunk_size,
+            "chunk_overlap": chunk_overlap,
+            "chunker_version": chunker_version,
+        }
+
+    def update_store_metadata(
+        self,
+        *,
+        embedding_model: str | None = None,
+        embedding_dim: int | None = None,
+        chunk_size: int | None = None,
+        chunk_overlap: int | None = None,
+        chunker_version: str | None = None,
+    ) -> None:
+        """更新 vectors.db 元数据（仅更新提供的字段）"""
+        updates: Dict[str, Any] = {}
+        if embedding_model is not None:
+            updates["embedding_model"] = embedding_model
+        if embedding_dim is not None:
+            updates["embedding_dim"] = int(embedding_dim)
+        if chunk_size is not None:
+            updates["chunk_size"] = int(chunk_size)
+        if chunk_overlap is not None:
+            updates["chunk_overlap"] = int(chunk_overlap)
+        if chunker_version is not None:
+            updates["chunker_version"] = chunker_version
+
+        if not updates:
+            return
+
+        set_clause = ", ".join([f"{k} = ?" for k in updates.keys()])
+        params = list(updates.values())
+        params.append(1)
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                f"""
+                UPDATE vector_store_metadata
+                SET {set_clause}, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                params,
+            )
+            conn.commit()
+        finally:
+            conn.close()
+     
     def store_embedding(self, document_id: str, chunk_index: int, 
                        chunk_text: str, start_pos: int, end_pos: int,
                        embedding: List[float], embedding_model: str = None,
@@ -717,7 +813,18 @@ class SQLiteVectorStore:
                 'avg_search_time_ms': round(avg_search_time, 2)
             }
     
-    def store_embeddings(self, document_id: str, chunks, embeddings: List[List[float]], content: str = None):
+    def store_embeddings(
+        self,
+        document_id: str,
+        chunks,
+        embeddings: List[List[float]],
+        content: str = None,
+        *,
+        embedding_model: str | None = None,
+        chunk_size: int | None = None,
+        chunk_overlap: int | None = None,
+        chunker_version: str | None = None,
+    ):
         """存储文档的所有嵌入向量（兼容性方法）"""
         if not chunks or not embeddings:
             logger.warning(f"No chunks or embeddings to store for document {document_id}")
@@ -732,9 +839,24 @@ class SQLiteVectorStore:
         if content:
             content_hash = hashlib.md5(content.encode()).hexdigest()
         
-        with sqlite3.connect(self.db_path) as conn:
+        embedding_model = embedding_model or "BAAI/bge-large-zh-v1.5"
+        try:
+            embedding_dim = len(embeddings[0]) if embeddings and embeddings[0] is not None else None
+        except Exception:
+            embedding_dim = None
+
+        self.update_store_metadata(
+            embedding_model=embedding_model,
+            embedding_dim=embedding_dim,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            chunker_version=chunker_version,
+        )
+
+        conn = sqlite3.connect(self.db_path)
+        try:
             cursor = conn.cursor()
-            
+             
             for chunk, embedding in zip(chunks, embeddings):
                 # 序列化嵌入向量（使用JSON代替pickle）
                 if NUMPY_AVAILABLE:
@@ -755,17 +877,29 @@ class SQLiteVectorStore:
                 metadata_json = json.dumps(metadata) if metadata else None
                 
                 # 插入或更新
-                cursor.execute("""
-                    INSERT OR REPLACE INTO document_embeddings 
-                    (document_id, chunk_index, chunk_text, start_pos, end_pos, 
+                cursor.execute(
+                    """
+                    INSERT OR REPLACE INTO document_embeddings
+                    (document_id, chunk_index, chunk_text, start_pos, end_pos,
                      embedding, embedding_model, metadata, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """, (document_id, chunk.chunk_index, chunk.text, 
-                      chunk.start_pos, chunk.end_pos, embedding_blob,
-                      'BAAI/bge-large-zh-v1.5', metadata_json))
+                    """,
+                    (
+                        document_id,
+                        chunk.chunk_index,
+                        chunk.text,
+                        chunk.start_pos,
+                        chunk.end_pos,
+                        embedding_blob,
+                        embedding_model,
+                        metadata_json,
+                    ),
+                )
             
             conn.commit()
             logger.info(f"Stored {len(chunks)} embeddings for document {document_id} with hash {content_hash}")
+        finally:
+            conn.close()
 
     def get_document_hash(self, document_id: str) -> Optional[str]:
         """获取文档内容哈希值"""

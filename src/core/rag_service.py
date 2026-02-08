@@ -75,7 +75,12 @@ class RAGService:
         self.rerank_model = config.get('rerank', {}).get('model', 'BAAI/bge-reranker-v2-m3')
         self.rerank_enabled = config.get('rerank', {}).get('enabled', True)
         self._embedder = embedder
-        
+
+        vector_store_cfg = config.get("vector_store", {}) if isinstance(config.get("vector_store", {}), dict) else {}
+        self.chunk_size = int(vector_store_cfg.get("chunk_size", 250))
+        self.chunk_overlap = int(vector_store_cfg.get("chunk_overlap", 50))
+        self.chunker_version = str(vector_store_cfg.get("chunker_version", "v1"))
+         
         # 网络状态和重试配置
         self._network_available = True
         self._last_network_check = 0
@@ -683,6 +688,16 @@ class RAGService:
     def set_vector_store(self, vector_store):
         """设置向量存储引用"""
         self._vector_store = vector_store
+        try:
+            if self._vector_store and hasattr(self._vector_store, "update_store_metadata"):
+                self._vector_store.update_store_metadata(
+                    embedding_model=self.embedding_model,
+                    chunk_size=self.chunk_size,
+                    chunk_overlap=self.chunk_overlap,
+                    chunker_version=self.chunker_version,
+                )
+        except Exception as e:
+            logger.debug("Failed to update vector store metadata: %s", e)
 
     @staticmethod
     def _is_cancelled(cancel_token) -> bool:
@@ -711,7 +726,7 @@ class RAGService:
             # 步骤1: 分块
             logger.info(f"[INDEX_STEP1] 开始分块: {document_id}")
             step_start = time.time()
-            chunks = self.chunk_text(content, document_id)
+            chunks = self.chunk_text(content, document_id, self.chunk_size, self.chunk_overlap)
             step_time = time.time() - step_start
             logger.info(f"[INDEX_STEP1] 分块完成: {document_id}, 块数: {len(chunks) if chunks else 0}, 耗时: {step_time:.3f}s")
             
@@ -762,7 +777,16 @@ class RAGService:
             # 删除旧索引
             self._vector_store.delete_document_embeddings(document_id)
             # 存储新索引
-            self._vector_store.store_embeddings(document_id, chunks, embeddings, content)
+            self._vector_store.store_embeddings(
+                document_id,
+                chunks,
+                embeddings,
+                content,
+                embedding_model=self.embedding_model,
+                chunk_size=self.chunk_size,
+                chunk_overlap=self.chunk_overlap,
+                chunker_version=self.chunker_version,
+            )
             
             step_time = time.time() - step_start
             total_time = time.time() - start_time
@@ -823,7 +847,7 @@ class RAGService:
                     self._vector_store.delete_document_embeddings(doc_id)
                     
                     # 创建新索引
-                    chunks = self.chunk_text(content, doc_id)
+                    chunks = self.chunk_text(content, doc_id, self.chunk_size, self.chunk_overlap)
                     if chunks:
                         # 批量创建嵌入
                         chunk_texts = [chunk.text for chunk in chunks]
@@ -831,7 +855,16 @@ class RAGService:
                         
                         if embeddings and len(embeddings) == len(chunks):
                             # 存储向量（包含内容哈希）
-                            self._vector_store.store_embeddings(doc_id, chunks, embeddings, content)
+                            self._vector_store.store_embeddings(
+                                doc_id,
+                                chunks,
+                                embeddings,
+                                content,
+                                embedding_model=self.embedding_model,
+                                chunk_size=self.chunk_size,
+                                chunk_overlap=self.chunk_overlap,
+                                chunker_version=self.chunker_version,
+                            )
                             success_count += 1
                             logger.info(f"Successfully indexed document: {doc_id}")
                         else:
