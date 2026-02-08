@@ -144,6 +144,13 @@ class IndexScheduler(QObject):
             logger.debug("IndexScheduler: legacy vectors.db check failed: %s", exc)
             return False
 
+    def _is_safe_migration_available(self) -> bool:
+        try:
+            from core import sqlite_vector_store
+        except Exception:  # noqa: BLE001
+            return False
+        return bool(getattr(sqlite_vector_store, "SUPPORTS_PROJECT_ID_FILTERING", False))
+
     def _prompt_vectors_db_first_switch_choice(self, legacy_db_path: Path, project_db_path: Path) -> str:
         try:
             from PyQt6.QtWidgets import QMessageBox, QWidget
@@ -172,9 +179,13 @@ class IndexScheduler(QObject):
 
         rebuild_btn = box.addButton("重建索引（推荐）", QMessageBox.ButtonRole.AcceptRole)
         disable_btn = box.addButton("暂不重建并禁用 RAG", QMessageBox.ButtonRole.DestructiveRole)
-        migrate_btn = box.addButton("尝试迁移（暂不可用）", QMessageBox.ButtonRole.ActionRole)
+        migration_available = self._is_safe_migration_available()
+        migrate_btn = box.addButton(
+            "尝试迁移" if migration_available else "尝试迁移（暂不可用）",
+            QMessageBox.ButtonRole.ActionRole,
+        )
         if migrate_btn is not None:
-            migrate_btn.setEnabled(False)
+            migrate_btn.setEnabled(bool(migration_available))
             migrate_btn.setToolTip(migrate_reason)
 
         box.setDefaultButton(rebuild_btn)  # type: ignore[arg-type]
@@ -183,6 +194,8 @@ class IndexScheduler(QObject):
         clicked = box.clickedButton()
         if clicked is disable_btn:
             return "disable_rag"
+        if clicked is migrate_btn:
+            return "migrate"
         return "rebuild"
 
     def _disable_rag(self) -> None:

@@ -34,6 +34,8 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+SUPPORTS_PROJECT_ID_FILTERING = False
+
 
 class SQLiteVectorStore:
     """SQLite向量存储实现"""
