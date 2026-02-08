@@ -86,9 +86,101 @@ class IndexScheduler(QObject):
     @pyqtSlot(str)
     def _on_project_changed(self, project_path: str) -> None:
         logger.debug("IndexScheduler received projectChanged: %s", project_path)
-        if project_path:
+        if not project_path:
+            self.schedule_full_scan()
+            return
+
+        try:
+            from core.vector_store_paths import (
+                get_legacy_global_vectors_db_path,
+                get_project_vectors_db_path,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("IndexScheduler: vector_store_paths unavailable: %s", exc)
             self._ensure_vector_store(project_path)
+            self.schedule_full_scan()
+            return
+
+        project_db_path = get_project_vectors_db_path(Path(project_path))
+        legacy_db_path = get_legacy_global_vectors_db_path()
+
+        if (not project_db_path.is_file()) and self._legacy_vectors_db_has_embeddings(legacy_db_path):
+            choice = self._prompt_vectors_db_first_switch_choice(legacy_db_path, project_db_path)
+            if choice == "disable_rag":
+                self._disable_rag()
+                return
+
+        self._ensure_vector_store(project_path)
         self.schedule_full_scan()
+
+    def _legacy_vectors_db_has_embeddings(self, legacy_db_path: Path) -> bool:
+        if not legacy_db_path.is_file():
+            return False
+        try:
+            import sqlite3
+
+            conn = sqlite3.connect(str(legacy_db_path))
+            try:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(1) FROM document_embeddings")
+                row = cursor.fetchone()
+            finally:
+                conn.close()
+            return bool(row and int(row[0] or 0) > 0)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("IndexScheduler: legacy vectors.db check failed: %s", exc)
+            return False
+
+    def _prompt_vectors_db_first_switch_choice(self, legacy_db_path: Path, project_db_path: Path) -> str:
+        try:
+            from PyQt6.QtWidgets import QMessageBox, QWidget
+        except Exception:  # noqa: BLE001
+            return "rebuild"
+
+        parent = self.parent()
+        if not isinstance(parent, QWidget):
+            parent = None
+
+        box = QMessageBox(parent)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("RAG 向量库切换")
+        box.setText("检测到旧版全局向量库（可能包含其它项目内容）。")
+        box.setInformativeText(
+            "为避免跨项目检索泄露，新的向量库将按项目隔离存放。\n\n"
+            f"当前项目向量库（将创建/使用）：\n{project_db_path}\n\n"
+            f"旧全局向量库（legacy）：\n{legacy_db_path}\n\n"
+            "请选择如何处理："
+        )
+
+        rebuild_btn = box.addButton("重建索引（推荐）", QMessageBox.ButtonRole.AcceptRole)
+        disable_btn = box.addButton("暂不重建并禁用 RAG", QMessageBox.ButtonRole.DestructiveRole)
+        migrate_btn = box.addButton("尝试迁移（暂不可用）", QMessageBox.ButtonRole.ActionRole)
+        if migrate_btn is not None:
+            migrate_btn.setEnabled(False)
+
+        box.setDefaultButton(rebuild_btn)  # type: ignore[arg-type]
+        box.exec()
+
+        clicked = box.clickedButton()
+        if clicked is disable_btn:
+            return "disable_rag"
+        return "rebuild"
+
+    def _disable_rag(self) -> None:
+        if self._shared is None:
+            return
+
+        try:
+            rag_service = getattr(self._shared, "rag_service", None)
+            if rag_service and hasattr(rag_service, "set_vector_store"):
+                rag_service.set_vector_store(None)
+        except Exception:  # noqa: BLE001
+            logger.exception("IndexScheduler: failed to disable rag_service")
+
+        try:
+            setattr(self._shared, "vector_store", None)
+        except Exception:  # noqa: BLE001
+            logger.exception("IndexScheduler: failed to clear shared.vector_store")
 
     def _ensure_vector_store(self, project_path: str) -> None:
         if not project_path or self._shared is None:
