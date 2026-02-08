@@ -1,0 +1,1663 @@
+"""
+大纲视图面板
+提供文档大纲的专门视图，支持快速导航、编辑和重组
+"""
+
+import logging
+from typing import Optional, List, Dict, Any
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
+    QPushButton, QLabel, QMenu, QMessageBox, QToolButton,
+    QFrame, QSplitter, QTextEdit
+)
+from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QTimer
+from PyQt6.QtGui import QAction, QCursor
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from core.config import Config
+    from core.shared import Shared
+    from core.project import ProjectManager, ProjectDocument, DocumentType
+from gui.models.outline_model import OutlineModel
+
+logger = logging.getLogger(__name__)
+
+
+
+
+class OutlinePanelAIToolsMixin:
+    """OutlinePanel mixin."""
+    def _import_outline(self):
+        """导入手写大纲"""
+        try:
+            from PyQt6.QtWidgets import QFileDialog, QDialog, QVBoxLayout, QTextEdit, QDialogButtonBox, QLabel, QCheckBox, QHBoxLayout
+            
+            if not self._project_manager.has_project():
+                QMessageBox.warning(self, "警告", "请先创建或打开一个项目")
+                return
+            
+            # 检查大纲AI配置
+            outline_ai_config = self._config._config_data.get('outline', {})
+            auto_analyze = outline_ai_config.get('analysis', {}).get('auto_analyze', False)
+            
+            # 选择导入方式
+            import_dialog = QDialog(self)
+            import_dialog.setWindowTitle("智能大纲导入")
+            import_dialog.setMinimumSize(600, 500)
+            
+            layout = QVBoxLayout(import_dialog)
+            
+            # AI分析选项
+            ai_options_group = QHBoxLayout()
+            self.use_ai_analysis = QCheckBox("启用AI智能分析")
+            self.use_ai_analysis.setChecked(auto_analyze)
+            self.use_ai_analysis.setToolTip("使用AI分析任意格式文本并自动转换为标准大纲结构")
+            ai_options_group.addWidget(self.use_ai_analysis)
+            
+            # 同步AI配置按钮
+            sync_config_btn = QPushButton("同步到AI配置")
+            sync_config_btn.setToolTip("将当前AI分析设置同步到AI配置中心")
+            sync_config_btn.clicked.connect(lambda: self._sync_ai_config(self.use_ai_analysis.isChecked()))
+            ai_options_group.addWidget(sync_config_btn)
+            
+            ai_options_group.addStretch()
+            layout.addLayout(ai_options_group)
+            
+            # 说明文字 - 根据AI选项动态更新
+            self.info_label = QLabel()
+            self._update_import_info()
+            self.info_label.setWordWrap(True)
+            layout.addWidget(self.info_label)
+            
+            # 连接AI选项变化
+            self.use_ai_analysis.toggled.connect(self._update_import_info)
+            
+            # 文本编辑区
+            text_edit = QTextEdit()
+            text_edit.setPlaceholderText("请在此处粘贴或输入您的大纲内容...")
+            layout.addWidget(text_edit)
+            
+            # 文件导入按钮
+            file_layout = QHBoxLayout()
+            file_btn = QPushButton("从文件导入")
+            file_btn.clicked.connect(lambda: self._load_outline_from_file(text_edit))
+            file_layout.addWidget(file_btn)
+            
+            # AI分析测试按钮
+            if auto_analyze:  # 只有配置了AI才显示
+                test_ai_btn = QPushButton("测试AI分析")
+                test_ai_btn.clicked.connect(lambda: self._test_ai_analysis(text_edit))
+                file_layout.addWidget(test_ai_btn)
+            
+            file_layout.addStretch()
+            layout.addLayout(file_layout)
+            
+            # 对话框按钮
+            button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+            button_box.accepted.connect(import_dialog.accept)
+            button_box.rejected.connect(import_dialog.reject)
+            layout.addWidget(button_box)
+            
+            # 显示对话框
+            if import_dialog.exec() == QDialog.DialogCode.Accepted:
+                outline_text = text_edit.toPlainText().strip()
+                if outline_text:
+                    use_ai = self.use_ai_analysis.isChecked()
+                    # 如果AI开关状态变化，自动同步到配置
+                    if use_ai != auto_analyze:
+                        self._sync_ai_config(use_ai)
+                    self._process_imported_outline(outline_text, use_ai)
+                else:
+                    QMessageBox.warning(self, "警告", "请输入大纲内容")
+            
+        except Exception as e:
+            logger.error(f"导入大纲时发生错误: {e}")
+            QMessageBox.critical(self, "错误", f"导入大纲失败: {str(e)}")
+
+    def _sync_ai_config(self, enable_ai: bool):
+        """同步AI配置"""
+        try:
+            # 更新大纲AI配置中的自动分析选项
+            outline_config = self._config._config_data.get('outline', {})
+            if 'analysis' not in outline_config:
+                outline_config['analysis'] = {}
+            
+            outline_config['analysis']['auto_analyze'] = enable_ai
+            self._config._config_data['outline'] = outline_config
+            
+            # 保存配置
+            self._config.save()
+            
+            status_text = "启用" if enable_ai else "禁用"
+            logger.info(f"已同步AI分析配置: {status_text}")
+            
+            # 显示同步成功提示
+            QMessageBox.information(
+                self, 
+                "同步成功", 
+                f"AI智能分析已{status_text}，配置已保存到AI配置中心"
+            )
+            
+        except Exception as e:
+            logger.error(f"同步AI配置失败: {e}")
+            QMessageBox.warning(self, "同步失败", f"同步AI配置失败: {str(e)}")
+
+    def _update_import_info(self):
+        """更新导入信息说明"""
+        if hasattr(self, 'use_ai_analysis') and self.use_ai_analysis.isChecked():
+            info_text = """
+<b>🤖 AI智能大纲导入</b><br><br>
+<b>AI模式特点：</b><br>
+• <b>任意格式支持</b>：可以导入任何文本格式的大纲、故事摘要、想法笔记<br>
+• <b>智能结构分析</b>：AI自动识别章节层次、情节发展、角色关系<br>
+• <b>自动格式转换</b>：将任意文本转换为标准的幕-章-节结构<br>
+• <b>内容增强</b>：AI会适当补充和优化大纲内容<br><br>
+<b>支持的输入示例：</b><br>
+• 简单列表：第一章 相遇，第二章 冲突...<br>
+• 段落描述：故事开始于一个雨天，主角遇到了...<br>
+• 混合格式：任何包含故事信息的文本<br>
+• 无结构文本：想法、灵感、故事片段<br><br>
+<span style="color: #4CAF50;"><b>✨ AI会帮您整理成完整的大纲结构！</b></span>
+            """
+        else:
+            info_text = """
+<b>📝 标准格式大纲导入</b><br><br>
+支持以下<b>标准格式</b>的大纲导入：<br>
+• <b>层次格式</b>：使用缩进或编号表示层次<br>
+• <b>标记格式</b>：使用 #、##、### 表示标题级别<br>
+• <b>纯文本</b>：每行一个章节名称<br><br>
+<b>示例格式：</b><br>
+第一幕：开始<br>
+&nbsp;&nbsp;第一章：相遇<br>
+&nbsp;&nbsp;&nbsp;&nbsp;场景1：公园<br>
+&nbsp;&nbsp;第二章：误会<br>
+第二幕：发展<br>
+&nbsp;&nbsp;第三章：冲突<br><br>
+或者使用Markdown格式：<br>
+# 第一幕：开始<br>
+## 第一章：相遇<br>
+### 场景1：公园<br>
+## 第二章：误会<br>
+# 第二幕：发展<br>
+## 第三章：冲突<br><br>
+<span style="color: #FF9800;"><b>⚠️ 需要严格按照格式要求</b></span>
+            """
+        
+        if hasattr(self, 'info_label'):
+            self.info_label.setText(info_text)
+
+    def _load_outline_from_file(self, text_edit: QTextEdit):
+        """从文件加载大纲"""
+        try:
+            from PyQt6.QtWidgets import QFileDialog
+            
+            file_path, _ = QFileDialog.getOpenFileName(
+                self, 
+                "选择大纲文件", 
+                "", 
+                "文本文件 (*.txt *.md *.markdown);;所有文件 (*)"
+            )
+            
+            if file_path:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                text_edit.setPlainText(content)
+                logger.info(f"已从文件加载大纲: {file_path}")
+                
+        except Exception as e:
+            logger.error(f"从文件加载大纲时发生错误: {e}")
+            QMessageBox.critical(self, "错误", f"加载文件失败: {str(e)}")
+
+    def _test_ai_analysis(self, text_edit: QTextEdit):
+        """测试AI分析功能"""
+        try:
+            text_content = text_edit.toPlainText().strip()
+            if not text_content:
+                QMessageBox.warning(self, "提示", "请先输入一些文本内容进行测试")
+                return
+            
+            # 限制测试文本长度
+            if len(text_content) > 1000:
+                text_content = text_content[:1000] + "..."
+            
+            # 显示处理中提示
+            from PyQt6.QtWidgets import QProgressDialog
+            progress = QProgressDialog("正在进行AI分析测试...", "取消", 0, 0, self)
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
+            progress.show()
+            
+            # 调用AI分析
+            analyzed_content = self._ai_analyze_text(text_content)
+            
+            progress.close()
+            
+            # 检查是否是异步处理标识
+            if analyzed_content == "ASYNC_PROCESSING":
+                QMessageBox.information(self, "提示", "AI分析已启动，请稍后通过导入功能查看结果")
+                return
+            elif analyzed_content:
+                # 显示分析结果
+                from PyQt6.QtWidgets import QDialog, QVBoxLayout, QTextBrowser, QPushButton
+                result_dialog = QDialog(self)
+                result_dialog.setWindowTitle("AI分析结果预览")
+                result_dialog.setMinimumSize(500, 400)
+                
+                layout = QVBoxLayout(result_dialog)
+                
+                browser = QTextBrowser()
+                browser.setPlainText(analyzed_content)
+                layout.addWidget(browser)
+                
+                # 按钮
+                button_layout = QHBoxLayout()
+                apply_btn = QPushButton("应用到编辑器")
+                apply_btn.clicked.connect(lambda: text_edit.setPlainText(analyzed_content))
+                apply_btn.clicked.connect(result_dialog.accept)
+                button_layout.addWidget(apply_btn)
+                
+                close_btn = QPushButton("关闭")
+                close_btn.clicked.connect(result_dialog.reject)
+                button_layout.addWidget(close_btn)
+                
+                layout.addLayout(button_layout)
+                result_dialog.exec()
+            else:
+                QMessageBox.warning(self, "测试失败", "AI分析失败，请检查AI配置和网络连接")
+                
+        except Exception as e:
+            logger.error(f"AI分析测试失败: {e}")
+            QMessageBox.critical(self, "测试错误", f"AI分析测试失败: {str(e)}")
+
+    def _process_imported_outline(self, outline_text: str, use_ai: bool = False):
+        """处理导入的大纲文本（支持异步AI分析）"""
+        try:
+            if use_ai:
+                # AI智能分析模式 - 使用异步处理
+                logger.info("启动异步AI分析模式")
+                
+                # 保存原始文本供异步处理使用
+                self._pending_outline_text = outline_text
+                
+                # 启动异步AI分析
+                analyzed_text = self._ai_analyze_text(outline_text)
+                
+                if analyzed_text == "ASYNC_PROCESSING":
+                    # 异步处理中，等待回调处理
+                    logger.info("AI分析已启动，等待异步完成")
+                    return
+                elif analyzed_text:
+                    # 同步返回结果（降级处理）
+                    outline_text = analyzed_text
+                else:
+                    QMessageBox.warning(self, "警告", "AI分析失败，将使用标准格式解析")
+            
+            # 标准格式解析或AI分析失败后的处理
+            self._process_outline_sync(outline_text, use_ai)
+            
+        except Exception as e:
+            logger.error(f"处理导入大纲时发生错误: {e}")
+            QMessageBox.critical(self, "错误", f"处理大纲失败: {str(e)}")
+
+    def _process_outline_sync(self, outline_text: str, use_ai: bool = False):
+        """同步处理大纲（标准格式或AI分析完成后的处理）"""
+        try:
+            # 使用大纲解析器解析
+            from core.outline_parser import OutlineParserFactory, OutlineParseLevel
+            
+            # 根据是否使用AI选择解析器
+            if use_ai:
+                parser = OutlineParserFactory.create_parser(OutlineParseLevel.SEMANTIC)
+            else:
+                parser = OutlineParserFactory.create_parser(OutlineParseLevel.BASIC)
+            
+            # 解析大纲
+            outline_nodes = parser.parse(outline_text)
+            
+            if not outline_nodes:
+                if use_ai:
+                    QMessageBox.warning(self, "警告", "AI分析后仍无法解析大纲内容，请检查AI输出格式")
+                else:
+                    QMessageBox.warning(self, "警告", "无法解析大纲内容，请检查格式\n\n提示：您可以尝试启用AI智能分析来处理任意格式的文本")
+                return
+            
+            # 转换为项目文档
+            created_count = self._create_documents_from_outline(outline_nodes)
+            
+            if created_count > 0:
+                # 刷新大纲视图
+                QTimer.singleShot(100, self._force_refresh_outline)
+                
+                mode_text = "AI智能分析" if use_ai else "标准格式解析"
+                QMessageBox.information(
+                    self, 
+                    "导入成功", 
+                    f"大纲导入成功！\n"
+                    f"• 处理模式: {mode_text}\n"
+                    f"• 创建文档: {created_count} 个\n"
+                    f"• 大纲视图已更新"
+                )
+                logger.info(f"大纲导入成功 ({mode_text})，创建了 {created_count} 个文档")
+            else:
+                QMessageBox.warning(self, "警告", "没有创建任何文档，导入失败")
+            
+        except Exception as e:
+            logger.error(f"同步处理大纲时发生错误: {e}")
+            QMessageBox.critical(self, "错误", f"处理大纲失败: {str(e)}")
+
+    def _ai_analyze_text(self, text: str) -> Optional[str]:
+        """使用AI分析文本并转换为大纲格式（异步版本，避免界面卡死）"""
+        try:
+            # 优先使用共享的AI管理器
+            if hasattr(self._shared, 'ai_manager') and self._shared.ai_manager:
+                ai_manager = self._shared.ai_manager
+                
+                # 检查AI服务是否可用
+                ai_status = ai_manager.get_ai_status()
+                if not ai_status.get('ai_client_available', False):
+                    logger.warning("AI服务不可用，尝试重新初始化")
+                    if not ai_manager.force_reinit_ai():
+                        raise RuntimeError("AI服务初始化失败")
+                
+                # 使用异步方式处理AI分析
+                self._start_async_outline_analysis(text, ai_manager)
+                return "ASYNC_PROCESSING"  # 返回特殊标识，表示异步处理中
+                
+            else:
+                logger.warning("AI管理器不可用，使用本地结构转换器")
+                return self._fallback_local_analysis(text)
+                
+        except Exception as e:
+            logger.error(f"AI大纲分析失败: {e}")
+            # 显示用户友好的错误信息
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "AI分析失败", f"AI分析出现错误：{str(e)}\n\n将使用本地解析方式。")
+            return self._fallback_local_analysis(text)
+
+    def _start_async_outline_analysis(self, text: str, ai_manager):
+        """启动异步AI大纲分析（使用线程避免界面阻塞）"""
+        try:
+            from PyQt6.QtCore import QThread, pyqtSignal
+            
+            class AsyncOutlineAnalysisWorker(QThread):
+                """异步大纲分析工作线程"""
+                analysisCompleted = pyqtSignal(str)  # 分析完成信号
+                analysisError = pyqtSignal(str)      # 分析错误信号
+                
+                def __init__(self, text: str, ai_manager):
+                    super().__init__()
+                    self.text = text
+                    self.ai_manager = ai_manager
+                
+                def run(self):
+                    """线程主执行函数"""
+                    try:
+                        logger.info(f"异步大纲分析线程启动，文本长度: {len(self.text)}")
+                        
+                        # 在子线程中执行AI分析
+                        result = self.ai_manager.analyze_outline(self.text, 'auto')
+                        
+                        if result and len(result.strip()) > 20:
+                            logger.info(f"异步大纲分析完成，结果长度: {len(result)}")
+                            self.analysisCompleted.emit(result)
+                        else:
+                            self.analysisError.emit("AI返回结果过短或为空")
+                            
+                    except Exception as e:
+                        error_msg = f"异步大纲分析失败: {str(e)}"
+                        logger.error(error_msg)
+                        self.analysisError.emit(error_msg)
+            
+            # 创建并启动异步工作线程
+            self._analysis_worker = AsyncOutlineAnalysisWorker(text, ai_manager)
+            self._analysis_worker.analysisCompleted.connect(self._on_async_analysis_completed)
+            self._analysis_worker.analysisError.connect(self._on_async_analysis_error)
+            self._analysis_worker.start()
+            
+            # 显示处理进度对话框
+            self._show_analysis_progress()
+            
+            logger.info("异步大纲分析已启动")
+            
+        except Exception as e:
+            logger.error(f"启动异步大纲分析失败: {e}")
+            raise
+
+    def _show_analysis_progress(self):
+        """显示分析进度对话框"""
+        try:
+            from PyQt6.QtWidgets import QProgressDialog
+            
+            self._progress_dialog = QProgressDialog("AI正在分析大纲...", "取消", 0, 0, self)
+            self._progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+            self._progress_dialog.setAutoClose(True)
+            self._progress_dialog.setAutoReset(True)
+            self._progress_dialog.resize(400, 120)
+            
+            # 居中显示进度条和文字
+            self._progress_dialog.setStyleSheet("""
+                QProgressDialog {
+                    text-align: center;
+                }
+                QLabel {
+                    text-align: center;
+                    qproperty-alignment: AlignCenter;
+                }
+                QProgressBar {
+                    text-align: center;
+                    qproperty-alignment: AlignCenter;
+                }
+            """)
+            
+            # 连接取消信号
+            self._progress_dialog.canceled.connect(self._cancel_async_analysis)
+            
+            self._progress_dialog.show()
+            
+        except Exception as e:
+            logger.error(f"显示分析进度对话框失败: {e}")
+
+    def _cancel_async_analysis(self):
+        """取消异步分析"""
+        try:
+            if hasattr(self, '_analysis_worker') and self._analysis_worker:
+                if self._analysis_worker.isRunning():
+                    self._analysis_worker.terminate()
+                    self._analysis_worker.wait(1000)  # 等待1秒
+                self._analysis_worker = None
+            
+            logger.info("异步大纲分析已取消")
+            
+        except Exception as e:
+            logger.error(f"取消异步分析失败: {e}")
+
+    def _on_async_analysis_completed(self, result: str):
+        """异步分析完成处理"""
+        try:
+            # 关闭进度对话框
+            if hasattr(self, '_progress_dialog') and self._progress_dialog:
+                self._progress_dialog.close()
+                self._progress_dialog = None
+            
+            # 清理工作线程
+            if hasattr(self, '_analysis_worker'):
+                self._analysis_worker = None
+            
+            logger.info(f"异步大纲分析完成，结果长度: {len(result)}")
+            
+            # 处理AI分析结果
+            self._handle_ai_analysis_result(result)
+            
+        except Exception as e:
+            logger.error(f"处理异步分析结果失败: {e}")
+
+    def _on_async_analysis_error(self, error_msg: str):
+        """异步分析错误处理"""
+        try:
+            # 关闭进度对话框
+            if hasattr(self, '_progress_dialog') and self._progress_dialog:
+                self._progress_dialog.close()
+                self._progress_dialog = None
+            
+            # 清理工作线程
+            if hasattr(self, '_analysis_worker'):
+                self._analysis_worker = None
+            
+            logger.error(f"异步大纲分析失败: {error_msg}")
+            
+            # 显示错误信息并降级处理
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "AI分析失败", f"AI分析出现错误：{error_msg}\n\n将使用本地解析方式。")
+            
+            # 降级到本地分析
+            if hasattr(self, '_pending_outline_text'):
+                result = self._fallback_local_analysis(self._pending_outline_text)
+                if result:
+                    self._handle_ai_analysis_result(result)
+                
+        except Exception as e:
+            logger.error(f"处理异步分析错误失败: {e}")
+
+    def _handle_ai_analysis_result(self, result: str):
+        """处理AI分析结果（统一处理函数）"""
+        try:
+            if hasattr(self, '_pending_outline_text'):
+                # 使用AI分析结果进行大纲处理
+                self._process_imported_outline_with_result(self._pending_outline_text, result)
+                # 清理临时数据
+                delattr(self, '_pending_outline_text')
+            else:
+                logger.warning("找不到待处理的大纲文本")
+                
+        except Exception as e:
+            logger.error(f"处理AI分析结果失败: {e}")
+
+    def _process_imported_outline_with_result(self, original_text: str, ai_result: str):
+        """使用AI分析结果处理导入的大纲"""
+        try:
+            # 使用AI分析结果作为大纲文本
+            outline_text = ai_result if ai_result else original_text
+            
+            # 使用大纲解析器解析
+            from core.outline_parser import OutlineParserFactory, OutlineParseLevel
+            
+            # 使用语义级解析器（因为已经过AI处理）
+            parser = OutlineParserFactory.create_parser(OutlineParseLevel.SEMANTIC)
+            
+            # 解析大纲
+            outline_nodes = parser.parse(outline_text)
+            
+            if not outline_nodes:
+                QMessageBox.warning(self, "警告", "AI分析后仍无法解析大纲内容，请检查AI输出格式")
+                return
+            
+            # 转换为项目文档
+            created_count = self._create_documents_from_outline(outline_nodes)
+            
+            if created_count > 0:
+                # 刷新大纲视图
+                QTimer.singleShot(100, self._force_refresh_outline)
+                
+                mode_text = "AI智能分析"
+                QMessageBox.information(
+                    self, 
+                    "导入成功", 
+                    f"大纲导入成功！\n"
+                    f"• 处理模式: {mode_text}\n"
+                    f"• 创建文档: {created_count} 个\n"
+                    f"• 大纲视图已更新"
+                )
+                logger.info(f"大纲导入成功 ({mode_text})，创建了 {created_count} 个文档")
+            else:
+                QMessageBox.warning(self, "警告", "没有创建任何文档，导入失败")
+            
+        except Exception as e:
+            logger.error(f"处理AI分析结果时发生错误: {e}")
+            QMessageBox.critical(self, "错误", f"处理大纲失败: {str(e)}")
+
+    def _fallback_local_analysis(self, text: str) -> Optional[str]:
+        """本地降级分析方法"""
+        try:
+            from core.outline_converter import OutlineStructureConverter
+            converter = OutlineStructureConverter()
+            conversion_result = converter.convert_text_to_structure(text, use_ai_enhancement=False)
+            
+            if conversion_result.nodes:
+                logger.info(f"使用本地结构转换器成功，质量分: {conversion_result.quality_score:.1f}")
+                return self._structure_to_markdown(conversion_result.nodes)
+            else:
+                logger.warning("本地结构转换器也失败了")
+                return None
+                
+        except Exception as fallback_error:
+            logger.error(f"本地分析降级方案失败: {fallback_error}")
+            return None
+
+    def _get_outline_suggestions(self, current_outline: str) -> List[str]:
+        """获取大纲改进建议（使用统一AI管理器）"""
+        try:
+            if hasattr(self._shared, 'ai_manager') and self._shared.ai_manager:
+                ai_manager = self._shared.ai_manager
+                suggestions = ai_manager.get_outline_suggestions(current_outline)
+                logger.info(f"获取到 {len(suggestions)} 条AI改进建议")
+                return suggestions
+            else:
+                logger.warning("AI管理器不可用，无法获取建议")
+                return []
+        except Exception as e:
+            logger.error(f"获取大纲建议失败: {e}")
+            return []
+
+    def _structure_to_markdown(self, nodes: List) -> str:
+        """将结构节点转换为Markdown格式"""
+        try:
+            from core.outline_converter import StructureLevel
+            
+            lines = []
+            
+            def process_node(node, depth=0):
+                # 根据节点层级生成对应的Markdown标题
+                level_map = {
+                    StructureLevel.ACT: '#',
+                    StructureLevel.CHAPTER: '##', 
+                    StructureLevel.SCENE: '###',
+                    StructureLevel.SECTION: '####'
+                }
+                
+                prefix = level_map.get(node.level, '###')
+                lines.append(f"{prefix} {node.title}")
+                
+                # 添加内容
+                if node.content:
+                    lines.append("")
+                    lines.append(node.content)
+                    lines.append("")
+                
+                # 递归处理子节点
+                if hasattr(node, 'children') and node.children:
+                    for child in node.children:
+                        process_node(child, depth + 1)
+            
+            for node in nodes:
+                process_node(node)
+            
+            return '\n'.join(lines)
+            
+        except Exception as e:
+            logger.error(f"结构转换为Markdown失败: {e}")
+            return ""
+
+    def _create_documents_from_outline(self, outline_nodes: List) -> int:
+        """从大纲节点创建文档"""
+        try:
+            from core.project import DocumentType
+            
+            created_count = 0
+            
+            def create_document_recursive(node, parent_id=None, level=0):
+                nonlocal created_count
+                
+                # 根据层级确定文档类型
+                if level == 0:
+                    doc_type = DocumentType.ACT
+                elif level == 1:
+                    doc_type = DocumentType.CHAPTER
+                else:
+                    doc_type = DocumentType.SCENE
+                
+                # 创建文档 - 不传入content参数
+                new_doc = self._project_manager.add_document(
+                    name=node.title,
+                    doc_type=doc_type,
+                    parent_id=parent_id,
+                    save=False  # 先不保存，批量处理后再保存
+                )
+                
+                if new_doc:
+                    created_count += 1
+                    
+                    # 如果有内容，单独更新
+                    if hasattr(node, 'content') and node.content:
+                        self._project_manager.update_document(
+                            new_doc.id,
+                            content=node.content,
+                            save=False
+                        )
+                    
+                    # 递归创建子文档
+                    if hasattr(node, 'children') and node.children:
+                        for child_node in node.children:
+                            create_document_recursive(child_node, new_doc.id, level + 1)
+                
+                return new_doc
+            
+            # 创建所有顶级节点
+            for node in outline_nodes:
+                create_document_recursive(node)
+            
+            # 批量保存项目
+            if created_count > 0:
+                self._project_manager.save_project()
+                logger.info(f"批量创建了 {created_count} 个文档并保存")
+            
+            return created_count
+            
+        except Exception as e:
+            logger.error(f"从大纲节点创建文档时发生错误: {e}")
+            return 0
+
+    def _analyze_outline(self):
+        """分析当前大纲并提供优化建议"""
+        try:
+            if not self._project_manager.has_project():
+                QMessageBox.warning(self, "警告", "请先创建或打开一个项目")
+                return
+            
+            # 获取当前项目的文档
+            project = self._project_manager.get_current_project()
+            if not project or not project.documents:
+                QMessageBox.information(self, "提示", "项目中没有文档可以分析")
+                return
+            
+            # 过滤小说文档
+            novel_docs = []
+            for doc_id, doc in project.documents.items():
+                if doc.doc_type.value in ['act', 'chapter', 'scene']:
+                    novel_docs.append(doc)
+            
+            if not novel_docs:
+                QMessageBox.information(self, "提示", "项目中没有小说文档可以分析")
+                return
+            
+            # 显示分析进度
+            from PyQt6.QtWidgets import QProgressDialog
+            progress = QProgressDialog("正在分析大纲结构...", "取消", 0, 100, self)
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
+            progress.show()
+            progress.setValue(20)
+            
+            try:
+                # 执行大纲分析
+                from core.outline_enhancer import OutlineEnhancer
+                enhancer = OutlineEnhancer()
+                
+                progress.setValue(50)
+                
+                # 分析大纲
+                analysis_result = enhancer.analyze_outline(novel_docs)
+                
+                progress.setValue(80)
+                
+                # 检查是否有足够的分析结果
+                if not analysis_result or analysis_result.total_nodes == 0:
+                    progress.close()
+                    QMessageBox.warning(self, "分析失败", "无法分析大纲结构，请检查项目内容")
+                    return
+                
+                progress.setValue(100)
+                progress.close()
+                
+                # 显示分析结果对话框
+                from gui.dialogs.outline_analysis_dialog import OutlineAnalysisDialog
+                analysis_dialog = OutlineAnalysisDialog(analysis_result, self)
+                analysis_dialog.applyChangesRequested.connect(self._apply_outline_suggestions)
+                
+                result = analysis_dialog.exec()
+                
+                if result == QDialog.DialogCode.Accepted:
+                    logger.info("大纲分析对话框已确认")
+                    
+            except ImportError as ie:
+                progress.close()
+                logger.error(f"导入大纲分析模块失败: {ie}")
+                QMessageBox.critical(self, "功能不可用", f"大纲分析功能模块加载失败：{str(ie)}")
+            except Exception as analysis_error:
+                progress.close()
+                logger.error(f"大纲分析过程失败: {analysis_error}")
+                QMessageBox.critical(self, "分析失败", f"大纲分析失败：{str(analysis_error)}")
+                
+        except Exception as e:
+            logger.error(f"启动大纲分析时发生错误: {e}")
+            QMessageBox.critical(self, "错误", f"启动大纲分析失败: {str(e)}")
+
+    def _apply_outline_suggestions(self, suggestions: List):
+        """应用大纲优化建议"""
+        try:
+            if not suggestions:
+                return
+            
+            logger.info(f"开始应用 {len(suggestions)} 个大纲优化建议")
+            
+            applied_count = 0
+            failed_count = 0
+            
+            for suggestion in suggestions:
+                try:
+                    # 根据建议类型执行不同的优化操作
+                    if suggestion.suggestion_type.value == 'structure':
+                        success = self._apply_structure_suggestion(suggestion)
+                    elif suggestion.suggestion_type.value == 'content':
+                        success = self._apply_content_suggestion(suggestion)
+                    elif suggestion.suggestion_type.value == 'plot':
+                        success = self._apply_plot_suggestion(suggestion)
+                    elif suggestion.suggestion_type.value == 'character':
+                        success = self._apply_character_suggestion(suggestion)
+                    else:
+                        # 通用建议处理
+                        success = self._apply_generic_suggestion(suggestion)
+                    
+                    if success:
+                        applied_count += 1
+                        logger.info(f"成功应用建议: {suggestion.title}")
+                    else:
+                        failed_count += 1
+                        logger.warning(f"应用建议失败: {suggestion.title}")
+                        
+                except Exception as suggestion_error:
+                    failed_count += 1
+                    logger.error(f"应用建议 '{suggestion.title}' 时发生错误: {suggestion_error}")
+            
+            # 保存项目
+            if applied_count > 0:
+                self._project_manager.save_project()
+                
+                # 刷新大纲显示
+                QTimer.singleShot(100, self._force_refresh_outline)
+            
+            # 显示应用结果
+            result_message = f"建议应用完成！\n\n"
+            result_message += f"✅ 成功应用: {applied_count} 个建议\n"
+            if failed_count > 0:
+                result_message += f"❌ 应用失败: {failed_count} 个建议\n"
+            result_message += f"\n大纲已更新，建议重新分析查看效果。"
+            
+            QMessageBox.information(self, "应用完成", result_message)
+            
+        except Exception as e:
+            logger.error(f"应用大纲建议时发生错误: {e}")
+            QMessageBox.critical(self, "应用失败", f"应用大纲建议失败: {str(e)}")
+
+    def _apply_structure_suggestion(self, suggestion) -> bool:
+        """应用结构类建议"""
+        try:
+            # 简化的结构建议实现
+            if "增加结构层次" in suggestion.title:
+                return self._add_missing_structure_levels()
+            elif "平衡章节结构" in suggestion.title:
+                return self._balance_chapter_structure()
+            else:
+                return self._apply_generic_suggestion(suggestion)
+        except Exception as e:
+            logger.error(f"应用结构建议失败: {e}")
+            return False
+
+    def _apply_content_suggestion(self, suggestion) -> bool:
+        """应用内容类建议"""
+        try:
+            # 为空白节点添加内容提示
+            project = self._project_manager.get_current_project()
+            if not project:
+                return False
+            
+            content_added = 0
+            for doc_id, doc in project.documents.items():
+                if doc.doc_type.value in ['act', 'chapter', 'scene'] and not doc.content.strip():
+                    # 添加内容模板
+                    content_template = self._generate_content_template(doc)
+                    if content_template:
+                        self._project_manager.update_document(doc_id, content=content_template, save=False)
+                        content_added += 1
+            
+            logger.info(f"为 {content_added} 个节点添加了内容模板")
+            return content_added > 0
+            
+        except Exception as e:
+            logger.error(f"应用内容建议失败: {e}")
+            return False
+
+    def _apply_plot_suggestion(self, suggestion) -> bool:
+        """应用情节类建议"""
+        try:
+            # 简化的情节建议实现
+            return self._apply_generic_suggestion(suggestion)
+        except Exception as e:
+            logger.error(f"应用情节建议失败: {e}")
+            return False
+
+    def _apply_character_suggestion(self, suggestion) -> bool:
+        """应用角色类建议"""
+        try:
+            # 简化的角色建议实现
+            return self._apply_generic_suggestion(suggestion)
+        except Exception as e:
+            logger.error(f"应用角色建议失败: {e}")
+            return False
+
+    def _apply_generic_suggestion(self, suggestion) -> bool:
+        """应用通用建议"""
+        try:
+            # 记录建议已应用（用于跟踪）
+            logger.info(f"已记录建议应用: {suggestion.title}")
+            return True
+        except Exception as e:
+            logger.error(f"应用通用建议失败: {e}")
+            return False
+
+    def _add_missing_structure_levels(self) -> bool:
+        """添加缺失的结构层级"""
+        try:
+            project = self._project_manager.get_current_project()
+            if not project:
+                return False
+            
+            # 检查是否缺少幕级结构
+            acts = [d for d in project.documents.values() if d.doc_type.value == 'act']
+            chapters = [d for d in project.documents.values() if d.doc_type.value == 'chapter']
+            
+            if not acts and chapters:
+                # 创建默认幕并将章节归类
+                from core.project import DocumentType
+                default_act = self._project_manager.add_document(
+                    name="第一幕：主要情节",
+                    doc_type=DocumentType.ACT,
+                    save=False
+                )
+                
+                if default_act:
+                    # 将前几个章节归到这个幕下
+                    chapters_to_move = chapters[:min(len(chapters), 5)]
+                    for chapter in chapters_to_move:
+                        self._project_manager.update_document(
+                            chapter.id, 
+                            parent_id=default_act.id, 
+                            save=False
+                        )
+                    
+                    logger.info(f"创建了默认幕并移动了 {len(chapters_to_move)} 个章节")
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"添加结构层级失败: {e}")
+            return False
+
+    def _balance_chapter_structure(self) -> bool:
+        """平衡章节结构"""
+        try:
+            # 简化实现：检查章节内容长度并提供平衡建议
+            project = self._project_manager.get_current_project()
+            if not project:
+                return False
+            
+            chapters = [d for d in project.documents.values() if d.doc_type.value == 'chapter']
+            if len(chapters) < 2:
+                return False
+            
+            # 计算平均长度
+            content_lengths = [len(d.content) for d in chapters if d.content]
+            if not content_lengths:
+                return False
+            
+            avg_length = sum(content_lengths) / len(content_lengths)
+            balanced_count = 0
+            
+            # 为过短的章节添加扩展提示
+            for chapter in chapters:
+                if len(chapter.content) < avg_length * 0.5:
+                    expansion_note = f"\n\n<!-- 建议扩展内容 -->\n<!-- 当前字数: {len(chapter.content)}，建议目标: {int(avg_length)} -->"
+                    new_content = chapter.content + expansion_note
+                    self._project_manager.update_document(chapter.id, content=new_content, save=False)
+                    balanced_count += 1
+            
+            logger.info(f"为 {balanced_count} 个章节添加了平衡建议")
+            return balanced_count > 0
+            
+        except Exception as e:
+            logger.error(f"平衡章节结构失败: {e}")
+            return False
+
+    def _generate_content_template(self, doc) -> str:
+        """为文档生成内容模板"""
+        try:
+            templates = {
+                'act': f"""# {doc.name}
+
+## 本幕概述
+[请描述本幕的主要情节和目标]
+
+## 主要冲突
+[请描述本幕的核心冲突]
+
+## 角色发展
+[请描述角色在本幕中的成长和变化]
+
+## 关键事件
+- [关键事件1]
+- [关键事件2]
+- [关键事件3]""",
+
+                'chapter': f"""# {doc.name}
+
+## 章节摘要
+[请简要描述本章的主要内容]
+
+## 场景设置
+**时间:** [时间]
+**地点:** [地点]
+**人物:** [参与角色]
+
+## 主要情节
+[请详细描述本章发生的事件]
+
+## 章节目标
+[本章要达成的故事目标]""",
+
+                'scene': f"""# {doc.name}
+
+## 场景描述
+[请描述场景的具体情况]
+
+## 角色行动
+[角色在此场景中的行动和对话]
+
+## 冲突点
+[此场景的冲突或转折]
+
+## 情感要素
+[场景中的情感氛围]"""
+            }
+            
+            return templates.get(doc.doc_type.value, f"# {doc.name}\n\n[请添加内容描述]")
+            
+        except Exception as e:
+            logger.error(f"生成内容模板失败: {e}")
+            return f"# {doc.name}\n\n[请添加内容描述]"
+
+    def _generate_outline_continuation(self):
+        """智能生成大纲续写内容"""
+        try:
+            if not self._project_manager.has_project():
+                QMessageBox.warning(self, "警告", "请先创建或打开一个项目")
+                return
+            
+            # 获取当前项目的文档
+            project = self._project_manager.get_current_project()
+            if not project or not project.documents:
+                QMessageBox.information(self, "提示", "项目中没有内容可以作为续写基础")
+                return
+            
+            # 过滤小说文档
+            novel_docs = []
+            for doc_id, doc in project.documents.items():
+                if doc.doc_type.value in ['act', 'chapter', 'scene']:
+                    novel_docs.append(doc)
+            
+            if len(novel_docs) < 1:
+                QMessageBox.information(self, "提示", "项目中需要至少一个小说文档才能进行续写")
+                return
+            
+            # 显示生成选项对话框
+            generation_options = self._show_generation_options_dialog()
+            if not generation_options:
+                return  # 用户取消
+            
+            # 显示生成进度
+            from PyQt6.QtWidgets import QProgressDialog
+            progress = QProgressDialog("正在分析上下文并生成续写内容...", "取消", 0, 100, self)
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
+            progress.show()
+            progress.setValue(20)
+            
+            try:
+                # 执行智能续写生成（使用统一AI管理器）
+                if hasattr(self._shared, 'ai_manager') and self._shared.ai_manager:
+                    ai_manager = self._shared.ai_manager
+                    
+                    # 检查AI服务可用性
+                    ai_status = ai_manager.get_ai_status()
+                    if not ai_status.get('ai_client_available', False):
+                        logger.warning("AI服务不可用，尝试重新初始化")
+                        if not ai_manager.force_reinit_ai():
+                            raise RuntimeError("AI服务初始化失败")
+                    
+                    progress.setValue(40)
+                    
+                    # 解析生成选项
+                    progress.setValue(60)
+                    
+                    # 使用统一AI管理器的续写功能
+                    generation_result_dict = ai_manager.generate_outline_continuation(
+                        existing_docs=novel_docs,
+                        generation_params={
+                            'type': generation_options['type'],
+                            'scope': generation_options['scope'], 
+                            'length': generation_options['length']
+                        }
+                    )
+                    
+                    progress.setValue(90)
+                    
+                    # 检查生成结果
+                    if 'error' in generation_result_dict:
+                        progress.close()
+                        QMessageBox.warning(self, "生成失败", f"AI续写失败: {generation_result_dict['error']}")
+                        return
+                    
+                    if not generation_result_dict.get('generated_nodes'):
+                        progress.close()
+                        QMessageBox.warning(self, "生成失败", "无法生成续写内容，请检查项目内容")
+                        return
+                    
+                    progress.setValue(100)
+                    progress.close()
+                    
+                    # 显示生成结果对话框
+                    self._show_unified_generation_result_dialog(generation_result_dict)
+                    
+                else:
+                    # 降级到独立生成器
+                    progress.close()
+                    QMessageBox.warning(self, "功能不可用", "AI管理器不可用，无法进行智能续写")
+                    return
+                
+            except ImportError as ie:
+                progress.close()
+                logger.error(f"导入续写生成模块失败: {ie}")
+                QMessageBox.critical(self, "功能不可用", f"智能续写功能模块加载失败：{str(ie)}")
+            except Exception as generation_error:
+                progress.close()
+                logger.error(f"续写生成过程失败: {generation_error}")
+                QMessageBox.critical(self, "生成失败", f"智能续写生成失败：{str(generation_error)}")
+                
+        except Exception as e:
+            logger.error(f"启动智能续写时发生错误: {e}")
+            QMessageBox.critical(self, "错误", f"启动智能续写失败: {str(e)}")
+
+    def _show_generation_options_dialog(self) -> Optional[Dict[str, Any]]:
+        """显示生成选项对话框"""
+        try:
+            from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
+                                       QComboBox, QSpinBox, QDialogButtonBox, QGroupBox,
+                                       QRadioButton, QButtonGroup, QTextEdit)
+            
+            dialog = QDialog(self)
+            dialog.setWindowTitle("智能续写设置")
+            dialog.setMinimumSize(450, 400)
+            
+            layout = QVBoxLayout(dialog)
+            layout.setSpacing(12)
+            
+            # 说明文字
+            info_label = QLabel("🤖 基于现有内容智能生成后续大纲章节")
+            info_label.setStyleSheet("font-size: 12pt; font-weight: bold; margin-bottom: 8px;")
+            layout.addWidget(info_label)
+            
+            # 生成类型选择
+            type_group = QGroupBox("生成类型")
+            type_layout = QVBoxLayout(type_group)
+            
+            self.type_button_group = QButtonGroup()
+            type_options = [
+                ("continuation", "续写发展", "基于现有情节继续推进故事"),
+                ("expansion", "扩展深化", "对现有内容进行深度扩展"),
+                ("alternative", "替代方案", "提供不同的发展路径"),
+                ("completion", "补全完善", "补充缺失的故事元素")
+            ]
+            
+            for value, title, desc in type_options:
+                radio = QRadioButton(f"{title} - {desc}")
+                radio.setProperty("value", value)
+                if value == "continuation":  # 默认选择续写
+                    radio.setChecked(True)
+                self.type_button_group.addButton(radio)
+                type_layout.addWidget(radio)
+            
+            layout.addWidget(type_group)
+            
+            # 上下文范围
+            scope_layout = QHBoxLayout()
+            scope_label = QLabel("上下文范围:")
+            scope_label.setMinimumWidth(80)
+            scope_layout.addWidget(scope_label)
+            
+            self.scope_combo = QComboBox()
+            self.scope_combo.addItem("全局上下文 - 分析整个项目", "global")
+            self.scope_combo.addItem("章节上下文 - 关注最近章节", "chapter") 
+            self.scope_combo.addItem("局部上下文 - 仅考虑邻近内容", "local")
+            scope_layout.addWidget(self.scope_combo)
+            
+            layout.addLayout(scope_layout)
+            
+            # 生成数量
+            length_layout = QHBoxLayout()
+            length_label = QLabel("生成章节数:")
+            length_label.setMinimumWidth(80)
+            length_layout.addWidget(length_label)
+            
+            self.length_spin = QSpinBox()
+            self.length_spin.setRange(1, 10)
+            self.length_spin.setValue(3)
+            self.length_spin.setSuffix(" 个")
+            length_layout.addWidget(self.length_spin)
+            
+            length_layout.addStretch()
+            layout.addLayout(length_layout)
+            
+            # 特殊要求
+            requirements_group = QGroupBox("特殊要求 (可选)")
+            requirements_layout = QVBoxLayout(requirements_group)
+            
+            self.requirements_edit = QTextEdit()
+            self.requirements_edit.setPlaceholderText("请输入对生成内容的特殊要求，如：\n• 重点发展某个角色\n• 加入新的冲突元素\n• 转换叙述视角\n等等...")
+            self.requirements_edit.setMaximumHeight(80)
+            requirements_layout.addWidget(self.requirements_edit)
+            
+            layout.addWidget(requirements_group)
+            
+            # 对话框按钮
+            button_box = QDialogButtonBox(
+                QDialogButtonBox.StandardButton.Ok | 
+                QDialogButtonBox.StandardButton.Cancel
+            )
+            
+            ok_btn = button_box.button(QDialogButtonBox.StandardButton.Ok)
+            ok_btn.setText("开始生成")
+            
+            cancel_btn = button_box.button(QDialogButtonBox.StandardButton.Cancel)
+            cancel_btn.setText("取消")
+            
+            button_box.accepted.connect(dialog.accept)
+            button_box.rejected.connect(dialog.reject)
+            layout.addWidget(button_box)
+            
+            # 显示对话框
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                # 获取选中的生成类型
+                selected_type = "continuation"
+                for button in self.type_button_group.buttons():
+                    if button.isChecked():
+                        selected_type = button.property("value")
+                        break
+                
+                options = {
+                    'type': selected_type,
+                    'scope': self.scope_combo.currentData(),
+                    'length': self.length_spin.value(),
+                    'requirements': self.requirements_edit.toPlainText().strip()
+                }
+                
+                logger.info(f"续写选项: {options}")
+                return options
+            else:
+                return None
+                
+        except Exception as e:
+            logger.error(f"显示生成选项对话框失败: {e}")
+            QMessageBox.critical(self, "错误", f"显示设置对话框失败: {str(e)}")
+            return None
+
+    def _show_generation_result_dialog(self, generation_result):
+        """显示生成结果对话框"""
+        try:
+            from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTabWidget,
+                                       QTextBrowser, QListWidget, QListWidgetItem, 
+                                       QPushButton, QDialogButtonBox, QLabel, QFrame,
+                                       QScrollArea, QWidget, QCheckBox)
+            
+            dialog = QDialog(self)
+            dialog.setWindowTitle("智能续写结果")
+            dialog.setMinimumSize(700, 500)
+            dialog.resize(900, 600)
+            
+            layout = QVBoxLayout(dialog)
+            layout.setSpacing(12)
+            
+            # 标题和质量评分
+            header_layout = QHBoxLayout()
+            
+            title_label = QLabel("🎯 智能续写生成结果")
+            title_label.setStyleSheet("font-size: 14pt; font-weight: bold;")
+            header_layout.addWidget(title_label)
+            
+            header_layout.addStretch()
+            
+            quality_label = QLabel(f"质量评分: {generation_result.quality_score:.1%}")
+            quality_color = "#4CAF50" if generation_result.quality_score > 0.7 else "#FF9800" if generation_result.quality_score > 0.4 else "#F44336"
+            quality_label.setStyleSheet(f"font-size: 12pt; font-weight: bold; color: {quality_color};")
+            header_layout.addWidget(quality_label)
+            
+            layout.addLayout(header_layout)
+            
+            # 标签页容器
+            tab_widget = QTabWidget()
+            
+            # 生成内容标签页
+            content_tab = QWidget()
+            content_layout = QVBoxLayout(content_tab)
+            
+            # 生成的章节列表
+            content_label = QLabel(f"📝 生成了 {len(generation_result.generated_nodes)} 个章节:")
+            content_label.setStyleSheet("font-weight: bold; margin-bottom: 8px;")
+            content_layout.addWidget(content_label)
+            
+            # 章节选择列表
+            self.chapter_list = QListWidget()
+            for i, node in enumerate(generation_result.generated_nodes):
+                item_widget = QWidget()
+                item_layout = QVBoxLayout(item_widget)
+                item_layout.setContentsMargins(8, 4, 8, 4)
+                
+                # 复选框和标题
+                checkbox_layout = QHBoxLayout()
+                checkbox = QCheckBox()
+                checkbox.setChecked(True)  # 默认全选
+                checkbox.setProperty("node_data", node)
+                checkbox_layout.addWidget(checkbox)
+                
+                title_label = QLabel(node.get('title', '未命名章节'))
+                title_label.setStyleSheet("font-weight: bold; font-size: 11pt;")
+                checkbox_layout.addWidget(title_label)
+                
+                checkbox_layout.addStretch()
+                item_layout.addLayout(checkbox_layout)
+                
+                # 章节内容预览
+                content_preview = node.get('content', '无内容')
+                if len(content_preview) > 100:
+                    content_preview = content_preview[:100] + "..."
+                
+                content_label = QLabel(content_preview)
+                content_label.setStyleSheet("color: #666; font-size: 9pt; margin-left: 20px;")
+                content_label.setWordWrap(True)
+                item_layout.addWidget(content_label)
+                
+                # 创建列表项
+                list_item = QListWidgetItem()
+                list_item.setSizeHint(item_widget.sizeHint())
+                self.chapter_list.addItem(list_item)
+                self.chapter_list.setItemWidget(list_item, item_widget)
+            
+            content_layout.addWidget(self.chapter_list)
+            tab_widget.addTab(content_tab, "📝 生成内容")
+            
+            # 上下文分析标签页
+            analysis_tab = QTextBrowser()
+            analysis_tab.setHtml(f"<pre style='font-family: Microsoft YaHei; line-height: 1.5;'>{generation_result.context_analysis}</pre>")
+            tab_widget.addTab(analysis_tab, "📊 上下文分析")
+            
+            # 生成理由标签页
+            rationale_tab = QTextBrowser()
+            rationale_tab.setHtml(f"<pre style='font-family: Microsoft YaHei; line-height: 1.5;'>{generation_result.generation_rationale}</pre>")
+            tab_widget.addTab(rationale_tab, "💡 生成理由")
+            
+            # 替代方案标签页
+            if generation_result.alternative_options:
+                alternatives_tab = QWidget()
+                alt_layout = QVBoxLayout(alternatives_tab)
+                
+                for i, alt in enumerate(generation_result.alternative_options):
+                    alt_frame = QFrame()
+                    alt_frame.setFrameStyle(QFrame.Shape.Box)
+                    alt_frame.setStyleSheet("QFrame { background-color: rgba(255,255,255,0.1); border-radius: 4px; padding: 8px; }")
+                    
+                    alt_frame_layout = QVBoxLayout(alt_frame)
+                    
+                    alt_title = QLabel(alt.get('title', f'方案{i+1}'))
+                    alt_title.setStyleSheet("font-weight: bold; font-size: 11pt;")
+                    alt_frame_layout.addWidget(alt_title)
+                    
+                    alt_desc = QLabel(alt.get('description', '无描述'))
+                    alt_desc.setWordWrap(True)
+                    alt_frame_layout.addWidget(alt_desc)
+                    
+                    alt_layout.addWidget(alt_frame)
+                
+                alt_layout.addStretch()
+                tab_widget.addTab(alternatives_tab, "🔄 替代方案")
+            
+            # 续写建议标签页
+            if generation_result.continuation_suggestions:
+                suggestions_tab = QListWidget()
+                for suggestion in generation_result.continuation_suggestions:
+                    item = QListWidgetItem(f"• {suggestion}")
+                    suggestions_tab.addItem(item)
+                tab_widget.addTab(suggestions_tab, "📋 续写建议")
+            
+            layout.addWidget(tab_widget)
+            
+            # 底部按钮
+            button_layout = QHBoxLayout()
+            
+            select_all_btn = QPushButton("全选")
+            select_all_btn.clicked.connect(lambda: self._toggle_all_chapters(True))
+            button_layout.addWidget(select_all_btn)
+            
+            select_none_btn = QPushButton("全不选")
+            select_none_btn.clicked.connect(lambda: self._toggle_all_chapters(False))
+            button_layout.addWidget(select_none_btn)
+            
+            button_layout.addStretch()
+            
+            button_box = QDialogButtonBox(
+                QDialogButtonBox.StandardButton.Ok | 
+                QDialogButtonBox.StandardButton.Cancel
+            )
+            
+            apply_btn = button_box.button(QDialogButtonBox.StandardButton.Ok)
+            apply_btn.setText("添加选中章节")
+            apply_btn.clicked.connect(lambda: self._apply_generated_chapters(dialog))
+            
+            cancel_btn = button_box.button(QDialogButtonBox.StandardButton.Cancel)
+            cancel_btn.setText("取消")
+            cancel_btn.clicked.connect(dialog.reject)
+            
+            button_layout.addWidget(button_box)
+            layout.addLayout(button_layout)
+            
+            # 显示对话框
+            dialog.exec()
+            
+        except Exception as e:
+            logger.error(f"显示生成结果对话框失败: {e}")
+            QMessageBox.critical(self, "错误", f"显示结果对话框失败: {str(e)}")
+
+    def _toggle_all_chapters(self, checked: bool):
+        """切换所有章节的选中状态"""
+        try:
+            for i in range(self.chapter_list.count()):
+                item = self.chapter_list.item(i)
+                widget = self.chapter_list.itemWidget(item)
+                if widget:
+                    checkbox = widget.findChild(QCheckBox)
+                    if checkbox:
+                        checkbox.setChecked(checked)
+        except Exception as e:
+            logger.error(f"切换章节选中状态失败: {e}")
+
+    def _apply_generated_chapters(self, dialog):
+        """应用生成的章节"""
+        try:
+            selected_nodes = []
+            
+            # 收集选中的章节
+            for i in range(self.chapter_list.count()):
+                item = self.chapter_list.item(i)
+                widget = self.chapter_list.itemWidget(item)
+                if widget:
+                    checkbox = widget.findChild(QCheckBox)
+                    if checkbox and checkbox.isChecked():
+                        node_data = checkbox.property("node_data")
+                        if node_data:
+                            selected_nodes.append(node_data)
+            
+            if not selected_nodes:
+                QMessageBox.warning(self, "警告", "请至少选择一个章节")
+                return
+            
+            # 创建文档
+            created_count = 0
+            failed_count = 0
+            
+            for node in selected_nodes:
+                try:
+                    # 确定文档类型
+                    from core.project import DocumentType
+                    doc_type = DocumentType.CHAPTER  # 默认为章节类型
+                    
+                    if node.get('level') == 'act':
+                        doc_type = DocumentType.ACT
+                    elif node.get('level') == 'scene':
+                        doc_type = DocumentType.SCENE
+                    
+                    # 创建文档
+                    new_doc = self._project_manager.add_document(
+                        name=node.get('title', '新章节'),
+                        doc_type=doc_type,
+                        save=False
+                    )
+                    
+                    if new_doc:
+                        # 更新内容
+                        content = node.get('content', '')
+                        if content:
+                            self._project_manager.update_document(
+                                new_doc.id,
+                                content=content,
+                                save=False
+                            )
+                        
+                        created_count += 1
+                        logger.info(f"创建生成章节: {node.get('title', '新章节')}")
+                    else:
+                        failed_count += 1
+                        
+                except Exception as node_error:
+                    failed_count += 1
+                    logger.error(f"创建章节失败: {node_error}")
+            
+            # 保存项目
+            if created_count > 0:
+                self._project_manager.save_project()
+                
+                # 刷新大纲显示
+                QTimer.singleShot(100, self._force_refresh_outline)
+            
+            # 显示结果
+            result_message = f"智能续写应用完成！\n\n"
+            result_message += f"✅ 成功创建: {created_count} 个章节\n"
+            if failed_count > 0:
+                result_message += f"❌ 创建失败: {failed_count} 个章节\n"
+            result_message += f"\n大纲已更新，请在左侧查看新增章节。"
+            
+            QMessageBox.information(self, "应用完成", result_message)
+            dialog.accept()
+            
+        except Exception as e:
+            logger.error(f"应用生成章节失败: {e}")
+            QMessageBox.critical(self, "应用失败", f"应用生成章节失败: {str(e)}")
+
+    def _show_unified_generation_result_dialog(self, generation_result_dict: Dict[str, Any]):
+        """显示统一AI管理器的生成结果对话框"""
+        try:
+            from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTabWidget,
+                                       QTextBrowser, QListWidget, QListWidgetItem, 
+                                       QPushButton, QDialogButtonBox, QLabel, QFrame,
+                                       QScrollArea, QWidget, QCheckBox)
+            
+            dialog = QDialog(self)
+            dialog.setWindowTitle("智能续写结果")
+            dialog.setMinimumSize(700, 500)
+            dialog.resize(900, 600)
+            
+            layout = QVBoxLayout(dialog)
+            layout.setSpacing(12)
+            
+            # 标题和质量评分
+            header_layout = QHBoxLayout()
+            
+            title_label = QLabel("🎯 智能续写生成结果")
+            title_label.setStyleSheet("font-size: 14pt; font-weight: bold;")
+            header_layout.addWidget(title_label)
+            
+            header_layout.addStretch()
+            
+            quality_score = generation_result_dict.get('quality_score', 0.0)
+            quality_label = QLabel(f"质量评分: {quality_score:.1%}")
+            quality_color = "#4CAF50" if quality_score > 0.7 else "#FF9800" if quality_score > 0.4 else "#F44336"
+            quality_label.setStyleSheet(f"font-size: 12pt; font-weight: bold; color: {quality_color};")
+            header_layout.addWidget(quality_label)
+            
+            layout.addLayout(header_layout)
+            
+            # 标签页容器
+            tab_widget = QTabWidget()
+            
+            # 生成内容标签页
+            generated_nodes = generation_result_dict.get('generated_nodes', [])
+            content_tab = QWidget()
+            content_layout = QVBoxLayout(content_tab)
+            
+            # 生成的章节列表
+            content_label = QLabel(f"📝 生成了 {len(generated_nodes)} 个章节:")
+            content_label.setStyleSheet("font-weight: bold; margin-bottom: 8px;")
+            content_layout.addWidget(content_label)
+            
+            # 章节选择列表
+            self.chapter_list = QListWidget()
+            for i, node in enumerate(generated_nodes):
+                item_widget = QWidget()
+                item_layout = QVBoxLayout(item_widget)
+                item_layout.setContentsMargins(8, 4, 8, 4)
+                
+                # 复选框和标题
+                checkbox_layout = QHBoxLayout()
+                checkbox = QCheckBox()
+                checkbox.setChecked(True)  # 默认全选
+                checkbox.setProperty("node_data", node)
+                checkbox_layout.addWidget(checkbox)
+                
+                title_label = QLabel(node.get('title', '未命名章节'))
+                title_label.setStyleSheet("font-weight: bold; font-size: 11pt;")
+                checkbox_layout.addWidget(title_label)
+                
+                checkbox_layout.addStretch()
+                item_layout.addLayout(checkbox_layout)
+                
+                # 章节内容预览
+                content_preview = node.get('content', '无内容')
+                if len(content_preview) > 100:
+                    content_preview = content_preview[:100] + "..."
+                
+                content_label = QLabel(content_preview)
+                content_label.setStyleSheet("color: #666; font-size: 9pt; margin-left: 20px;")
+                content_label.setWordWrap(True)
+                item_layout.addWidget(content_label)
+                
+                # 创建列表项
+                list_item = QListWidgetItem()
+                list_item.setSizeHint(item_widget.sizeHint())
+                self.chapter_list.addItem(list_item)
+                self.chapter_list.setItemWidget(list_item, item_widget)
+            
+            content_layout.addWidget(self.chapter_list)
+            tab_widget.addTab(content_tab, "📝 生成内容")
+            
+            # 上下文分析标签页
+            context_analysis = generation_result_dict.get('context_analysis', '无分析信息')
+            analysis_tab = QTextBrowser()
+            analysis_tab.setHtml(f"<pre style='font-family: Microsoft YaHei; line-height: 1.5;'>{context_analysis}</pre>")
+            tab_widget.addTab(analysis_tab, "📊 上下文分析")
+            
+            # 生成理由标签页
+            generation_rationale = generation_result_dict.get('generation_rationale', '无生成理由')
+            rationale_tab = QTextBrowser()
+            rationale_tab.setHtml(f"<pre style='font-family: Microsoft YaHei; line-height: 1.5;'>{generation_rationale}</pre>")
+            tab_widget.addTab(rationale_tab, "💡 生成理由")
+            
+            # 续写建议标签页
+            suggestions = generation_result_dict.get('suggestions', [])
+            if suggestions:
+                suggestions_tab = QListWidget()
+                for suggestion in suggestions:
+                    item = QListWidgetItem(f"• {suggestion}")
+                    suggestions_tab.addItem(item)
+                tab_widget.addTab(suggestions_tab, "📋 续写建议")
+            
+            layout.addWidget(tab_widget)
+            
+            # 底部按钮
+            button_layout = QHBoxLayout()
+            
+            select_all_btn = QPushButton("全选")
+            select_all_btn.clicked.connect(lambda: self._toggle_all_chapters(True))
+            button_layout.addWidget(select_all_btn)
+            
+            select_none_btn = QPushButton("全不选")
+            select_none_btn.clicked.connect(lambda: self._toggle_all_chapters(False))
+            button_layout.addWidget(select_none_btn)
+            
+            button_layout.addStretch()
+            
+            button_box = QDialogButtonBox(
+                QDialogButtonBox.StandardButton.Ok | 
+                QDialogButtonBox.StandardButton.Cancel
+            )
+            
+            apply_btn = button_box.button(QDialogButtonBox.StandardButton.Ok)
+            apply_btn.setText("添加选中章节")
+            apply_btn.clicked.connect(lambda: self._apply_generated_chapters(dialog))
+            
+            cancel_btn = button_box.button(QDialogButtonBox.StandardButton.Cancel)
+            cancel_btn.setText("取消")
+            cancel_btn.clicked.connect(dialog.reject)
+            
+            button_layout.addWidget(button_box)
+            layout.addLayout(button_layout)
+            
+            # 显示对话框
+            dialog.exec()
+            
+        except Exception as e:
+            logger.error(f"显示统一生成结果对话框失败: {e}")
+            QMessageBox.critical(self, "错误", f"显示结果对话框失败: {str(e)}")
+
