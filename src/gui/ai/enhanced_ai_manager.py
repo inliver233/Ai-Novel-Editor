@@ -70,6 +70,12 @@ class EnhancedAIManager(QObject):
             task_manager=self._task_manager,
             cancelled_task_keys=self._cancelled_task_keys,
         )
+
+        if self._shared and hasattr(self._shared, "projectChanged"):
+            try:
+                self._shared.projectChanged.connect(self._on_project_changed)  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("EnhancedAIManager: failed to connect projectChanged: %s", exc)
         
         # 基础AI组件
         self._ai_client = None
@@ -108,6 +114,21 @@ class EnhancedAIManager(QObject):
         self._completion_timer.timeout.connect(self._trigger_completion)
         
         logger.info("EnhancedAIManager初始化完成")
+
+    @pyqtSlot(str)
+    def _on_project_changed(self, project_path: str) -> None:
+        if not self._shared or not self._ai_service:
+            return
+
+        try:
+            context_builder = getattr(self._ai_service, "context_builder", None)
+            if context_builder is None:
+                return
+            context_builder.rag_service = getattr(self._shared, "rag_service", None)
+            context_builder.codex_manager = getattr(self._shared, "codex_manager", None)
+            context_builder.reference_detector = getattr(self._shared, "reference_detector", None)
+        except Exception:  # noqa: BLE001
+            logger.exception("EnhancedAIManager: failed to refresh shared references on projectChanged")
     
     def _init_ai_client(self):
         """初始化AI客户端"""
