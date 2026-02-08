@@ -34,14 +34,15 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-SUPPORTS_PROJECT_ID_FILTERING = False
+SUPPORTS_PROJECT_ID_FILTERING = True
 
 
 class SQLiteVectorStore:
     """SQLite向量存储实现"""
     
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, project_id: str = ""):
         self.db_path = db_path
+        self.project_id = str(project_id or "")
         self._init_database()
         
     def _init_database(self):
@@ -49,11 +50,12 @@ class SQLiteVectorStore:
         conn = sqlite3.connect(self.db_path)
         try:
             cursor = conn.cursor()
-            
+             
             # 文档嵌入表
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS document_embeddings (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    project_id TEXT NOT NULL DEFAULT '',
                     document_id TEXT NOT NULL,
                     chunk_index INTEGER NOT NULL,
                     chunk_text TEXT NOT NULL,
@@ -67,13 +69,32 @@ class SQLiteVectorStore:
                     UNIQUE(document_id, chunk_index)
                 )
             """)
-            
+
+            # Ensure legacy DBs get a project_id column + backfill blanks.
+            cursor.execute("PRAGMA table_info(document_embeddings)")
+            cols = {row[1] for row in cursor.fetchall()}
+            if "project_id" not in cols:
+                cursor.execute("ALTER TABLE document_embeddings ADD COLUMN project_id TEXT NOT NULL DEFAULT ''")
+            if self.project_id:
+                cursor.execute(
+                    """
+                    UPDATE document_embeddings
+                    SET project_id = ?
+                    WHERE project_id IS NULL OR project_id = ''
+                    """,
+                    (self.project_id,),
+                )
+             
             # 创建索引
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_document_embeddings_doc_id 
                 ON document_embeddings(document_id)
             """)
-            
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_document_embeddings_project_id
+                ON document_embeddings(project_id)
+            """)
+             
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_document_embeddings_created 
                 ON document_embeddings(created_at)
@@ -217,13 +238,25 @@ class SQLiteVectorStore:
             metadata_json = json.dumps(metadata) if metadata else None
             
             # 插入或更新
-            cursor.execute("""
-                INSERT OR REPLACE INTO document_embeddings 
-                (document_id, chunk_index, chunk_text, start_pos, end_pos, 
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO document_embeddings
+                (project_id, document_id, chunk_index, chunk_text, start_pos, end_pos,
                  embedding, embedding_model, metadata, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            """, (document_id, chunk_index, chunk_text, start_pos, end_pos,
-                  embedding_json, embedding_model, metadata_json))
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                (
+                    self.project_id,
+                    document_id,
+                    chunk_index,
+                    chunk_text,
+                    start_pos,
+                    end_pos,
+                    embedding_json,
+                    embedding_model,
+                    metadata_json,
+                ),
+            )
             
             conn.commit()
             return cursor.lastrowid
@@ -244,15 +277,25 @@ class SQLiteVectorStore:
                 embedding_json = json.dumps(embedding_list)
                 metadata_json = json.dumps(emb_data.get('metadata')) if emb_data.get('metadata') else None
                 
-                cursor.execute("""
-                    INSERT OR REPLACE INTO document_embeddings 
-                    (document_id, chunk_index, chunk_text, start_pos, end_pos, 
+                cursor.execute(
+                    """
+                    INSERT OR REPLACE INTO document_embeddings
+                    (project_id, document_id, chunk_index, chunk_text, start_pos, end_pos,
                      embedding, embedding_model, metadata, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """, (emb_data['document_id'], emb_data['chunk_index'], 
-                      emb_data['chunk_text'], emb_data['start_pos'], 
-                      emb_data['end_pos'], embedding_json,
-                      emb_data.get('embedding_model'), metadata_json))
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    """,
+                    (
+                        self.project_id,
+                        emb_data["document_id"],
+                        emb_data["chunk_index"],
+                        emb_data["chunk_text"],
+                        emb_data["start_pos"],
+                        emb_data["end_pos"],
+                        embedding_json,
+                        emb_data.get("embedding_model"),
+                        metadata_json,
+                    ),
+                )
                 
                 ids.append(cursor.lastrowid)
             
@@ -263,14 +306,14 @@ class SQLiteVectorStore:
         """获取文档的所有嵌入向量"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            
+             
             cursor.execute("""
                 SELECT id, chunk_index, chunk_text, start_pos, end_pos,
                        embedding, embedding_model, metadata, created_at, updated_at
                 FROM document_embeddings
-                WHERE document_id = ?
+                WHERE project_id = ? AND document_id = ?
                 ORDER BY chunk_index
-            """, (document_id,))
+            """, (self.project_id, document_id))
             
             results = []
             for row in cursor.fetchall():
@@ -302,18 +345,19 @@ class SQLiteVectorStore:
         """获取所有嵌入向量"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            
+             
             query = """
                 SELECT id, document_id, chunk_index, chunk_text, start_pos, end_pos,
                        embedding, embedding_model, metadata, created_at, updated_at
                 FROM document_embeddings
+                WHERE project_id = ?
                 ORDER BY document_id, chunk_index
             """
-            
+             
             if limit:
                 query += f" LIMIT {limit}"
-            
-            cursor.execute(query)
+             
+            cursor.execute(query, (self.project_id,))
             
             results = []
             for row in cursor.fetchall():
@@ -345,11 +389,11 @@ class SQLiteVectorStore:
         """删除文档的所有嵌入向量"""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            
+             
             cursor.execute("""
                 DELETE FROM document_embeddings
-                WHERE document_id = ?
-            """, (document_id,))
+                WHERE project_id = ? AND document_id = ?
+            """, (self.project_id, document_id))
             
             conn.commit()
             return cursor.rowcount
@@ -363,11 +407,11 @@ class SQLiteVectorStore:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                
+                 
                 cursor.execute("""
                     SELECT COUNT(*) FROM document_embeddings
-                    WHERE document_id = ?
-                """, (document_id,))
+                    WHERE project_id = ? AND document_id = ?
+                """, (self.project_id, document_id))
                 
                 count = cursor.fetchone()[0]
                 return count > 0
@@ -412,7 +456,8 @@ class SQLiteVectorStore:
                 cursor = conn.cursor()
 
                 where_clause = " OR ".join(["chunk_text LIKE ?"] * len(cleaned_tokens))
-                params: List[Any] = [f"%{t}%" for t in cleaned_tokens]
+                params: List[Any] = [self.project_id]
+                params.extend([f"%{t}%" for t in cleaned_tokens])
                 params.append(int(limit))
 
                 cursor.execute(
@@ -420,7 +465,7 @@ class SQLiteVectorStore:
                     SELECT id, document_id, chunk_index, chunk_text, start_pos, end_pos,
                            metadata, created_at, updated_at
                     FROM document_embeddings
-                    WHERE {where_clause}
+                    WHERE project_id = ? AND ({where_clause})
                     ORDER BY updated_at DESC, chunk_index ASC
                     LIMIT ?
                     """,
@@ -507,13 +552,17 @@ class SQLiteVectorStore:
                 cursor = conn.cursor()
                 
                 # 优化查询：只获取必要字段，限制返回行数
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT id, document_id, chunk_index, chunk_text, start_pos, end_pos,
                            embedding, metadata
                     FROM document_embeddings
+                    WHERE project_id = ?
                     ORDER BY updated_at DESC
                     LIMIT ?
-                """, (page_size,))
+                    """,
+                    (self.project_id, page_size),
+                )
                 
                 timeout_check("数据库查询")
                 
@@ -757,32 +806,48 @@ class SQLiteVectorStore:
             cursor = conn.cursor()
             
             # 文档数量
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT COUNT(DISTINCT document_id) FROM document_embeddings
-            """)
+                WHERE project_id = ?
+                """,
+                (self.project_id,),
+            )
             doc_count = cursor.fetchone()[0]
-            
+             
             # 嵌入向量总数
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT COUNT(*) FROM document_embeddings
-            """)
+                WHERE project_id = ?
+                """,
+                (self.project_id,),
+            )
             embedding_count = cursor.fetchone()[0]
             
             # 已索引的文档列表
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT document_id FROM document_embeddings
+                WHERE project_id = ?
                 GROUP BY document_id
                 ORDER BY MAX(updated_at) DESC
-            """)
+                """,
+                (self.project_id,),
+            )
             indexed_docs = [row[0] for row in cursor.fetchall()]
             
             # 调试：打印查询结果
             logger.info(f"SQLite统计查询结果: 文档数={doc_count}, 嵌入数={embedding_count}, 文档列表={indexed_docs}")
             
             # 最后更新时间
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT MAX(updated_at) FROM document_embeddings
-            """)
+                WHERE project_id = ?
+                """,
+                (self.project_id,),
+            )
             last_updated = cursor.fetchone()[0] or ''
             
             # 搜索次数
@@ -882,11 +947,12 @@ class SQLiteVectorStore:
                 cursor.execute(
                     """
                     INSERT OR REPLACE INTO document_embeddings
-                    (document_id, chunk_index, chunk_text, start_pos, end_pos,
+                    (project_id, document_id, chunk_index, chunk_text, start_pos, end_pos,
                      embedding, embedding_model, metadata, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                     """,
                     (
+                        self.project_id,
                         document_id,
                         chunk.chunk_index,
                         chunk.text,
@@ -910,10 +976,10 @@ class SQLiteVectorStore:
             
             cursor.execute("""
                 SELECT metadata FROM document_embeddings 
-                WHERE document_id = ? 
+                WHERE project_id = ? AND document_id = ?
                 ORDER BY chunk_index 
                 LIMIT 1
-            """, (document_id,))
+            """, (self.project_id, document_id))
             
             row = cursor.fetchone()
             if row and row[0]:
@@ -943,8 +1009,8 @@ class SQLiteVectorStore:
             # 获取所有该文档的嵌入记录
             cursor.execute("""
                 SELECT id FROM document_embeddings 
-                WHERE document_id = ?
-            """, (document_id,))
+                WHERE project_id = ? AND document_id = ?
+            """, (self.project_id, document_id))
             
             for row in cursor.fetchall():
                 embedding_id = row[0]
@@ -976,7 +1042,7 @@ class SQLiteVectorStore:
 
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM document_embeddings")
+            cursor.execute("DELETE FROM document_embeddings WHERE project_id = ?", (self.project_id,))
             cursor.execute("DELETE FROM search_history")
             conn.commit()
             logger.info("All vector data cleared")

@@ -115,11 +115,22 @@ class IndexScheduler(QObject):
         legacy_db_path = get_legacy_global_vectors_db_path()
 
         if (not project_db_path.is_file()) and self._legacy_vectors_db_has_embeddings(legacy_db_path):
-            choice = self._prompt_vectors_db_first_switch_choice(legacy_db_path, project_db_path)
+            choice = self._prompt_vectors_db_first_switch_choice(legacy_db_path, project_db_path, project_path)
             if choice == "disable_rag":
                 self._disable_rag()
                 return
             self._ensure_vector_store(project_path)
+            if choice == "migrate":
+                try:
+                    migrated = self._migrate_legacy_vectors_db(legacy_db_path, Path(project_path).resolve())
+                except Exception:  # noqa: BLE001
+                    logger.exception("IndexScheduler: legacy vectors.db migration failed; fallback to rebuild")
+                    migrated = False
+                if migrated:
+                    self.schedule_full_scan()
+                else:
+                    self.schedule_rebuild()
+                return
             self.schedule_rebuild()
             return
 
@@ -146,14 +157,51 @@ class IndexScheduler(QObject):
             logger.debug("IndexScheduler: legacy vectors.db check failed: %s", exc)
             return False
 
-    def _is_safe_migration_available(self) -> bool:
+    @staticmethod
+    def _doc_id_belongs_to_project(document_id: str, project_root: Path) -> bool:
+        try:
+            doc_path = Path(str(document_id))
+            if not doc_path.is_absolute():
+                return False
+            return doc_path.resolve().is_relative_to(project_root.resolve())
+        except Exception:
+            return False
+
+    def _is_safe_migration_available(self, legacy_db_path: Path, project_root: Path) -> tuple[bool, str]:
         try:
             from core import sqlite_vector_store
         except Exception:  # noqa: BLE001
-            return False
-        return bool(getattr(sqlite_vector_store, "SUPPORTS_PROJECT_ID_FILTERING", False))
+            return False, "迁移不可用：vector store 模块不可用。"
 
-    def _prompt_vectors_db_first_switch_choice(self, legacy_db_path: Path, project_db_path: Path) -> str:
+        if not bool(getattr(sqlite_vector_store, "SUPPORTS_PROJECT_ID_FILTERING", False)):
+            return (
+                False,
+                "迁移仅在能可靠识别 project 归属时才允许；当前版本未满足安全门槛（需先落地方案 B：表内 project_id 过滤）。",
+            )
+
+        try:
+            import sqlite3
+
+            conn = sqlite3.connect(str(legacy_db_path))
+            try:
+                cursor = conn.cursor()
+                cursor.execute("SELECT DISTINCT document_id FROM document_embeddings LIMIT 200")
+                doc_ids = [row[0] for row in cursor.fetchall() if row and row[0]]
+            finally:
+                conn.close()
+        except Exception as exc:  # noqa: BLE001
+            return False, f"迁移不可用：无法读取旧向量库（{exc}）。"
+
+        if not doc_ids:
+            return False, "迁移不可用：旧向量库无可迁移条目。"
+
+        for doc_id in doc_ids:
+            if self._doc_id_belongs_to_project(doc_id, project_root):
+                return True, "将仅迁移可可靠识别属于当前项目的条目（基于 document_id 路径）。"
+
+        return False, "迁移不可用：无法从旧向量库可靠识别当前项目归属（document_id 不是项目内的绝对路径）。"
+
+    def _prompt_vectors_db_first_switch_choice(self, legacy_db_path: Path, project_db_path: Path, project_path: str) -> str:
         try:
             from PyQt6.QtWidgets import QMessageBox, QWidget
         except Exception:  # noqa: BLE001
@@ -167,8 +215,10 @@ class IndexScheduler(QObject):
         box.setIcon(QMessageBox.Icon.Warning)
         box.setWindowTitle("RAG 向量库切换")
         box.setText("检测到旧版全局向量库（可能包含其它项目内容）。")
-        migrate_reason = (
-            "迁移仅在能可靠识别 project 归属时才允许；当前版本未满足安全门槛（需先落地方案 B：表内 project_id 过滤）。"
+
+        migration_available, migrate_reason = self._is_safe_migration_available(
+            legacy_db_path,
+            Path(project_path).resolve(),
         )
         box.setInformativeText(
             "为避免跨项目检索泄露，新的向量库将按项目隔离存放。\n\n"
@@ -184,7 +234,6 @@ class IndexScheduler(QObject):
             "暂不重建并禁用 RAG（不使用旧全局库检索）",
             QMessageBox.ButtonRole.DestructiveRole,
         )
-        migration_available = self._is_safe_migration_available()
         migrate_btn = box.addButton(
             "尝试迁移" if migration_available else "尝试迁移（暂不可用）",
             QMessageBox.ButtonRole.ActionRole,
@@ -202,6 +251,115 @@ class IndexScheduler(QObject):
         if clicked is migrate_btn:
             return "migrate"
         return "rebuild"
+
+    def _migrate_legacy_vectors_db(self, legacy_db_path: Path, project_root: Path) -> bool:
+        if self._shared is None:
+            return False
+
+        vector_store = getattr(self._shared, "vector_store", None)
+        if vector_store is None:
+            return False
+
+        target_db_path_raw = getattr(vector_store, "db_path", None)
+        project_id = str(getattr(vector_store, "project_id", "") or "")
+        if not target_db_path_raw:
+            return False
+
+        target_db_path = Path(str(target_db_path_raw))
+        if not target_db_path.exists():
+            return False
+
+        try:
+            import sqlite3
+
+            legacy_conn = sqlite3.connect(str(legacy_db_path))
+            target_conn = sqlite3.connect(str(target_db_path))
+            try:
+                legacy_cur = legacy_conn.cursor()
+                legacy_cur.execute("PRAGMA table_info(document_embeddings)")
+                legacy_cols = {row[1] for row in legacy_cur.fetchall()}
+                if not {"document_id", "chunk_index", "chunk_text", "start_pos", "end_pos", "embedding"}.issubset(
+                    legacy_cols
+                ):
+                    logger.info("IndexScheduler: legacy vectors.db schema not supported for migration")
+                    return False
+
+                created_expr = "created_at" if "created_at" in legacy_cols else "NULL AS created_at"
+                updated_expr = "updated_at" if "updated_at" in legacy_cols else "CURRENT_TIMESTAMP AS updated_at"
+                select_cols = (
+                    "document_id, chunk_index, chunk_text, start_pos, end_pos, embedding, "
+                    "embedding_model, metadata, "
+                    f"{created_expr}, {updated_expr}"
+                )
+
+                safe_doc_ids: list[str] = []
+                for (doc_id,) in legacy_cur.execute("SELECT DISTINCT document_id FROM document_embeddings"):
+                    if doc_id and self._doc_id_belongs_to_project(doc_id, project_root):
+                        safe_doc_ids.append(str(doc_id))
+
+                if not safe_doc_ids:
+                    logger.info("IndexScheduler: no migratable legacy embeddings for project: %s", project_root)
+                    return False
+
+                insert_sql = """
+                    INSERT OR REPLACE INTO document_embeddings
+                    (project_id, document_id, chunk_index, chunk_text, start_pos, end_pos,
+                     embedding, embedding_model, metadata, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """
+
+                target_cur = target_conn.cursor()
+                migrated_rows = 0
+                for doc_id in safe_doc_ids:
+                    for row in legacy_cur.execute(
+                        f"SELECT {select_cols} FROM document_embeddings WHERE document_id = ?",
+                        (doc_id,),
+                    ):
+                        (
+                            document_id,
+                            chunk_index,
+                            chunk_text,
+                            start_pos,
+                            end_pos,
+                            embedding,
+                            embedding_model,
+                            metadata,
+                            created_at,
+                            updated_at,
+                        ) = row
+                        target_cur.execute(
+                            insert_sql,
+                            (
+                                project_id,
+                                document_id,
+                                chunk_index,
+                                chunk_text,
+                                start_pos,
+                                end_pos,
+                                embedding,
+                                embedding_model,
+                                metadata,
+                                created_at,
+                                updated_at,
+                            ),
+                        )
+                        migrated_rows += 1
+
+                target_conn.commit()
+                logger.info(
+                    "IndexScheduler: migrated %s embedding rows from legacy vectors.db to %s",
+                    migrated_rows,
+                    target_db_path,
+                )
+                return migrated_rows > 0
+            finally:
+                try:
+                    legacy_conn.close()
+                finally:
+                    target_conn.close()
+        except Exception:  # noqa: BLE001
+            logger.exception("IndexScheduler: unexpected error during legacy vectors.db migration")
+            return False
 
     def _disable_rag(self) -> None:
         if self._shared is None:
@@ -305,7 +463,7 @@ class IndexScheduler(QObject):
             return
 
         db_path = ensure_project_vectors_db_path(Path(project_path))
-        new_store = SQLiteVectorStore(str(db_path))
+        new_store = SQLiteVectorStore(str(db_path), project_id=str(Path(project_path).resolve()))
         setattr(self._shared, "vector_store", new_store)
         self._rag_disabled = False
         rag_service = getattr(self._shared, "rag_service", None)
