@@ -178,7 +178,10 @@ class IndexScheduler(QObject):
         )
 
         rebuild_btn = box.addButton("重建索引（推荐）", QMessageBox.ButtonRole.AcceptRole)
-        disable_btn = box.addButton("暂不重建并禁用 RAG", QMessageBox.ButtonRole.DestructiveRole)
+        disable_btn = box.addButton(
+            "暂不重建并禁用 RAG（不使用旧全局库检索）",
+            QMessageBox.ButtonRole.DestructiveRole,
+        )
         migration_available = self._is_safe_migration_available()
         migrate_btn = box.addButton(
             "尝试迁移" if migration_available else "尝试迁移（暂不可用）",
