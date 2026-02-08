@@ -158,11 +158,15 @@ class IndexScheduler(QObject):
         box.setIcon(QMessageBox.Icon.Warning)
         box.setWindowTitle("RAG 向量库切换")
         box.setText("检测到旧版全局向量库（可能包含其它项目内容）。")
+        migrate_reason = (
+            "迁移仅在能可靠识别 project 归属时才允许；当前版本未满足安全门槛（需先落地方案 B：表内 project_id 过滤）。"
+        )
         box.setInformativeText(
             "为避免跨项目检索泄露，新的向量库将按项目隔离存放。\n\n"
             f"当前项目向量库（将创建/使用）：\n{project_db_path}\n\n"
             f"旧全局向量库（legacy）：\n{legacy_db_path}\n\n"
-            "请选择如何处理："
+            "请选择如何处理：\n\n"
+            f"说明：{migrate_reason}"
         )
 
         rebuild_btn = box.addButton("重建索引（推荐）", QMessageBox.ButtonRole.AcceptRole)
@@ -170,6 +174,7 @@ class IndexScheduler(QObject):
         migrate_btn = box.addButton("尝试迁移（暂不可用）", QMessageBox.ButtonRole.ActionRole)
         if migrate_btn is not None:
             migrate_btn.setEnabled(False)
+            migrate_btn.setToolTip(migrate_reason)
 
         box.setDefaultButton(rebuild_btn)  # type: ignore[arg-type]
         box.exec()
