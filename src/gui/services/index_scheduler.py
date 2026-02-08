@@ -163,6 +163,7 @@ class IndexScheduler(QObject):
         )
         box.setInformativeText(
             "为避免跨项目检索泄露，新的向量库将按项目隔离存放。\n\n"
+            "默认推荐：重建索引（更可靠）。迁移仅作为可证明安全时的优化。\n\n"
             f"当前项目向量库（将创建/使用）：\n{project_db_path}\n\n"
             f"旧全局向量库（legacy）：\n{legacy_db_path}\n\n"
             "请选择如何处理：\n\n"
