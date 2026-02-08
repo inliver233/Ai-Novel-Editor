@@ -881,61 +881,92 @@ class RAGService:
             logger.error(f"删除文档索引失败 {document_id}: {e}")
             return False
 
-    def search_with_context(self, query: str, context_mode: str = 'balanced') -> str:
-        """使用向量存储搜索相关内容并返回上下文（大幅增强版本）"""
+    def search_with_like_tokens(self, like_tokens: List[str], context_mode: str = "balanced") -> str:
+        """使用 SQL LIKE tokens 搜索相关内容并返回上下文（不做 query planning）"""
         if not self._vector_store:
             logger.warning("[RAG_SEARCH] 向量存储未设置，无法搜索")
             return ""
-            
+
+        # 根据模式确定搜索参数
+        mode_params = {
+            "fast": {"limit": 15, "min_similarity": 0.4},
+            "balanced": {"limit": 35, "min_similarity": 0.3},
+            "full": {"limit": 50, "min_similarity": 0.25},
+        }
+        params = mode_params.get(context_mode, mode_params["balanced"])
+
+        import time
+
+        search_start = time.time()
         try:
-            # 根据模式确定搜索参数（大幅增强）
-            mode_params = {
-                'fast': {'limit': 15, 'min_similarity': 0.4},     # 增加到15个结果
-                'balanced': {'limit': 35, 'min_similarity': 0.3}, # 增加到35个结果
-                'full': {'limit': 50, 'min_similarity': 0.25}     # 增加到50个结果
-            }
-            params = mode_params.get(context_mode, mode_params['balanced'])
-            
-            # 【完全修复】只使用快速文本搜索，避免任何可能的阻塞
-            logger.info(f"[RAG_SEARCH] 执行快速文本搜索: {query[:30]}...")
-            
-            import time
-            search_start = time.time()
-            
-            try:
-                # 使用快速文本搜索，完全避免向量计算
-                result = self._vector_store.similarity_search_ultra_fast(query, limit=params['limit'])
-                
-                search_time = time.time() - search_start
-                
-                if result:
-                    logger.info(f"[RAG_SEARCH] 快速搜索成功: 结果长度={len(result)}, 耗时={search_time:.3f}s")
-                    # 根据模式调整返回内容长度（大幅增强）
-                    max_lengths = {
-                        'fast': 400,      # 增加到400字符
-                        'balanced': 800,  # 增加到800字符
-                        'full': 1500      # 增加到1500字符
-                    }
-                    max_len = max_lengths.get(context_mode, 200)
-                    
-                    if len(result) > max_len:
-                        result = result[:max_len] + "..."
-                    
-                    return result
-                else:
-                    logger.info(f"[RAG_SEARCH] 快速搜索无结果，耗时={search_time:.3f}s")
-                    return ""
-                    
-            except Exception as e:
-                search_time = time.time() - search_start
-                logger.error(f"[RAG_SEARCH] 快速搜索失败: {e}, 耗时={search_time:.3f}s")
+            candidates = self._vector_store.similarity_search_ultra_fast(like_tokens, limit=params["limit"])
+            search_time = time.time() - search_start
+
+            if not candidates:
+                logger.info("[RAG_SEARCH] 快速搜索无结果，耗时=%.3fs", search_time)
                 return ""
-            
+
+            best = None
+            best_score = float("-inf")
+            for cand in candidates:
+                chunk_text = (cand.get("chunk_text") or "").strip()
+                if not chunk_text:
+                    continue
+
+                score = 0.0
+                text_lower = chunk_text.lower()
+                for token in like_tokens:
+                    token = (token or "").strip()
+                    if token and token.lower() in text_lower:
+                        score += 1.0
+
+                text_length = len(chunk_text)
+                if 50 <= text_length <= 300:
+                    score += 0.5
+
+                chunk_index = cand.get("chunk_index", 9999)
+                if isinstance(chunk_index, int) and chunk_index <= 2:
+                    score += 0.3
+
+                if score > best_score:
+                    best_score = score
+                    best = cand
+
+            if not best:
+                best = candidates[0]
+
+            result = (best.get("chunk_text") or "").strip()
+            if not result:
+                return ""
+
+            logger.info(
+                "[RAG_SEARCH] 快速搜索成功: candidates=%d, best_score=%.1f, best_len=%d, 耗时=%.3fs",
+                len(candidates),
+                best_score,
+                len(result),
+                search_time,
+            )
+
+            # 根据模式调整返回内容长度
+            max_lengths = {
+                "fast": 400,
+                "balanced": 800,
+                "full": 1500,
+            }
+            max_len = max_lengths.get(context_mode, 200)
+            if len(result) > max_len:
+                result = result[:max_len] + "..."
+
+            return result
+
         except Exception as e:
-            logger.error(f"[RAG_SEARCH] 搜索上下文失败: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+            search_time = time.time() - search_start
+            logger.error("[RAG_SEARCH] 快速搜索失败: %s, 耗时=%.3fs", e, search_time)
             return ""
+
+    def search_with_context(self, query: str, context_mode: str = "balanced") -> str:
+        """兼容性接口：传入原始 query，按单 token 进行 LIKE 搜索"""
+        return self.search_with_like_tokens([query], context_mode)
     
     # ========== 线程安全的非阻塞方法 ==========
     

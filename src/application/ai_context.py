@@ -5,6 +5,7 @@
 import logging
 from typing import Any, Dict, List
 
+from application.rag_query_planner import RAGQueryPlanner
 from core.simple_prompt_service import (
     SinglePromptManager,
     SimplePromptContext,
@@ -24,6 +25,7 @@ class IntelligentContextBuilder:
         self.rag_service = None
         self.reference_detector = None
         self._intelligent_context_collector = None
+        self._rag_query_planner = RAGQueryPlanner()
         
         # 从shared获取组件
         if shared:
@@ -185,11 +187,26 @@ class IntelligentContextBuilder:
                 logger.debug(f"改进上下文提取: 原文={len(full_context)}字符, 查询='{query_text}'")
             
             # RAG检索
-            if hasattr(self.rag_service, 'search_with_context'):
+            if self.rag_service:
                 context_mode = {"fast": "fast", "balanced": "balanced", "full": "full"}
-                rag_results = self.rag_service.search_with_context(
-                    query_text, context_mode.get(mode, "balanced")
-                )
+                planned_tokens = []
+                try:
+                    if self._rag_query_planner:
+                        planned_tokens = self._rag_query_planner.plan_like_tokens(query_text, max_tokens=3)
+                except Exception as e:
+                    logger.debug("RAGQueryPlanner failed, fallback to raw query: %s", e)
+                    planned_tokens = []
+
+                if hasattr(self.rag_service, "search_with_like_tokens") and planned_tokens:
+                    rag_results = self.rag_service.search_with_like_tokens(
+                        planned_tokens, context_mode.get(mode, "balanced")
+                    )
+                elif hasattr(self.rag_service, "search_with_context"):
+                    rag_results = self.rag_service.search_with_context(
+                        query_text, context_mode.get(mode, "balanced")
+                    )
+                else:
+                    rag_results = ""
                 
                 if rag_results and len(rag_results.strip()) > 0:
                     logger.debug(f"RAG检索成功: {len(rag_results)}字符")

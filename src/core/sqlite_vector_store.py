@@ -8,7 +8,7 @@ import re
 import sqlite3
 
 # import pickle  # 移除pickle，使用JSON序列化
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 # 尝试导入numpy
 try:
@@ -278,185 +278,100 @@ class SQLiteVectorStore:
             logger.error(f"检查文档索引状态失败 {document_id}: {e}")
             return False
     
-    def similarity_search_ultra_fast(self, query_text: str, limit: int = 1) -> str:
-        """超快速相似度搜索（防卡死专用）- 800ms严格超时"""
+
+    def similarity_search_ultra_fast(self, like_tokens: Sequence[str] | str, limit: int = 50) -> List[Dict[str, Any]]:
+        """超快速 LIKE 搜索（防卡死专用）- 800ms严格超时
+
+        只接受预先规划好的 LIKE tokens（由 application 层负责 query planning）。
+        返回候选 chunks（不做关键词提取 / AI 调用）。
+        """
         import time
+
         start_time = time.time()
-        
+
+        if isinstance(like_tokens, str):
+            tokens = [like_tokens]
+        else:
+            tokens = list(like_tokens)
+
+        # Minimal sanitization: de-dup + strip + drop too-short tokens.
+        seen: set[str] = set()
+        cleaned_tokens: List[str] = []
+        for token in tokens:
+            token = (token or "").strip()
+            if len(token) < 2:
+                continue
+            if token in seen:
+                continue
+            seen.add(token)
+            cleaned_tokens.append(token)
+
+        if not cleaned_tokens:
+            return []
+
         try:
-            # 立即检查数据库连接
-            with sqlite3.connect(self.db_path, timeout=0.5) as conn:  # 500ms连接超时
+            with sqlite3.connect(self.db_path, timeout=0.5) as conn:
                 cursor = conn.cursor()
-                
-                # 改进的文本搜索逻辑 - 分离关键词进行更精确的匹配
-                keywords = []
-                
-                # 修复关键词提取逻辑
-                import re
-                
-                # 移除标点符号和空格，保留中文字符
-                cleaned_query = re.sub(r'[，。！？、,.\s]+', '', query_text)
-                
-                logger.info(f"[SEARCH] 原始查询: '{query_text}', 清理后: '{cleaned_query}'")
-                
-                if len(cleaned_query) > 6:
-                    # 对于较长的查询，尝试按常见分隔符分割
-                    # 移除常见的无意义词汇（修复正则表达式）
-                    stop_words = ['的', '是', '在', '有', '和', '与', '了', '着', '过', '等', '主题', '内容', '关于', '从', '被', '到', '他', '她', '我']
-                    
-                    # 简单的中文分词：尝试提取人名、地名等关键信息
-                    # 查找可能的人名（2-3个连续汉字）
-                    name_pattern = re.findall(r'[\u4e00-\u9fff]{2,3}', cleaned_query)
-                    
-                    # 过滤停用词
-                    filtered_words = [word for word in name_pattern if word not in stop_words and len(word) >= 2]
-                    
-                    # 如果没有找到好的关键词，使用原始文本的片段
-                    if filtered_words:
-                        keywords = filtered_words[:3]  # 最多取3个关键词
-                    else:
-                        # 修复代码 - 智能分割替换机械分割
-                        if len(cleaned_query) >= 4:
-                            # 使用基于词频和语义的分割
-                            try:
-                                # 尝试使用jieba分词
-                                import jieba
-                                logger.critical("🎯[JIEBA_DEBUG] sqlite_vector_store中jieba导入成功，准备分词处理")
-                                words = list(jieba.cut(cleaned_query))
-                                logger.critical("🎯[JIEBA_DEBUG] jieba分词结果: %s", words)
-                                # 扩展停用词列表
-                                stop_words = {'的', '是', '在', '有', '和', '与', '了', '着', '过', '等', '主题', '内容', '关于', '从', '被', '到',
-                                            '他', '她', '我', '你', '它', '这', '那', '这个', '那个', '一个', '什么', '怎么', '为什么',
-                                            '因为', '所以', '但是', '然后', '现在', '时候', '地方', '东西', '事情', '问题', '方面', '情况'}
-                                filtered_words = [w for w in words if len(w) >= 2 and w not in stop_words]
-                                if filtered_words:
-                                    keywords = filtered_words[:3]
-                                else:
-                                    # 降级到改进的正则提取
-                                    chinese_words = re.findall(r'[\u4e00-\u9fff]{2,4}', cleaned_query)
-                                    keywords = [w for w in chinese_words if w not in stop_words][:3]
-                            except Exception as e:
-                                logger.critical("❌[JIEBA_DEBUG] sqlite_vector_store中jieba分词失败: %s", e)
-                                # 最后降级到改进的字符组合
-                                chars = re.findall(r'[\u4e00-\u9fff]', cleaned_query)
-                                keywords = []
-                                for i in range(len(chars)-1):
-                                    word = chars[i] + chars[i+1]
-                                    if word not in stop_words:
-                                        keywords.append(word)
-                                        if len(keywords) >= 3:
-                                            break
-                elif len(cleaned_query) >= 2:
-                    keywords = [cleaned_query]
-                
-                # 如果关键词提取失败，尝试AI关键词提取
-                if not keywords and len(query_text.strip()) >= 2:
-                    logger.info("[SEARCH] 传统分词失败，尝试AI关键词提取...")
-                    ai_keywords = self._extract_keywords_with_ai(query_text)
-                    if ai_keywords:
-                        keywords = ai_keywords
-                        logger.info(f"[SEARCH] AI关键词提取成功: {keywords}")
-                    else:
-                        # 最后回退：直接使用原始查询的片段
-                        original_clean = re.sub(r'[，。！？、,.\s]+', '', query_text)
-                        if len(original_clean) >= 2:
-                            keywords = [original_clean[:4]]  # 取前4个字符
-                            logger.info(f"[SEARCH] 使用原始查询片段: {keywords}")
-                
-                logger.info(f"[SEARCH] 提取的关键词: {keywords}")
-                
-                # 构建更灵活的搜索条件
-                search_conditions = []
-                search_params = []
-                
-                for keyword in keywords:
-                    if len(keyword) >= 2:
-                        search_conditions.append("chunk_text LIKE ?")
-                        search_params.append(f'%{keyword}%')
-                
-                # 如果没有有效关键词，使用原始查询
-                if not search_conditions:
-                    search_conditions = ["chunk_text LIKE ?"]
-                    search_params = [f'%{query_text}%']
-                
-                # 移除重复的条件检查，避免keyword变量错误
-                
-                # 添加limit参数
-                search_params.append(limit * 3)  # 获取更多候选，然后筛选
-                
-                where_clause = " OR ".join(search_conditions)
-                
-                cursor.execute(f"""
-                    SELECT chunk_text, document_id, chunk_index,
-                           LENGTH(chunk_text) as text_length
-                    FROM document_embeddings 
+
+                where_clause = " OR ".join(["chunk_text LIKE ?"] * len(cleaned_tokens))
+                params: List[Any] = [f"%{t}%" for t in cleaned_tokens]
+                params.append(int(limit))
+
+                cursor.execute(
+                    f"""
+                    SELECT id, document_id, chunk_index, chunk_text, start_pos, end_pos,
+                           metadata, created_at, updated_at
+                    FROM document_embeddings
                     WHERE {where_clause}
-                    ORDER BY text_length ASC, chunk_index ASC
+                    ORDER BY updated_at DESC, chunk_index ASC
                     LIMIT ?
-                """, search_params)
-                
-                # 800ms超时检查
+                    """,
+                    params,
+                )
+
                 if time.time() - start_time > 0.8:
-                    logger.warning("超快速搜索超时（800ms）")
-                    return ""
-                
-                results = cursor.fetchall()
-                
-                if results:
-                    logger.info(f"[SEARCH] 找到 {len(results)} 个匹配结果")
-                    
-                    # 选择最佳匹配结果
-                    best_result = None
-                    best_score = 0
-                    
-                    for chunk_text, doc_id, chunk_index, text_length in results:
-                        # 计算匹配度分数
-                        score = 0
-                        text_lower = chunk_text.lower()
-                        
-                        # 关键词匹配分数
-                        for keyword in keywords:
-                            if keyword.lower() in text_lower:
-                                score += 1
-                        
-                        # 长度适中的文本优先
-                        if 50 <= text_length <= 300:
-                            score += 0.5
-                        
-                        # 早期章节优先
-                        if chunk_index <= 2:
-                            score += 0.3
-                        
-                        if score > best_score:
-                            best_score = score
-                            best_result = chunk_text
-                    
-                    if best_result:
-                        # 限制返回长度
-                        result = best_result[:200] if len(best_result) > 200 else best_result
-                        logger.info(f"[SEARCH] 搜索成功: 最佳匹配分数={best_score:.1f}, 结果长度={len(result)}, 用时={time.time() - start_time:.3f}s")
-                        return result
-                    else:
-                        # 如果没有计算出最佳结果，返回第一个
-                        chunk_text = results[0][0]
-                        result = chunk_text[:200] if len(chunk_text) > 200 else chunk_text
-                        logger.info(f"[SEARCH] 使用第一个结果: 长度={len(result)}, 用时={time.time() - start_time:.3f}s")
-                        return result
-                
-                logger.info(f"[SEARCH] 无匹配结果, 用时={time.time() - start_time:.3f}s")
-                return ""
-                
+                    logger.warning("LIKE search timed out (800ms)")
+                    return []
+
+                rows = cursor.fetchall()
+
+            results: List[Dict[str, Any]] = []
+            for (
+                id_val,
+                document_id,
+                chunk_index,
+                chunk_text,
+                start_pos,
+                end_pos,
+                metadata_json,
+                created_at,
+                updated_at,
+            ) in rows:
+                results.append(
+                    {
+                        "id": id_val,
+                        "document_id": document_id,
+                        "chunk_index": chunk_index,
+                        "chunk_text": chunk_text,
+                        "start_pos": start_pos,
+                        "end_pos": end_pos,
+                        "metadata": json.loads(metadata_json) if metadata_json else None,
+                        "created_at": created_at,
+                        "updated_at": updated_at,
+                    }
+                )
+
+            return results
+
         except Exception as e:
             elapsed = time.time() - start_time
-            logger.error(f"[SEARCH] 搜索失败（用时 {elapsed:.3f}秒）: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return ""
-    
-    def similarity_search_fast(self, query_text: str, limit: int = 1) -> str:
-        """快速相似度搜索（兼容性方法）"""
-        return self.similarity_search_ultra_fast(query_text, limit)
-    
+            logger.error("LIKE search failed (%.3fs): %s", elapsed, e)
+            return []
+
+    def similarity_search_fast(self, like_tokens: Sequence[str] | str, limit: int = 50) -> List[Dict[str, Any]]:
+        """快速 LIKE 搜索（兼容性方法）"""
+        return self.similarity_search_ultra_fast(like_tokens, limit)
+
     def similarity_search(self, query_embedding: List[float], 
                          limit: int = 10,
                          min_similarity: float = 0.0) -> List[Tuple[Dict[str, Any], float]]:
@@ -931,174 +846,6 @@ class SQLiteVectorStore:
             logger.info("All vector data cleared")
     
     
-    def _extract_keywords_with_ai(self, query_text: str) -> List[str]:
-        """使用AI提取关键词（当传统方法失败时）"""
-        try:
-            import time
-            start_time = time.time()
-            
-            # 获取AI配置
-            ai_config = self._get_ai_config_for_keywords()
-            if not ai_config:
-                logger.warning("[AI_KEYWORDS] AI配置不可用，无法使用AI提取关键词")
-                return []
-            
-            # 构建专门的关键词提取提示词
-            prompt = f"""你是一个专业的文本关键词提取器。请从以下中文文本中提取2-4个最重要的关键词，用于文档检索。
-
-要求：
-1. 提取的关键词必须是文本中的核心概念
-2. 优先提取人名、地名、物品名等专有名词
-3. 关键词长度为2-4个字符
-4. 直接输出关键词，用逗号分隔，不需要其他说明
-
-文本：{query_text}
-
-关键词："""
-
-            # 使用requests发送请求
-            import json
-
-            import requests
-            
-            headers = {
-                "Authorization": f"Bearer {ai_config['api_key']}",
-                "Content-Type": "application/json"
-            }
-            
-            data = {
-                "model": ai_config.get('model', 'gpt-3.5-turbo'),
-                "messages": [
-                    {"role": "user", "content": prompt}
-                ],
-                "max_tokens": 50,
-                "temperature": 0.3
-            }
-            
-            logger.info("[AI_KEYWORDS] 发送AI关键词提取请求...")
-            
-            response = requests.post(
-                ai_config['api_url'],
-                headers=headers,
-                json=data,
-                timeout=10.0  # 10秒超时
-            )
-            
-            request_time = time.time() - start_time
-            
-            if response.status_code == 200:
-                try:
-                    result = response.json()
-                    if 'choices' in result and len(result['choices']) > 0:
-                        content = result['choices'][0]['message']['content'].strip()
-                        
-                        # 解析AI返回的关键词
-                        keywords = []
-                        for keyword in content.split(','):
-                            keyword = keyword.strip()
-                            # 清理可能的格式符号
-                            keyword = re.sub(r'[，。！？、""\'\s]+', '', keyword)
-                            if len(keyword) >= 2 and len(keyword) <= 6:
-                                keywords.append(keyword)
-                        
-                        keywords = keywords[:4]  # 最多4个关键词
-                        
-                        logger.info(f"[AI_KEYWORDS] AI关键词提取成功，耗时 {request_time:.2f}s，关键词: {keywords}")
-                        return keywords
-                    else:
-                        logger.error(f"[AI_KEYWORDS] AI响应格式错误: {result}")
-                        return []
-                        
-                except (json.JSONDecodeError, KeyError) as e:
-                    logger.error(f"[AI_KEYWORDS] 解析AI响应失败: {e}")
-                    return []
-            else:
-                logger.error(f"[AI_KEYWORDS] AI请求失败: {response.status_code}, {response.text}")
-                return []
-                
-        except requests.exceptions.RequestException as e:
-            logger.error(f"[AI_KEYWORDS] 网络请求异常: {e}")
-            return []
-        except Exception as e:
-            logger.error(f"[AI_KEYWORDS] AI关键词提取失败: {e}")
-            import traceback
-            logger.error(f"[AI_KEYWORDS] 错误详情: {traceback.format_exc()}")
-            return []
-    
-    def _get_ai_config_for_keywords(self) -> Optional[Dict[str, str]]:
-        """获取用于关键词提取的AI配置"""
-        try:
-            # 方法1：从安全存储获取
-            try:
-                from .secure_key_manager import get_secure_key_manager
-                key_manager = get_secure_key_manager()
-                
-                # 尝试从环境变量获取提供商信息
-                import os
-                provider = os.getenv('AI_PROVIDER', 'openai')
-                api_key = key_manager.retrieve_api_key(provider)
-                
-                if api_key:
-                    api_url = os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1/chat/completions')
-                    model = os.getenv('OPENAI_MODEL', 'gpt-3.5-turbo')
-                    
-                    logger.debug(f"[AI_KEYWORDS] 从安全存储获取AI配置: {provider}")
-                    return {
-                        'api_key': api_key,
-                        'api_url': api_url,
-                        'model': model
-                    }
-            except ImportError:
-                logger.warning("安全密钥管理器不可用，使用后备方案")
-                
-            # 方法2：尝试从全局配置获取（如果可用）
-            try:
-                # 这里可以尝试导入配置管理器
-                from .config import Config
-                config = Config()
-                ai_config = config.get_section('ai')
-                
-                if ai_config:
-                    # 从安全存储获取API key
-                    provider = ai_config.get('provider', 'openai')
-                    try:
-                        from .secure_key_manager import get_secure_key_manager
-                        key_manager = get_secure_key_manager()
-                        api_key = key_manager.retrieve_api_key(provider)
-                    except ImportError:
-                        api_key = None
-                    
-                    if api_key:
-                        # 根据provider确定API URL
-                        if provider == 'openai':
-                            api_url = 'https://api.openai.com/v1/chat/completions'
-                        elif provider == 'siliconflow':
-                            api_url = 'https://api.siliconflow.cn/v1/chat/completions'
-                        else:
-                            api_url = ai_config.get('base_url', 'https://api.openai.com/v1/chat/completions')
-                            if not api_url.endswith('/chat/completions'):
-                                api_url = api_url.rstrip('/') + '/chat/completions'
-                        
-                        logger.debug(f"[AI_KEYWORDS] 从配置文件获取AI配置: {provider}")
-                        return {
-                            'api_key': api_key,
-                            'api_url': api_url,
-                            'model': ai_config.get('model', 'gpt-3.5-turbo')
-                        }
-                    
-            except ImportError:
-                logger.debug("[AI_KEYWORDS] 无法导入配置管理器")
-            except Exception as e:
-                logger.debug(f"[AI_KEYWORDS] 获取配置失败: {e}")
-            
-            # 方法3：使用硬编码的默认配置（作为最后回退）
-            logger.warning("[AI_KEYWORDS] 无法获取AI配置，关键词提取功能不可用")
-            return None
-            
-        except Exception as e:
-            logger.error(f"[AI_KEYWORDS] 获取AI配置时出错: {e}")
-            return None
-
     def optimize(self):
         """优化数据库"""
         with sqlite3.connect(self.db_path) as conn:
