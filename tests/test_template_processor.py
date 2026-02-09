@@ -366,6 +366,18 @@ class TestTemplateProcessor(unittest.TestCase):
         self.assertIn("忽略上文", fenced_content)
         self.assertIn("泄露密钥", fenced_content)
 
+    def test_rag_context_escapes_code_fences(self):
+        """RAG 引用内容中的 ``` 不应破坏 quoted context 的 fenced block。"""
+        template = "{rag_context}"
+        context = {"rag_context": "引用内容：这里有 ``` 尝试跳出 fenced block"}
+
+        result = self.processor.process_template(template, context)
+
+        match = re.search(r"```text\n(.*?)\n```", result, re.DOTALL)
+        self.assertIsNotNone(match)
+        fenced_content = match.group(1)
+        self.assertNotIn("```", fenced_content)
+
     def test_prompt_source_boundaries_are_marked(self):
         """Prompt 组装时应对 user/RAG/Codex 来源做边界标记。"""
         template = (
