@@ -12,6 +12,8 @@ from typing import Any, Dict, Optional
 
 from PyQt6.QtCore import QSettings, QStandardPaths
 
+from .config_schema import apply_defaults_inplace, migrate_config_inplace
+
 # 导入AI相关类型
 try:
     from .ai_client import AIConfig, AIProvider
@@ -38,7 +40,11 @@ class Config:
         
         # 加载配置
         self._load_config()
+
+        schema_changed = migrate_config_inplace(self._config_data)
         self._init_default_config()
+        if schema_changed:
+            self._save_config()
     
     def _get_config_dir(self) -> Path:
         """获取配置目录"""
@@ -96,144 +102,7 @@ class Config:
     
     def _init_default_config(self):
         """初始化默认配置"""
-        defaults = {
-            # 应用程序设置
-            "app": {
-                "language": "zh_CN",
-                "auto_save_interval": 30,  # 秒
-                "backup_count": 5,
-                "check_updates": True,
-                "log_level": "INFO",
-            },
-            
-            # 编辑器设置
-            "editor": {
-                "font_family": "Consolas",
-                "font_size": 14,
-                "line_height": 1.6,
-                "tab_width": 4,
-                "word_wrap": True,
-                "show_line_numbers": False,
-                "highlight_current_line": True,
-                "auto_indent": True,
-                "spell_check": True,
-                "spell_check_language": "zh_CN"
-            },
-            
-            # AI设置
-            "ai": {
-                "provider": "openai",  # openai, claude, custom
-                "api_key": "",
-                "model": "gpt-3.5-turbo",
-                "endpoint_url": "",
-                "temperature": 0.8,
-                "max_tokens": 2000,  # 🔧 修复：统一默认值，与ai_client.py保持一致
-                "top_p": 0.9,
-                "timeout": 30,
-                "max_retries": 3,
-                "enable_tools": False,  # 工具调用必须显式开启（默认关闭）
-                "completion_delay": 500,  # 毫秒
-                "auto_suggestions": True,
-                "suggestion_types": [
-                    "narrative", "dialogue", "description",
-                    "action", "introspection"
-                ]
-            },
-            
-            # 界面设置
-            "ui": {
-                "theme": "dark",  # light, dark, auto - 统一的主题配置位置
-                "window_width": 1200,
-                "window_height": 800,
-                "window_maximized": False,
-                "left_panel_width": 250,
-                "right_panel_width": 250,
-                "show_left_panel": True,
-                "show_right_panel": True,
-                "show_toolbar": True,
-                "show_statusbar": True
-            },
-            
-            # 项目设置
-            "project": {
-                "default_author": "",
-                "default_language": "zh_CN",
-                "recent_projects": [],
-                "max_recent_projects": 10,
-                "auto_backup": True,
-                "backup_interval": 300  # 秒
-            },
-            
-            # RAG设置
-            "rag": {
-                "enabled": True,
-                "api_key": "",
-                "base_url": "https://api.siliconflow.cn/v1",
-                "embedding": {
-                    "enabled": True,
-                    "model": "BAAI/bge-large-zh-v1.5",
-                    "batch_size": 32
-                },
-                "rerank": {
-                    "enabled": True,
-                    "model": "BAAI/bge-reranker-v2-m3",
-                    "top_k": 10
-                },
-                "vector_store": {
-                    "similarity_threshold": 0.3,
-                    "search_limits": {
-                        "fast": 5,
-                        "balanced": 10,
-                        "full": 20
-                    },
-                    "chunk_size": 250,
-                    "chunk_overlap": 50
-                },
-                "network": {
-                    "max_retries": 3,
-                    "timeout": 30,
-                    "enable_fallback": True,
-                    "max_concurrent": 5
-                },
-                # 缓存配置已移除，提升性能和稳定性
-            },
-
-            # Codex设置
-            "codex": {
-                "enabled": True,
-            },
-            
-            # 提示词配置
-            "prompt": {
-                "context_mode": "balanced",
-                "style_tags": [],
-                "custom_prefix": "",
-                "preferred_length": 200,
-                "creativity": 0.7,
-                "context_length": 800,
-                "preset": "默认设置"
-            },
-            
-            # 补全配置
-            "completion": {
-                "completion_mode": "manual_ai",  # 修复：默认为手动模式
-                "context_mode": "balanced",
-                "trigger_delay": 500,
-                "auto_trigger": False,  # 修复：默认关闭自动触发
-                "streaming": True,
-                "temperature": 0.7,
-                "max_length": 200
-            }
-        }
-        
-        # 合并默认配置和用户配置
-        for section, section_config in defaults.items():
-            if section not in self._config_data:
-                self._config_data[section] = {}
-            
-            for key, value in section_config.items():
-                if key not in self._config_data[section]:
-                    self._config_data[section][key] = value
+        apply_defaults_inplace(self._config_data)
     
     def _migrate_api_keys(self):
         """迁移API密钥到安全存储"""

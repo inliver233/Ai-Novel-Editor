@@ -1,0 +1,18 @@
+{
+  "ai": {
+    "provider": "openai",
+    "model": "gpt-3.5-turbo",
+    "max_tokens": 1234,
+    "temperature": 0.9,
+    "api_key": ""
+  },
+  "theme": "light",
+  "rag": {
+    "enabled": true,
+    "base_url": "https://example.invalid/v1",
+    "cache": {
+      "enabled": true,
+      "ttl": 3600
+    }
+  }
+}
