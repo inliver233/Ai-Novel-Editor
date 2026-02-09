@@ -19,6 +19,7 @@ class DummyShared:
         self.current_project_path: Optional[Path] = None
         self.ai_manager = None
         self.documentSaved = _DummySignal()
+        self.documentMetaChanged = _DummySignal()
 
 
 class FakeConfig:

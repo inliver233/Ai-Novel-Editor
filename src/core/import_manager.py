@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from core.project import DocumentType, ProjectManager
 
 from core.project import DocumentType  # 直接导入用于运行时
+from .import_export.project.markdown import import_novel_from_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ class ImportOptions:
     chapter_pattern: str = r"^第[一二三四五六七八九十\d]+章"  # 章节识别模式
     create_project: bool = False  # 是否创建新项目
     project_name: Optional[str] = None
+    project_path: Optional[Path] = None  # create_project=True 时的新项目目录（可选）
 
 
 class ImportManager(QObject):
@@ -81,6 +83,27 @@ class ImportManager(QObject):
             self.importError.emit(str(e))
             return False
     
+    def _create_project_if_requested(self, options: ImportOptions) -> bool:
+        if not options.create_project:
+            return True
+
+        project_name = options.project_name or options.input_path.stem
+        project_dir = options.project_path
+        if project_dir is None:
+            project_dir = options.input_path.parent / project_name
+            if project_dir.exists() and any(project_dir.iterdir()):
+                project_dir = options.input_path.parent / f"{project_name}_imported"
+
+        if project_dir.exists() and any(project_dir.iterdir()):
+            self.importError.emit(f"目标目录非空: {project_dir}")
+            return False
+
+        if not self._project_manager.create_project(project_name, str(project_dir)):
+            self.importError.emit("创建项目失败")
+            return False
+
+        return True
+
     def _import_from_text(self, options: ImportOptions) -> bool:
         """从纯文本导入"""
         try:
@@ -89,11 +112,8 @@ class ImportManager(QObject):
                 content = f.read()
             
             # 如果需要创建新项目
-            if options.create_project:
-                project_name = options.project_name or options.input_path.stem
-                if not self._project_manager.create_project(project_name):
-                    self.importError.emit("创建项目失败")
-                    return False
+            if not self._create_project_if_requested(options):
+                return False
             
             # 如果不分割章节，作为单个文档导入
             if not options.split_chapters:
@@ -146,54 +166,17 @@ class ImportManager(QObject):
     def _import_from_markdown(self, options: ImportOptions) -> bool:
         """从Markdown导入"""
         try:
-            # 读取文件内容
-            with open(options.input_path, 'r', encoding=options.encoding) as f:
-                content = f.read()
-            
-            # 如果需要创建新项目
-            if options.create_project:
-                project_name = options.project_name or options.input_path.stem
-                if not self._project_manager.create_project(project_name):
-                    self.importError.emit("创建项目失败")
-                    return False
-            
-            # 解析Markdown结构
-            sections = self._parse_markdown_structure(content)
-            total = len(sections)
-            
-            # 创建文档
-            imported_count = 0
-            parent_map = {}  # 用于跟踪父文档ID
-            
-            for i, (level, title, section_content) in enumerate(sections):
-                self.importProgress.emit(i + 1, total)
-                
-                # 根据标题级别确定文档类型和父级
-                if level == 1:
-                    doc_type = DocumentType.ACT
-                    parent_id = None
-                elif level == 2:
-                    doc_type = DocumentType.CHAPTER
-                    parent_id = parent_map.get(1)  # 父级是最近的act
-                else:
-                    doc_type = DocumentType.SCENE
-                    parent_id = parent_map.get(2) or parent_map.get(1)  # 父级是最近的chapter或act
-                
-                # 创建文档
-                doc = self._project_manager.add_document(
-                    name=title,
-                    doc_type=doc_type,
-                    parent_id=parent_id
-                )
-                
-                if doc:
-                    # 更新文档内容
-                    self._project_manager.update_document(doc.id, content=section_content)
-                    imported_count += 1
-                    parent_map[level] = doc.id
-                else:
-                    logger.warning(f"创建文档失败: {title}")
-            
+            if not self._create_project_if_requested(options):
+                return False
+
+            imported_count = import_novel_from_markdown(
+                self._project_manager,
+                options.input_path,
+                encoding=options.encoding,
+                replace_existing=options.create_project,
+                progress_cb=lambda current, total: self.importProgress.emit(current, total),
+            )
+
             self.importCompleted.emit(imported_count)
             return imported_count > 0
             
@@ -215,11 +198,8 @@ class ImportManager(QObject):
             doc = Document(str(options.input_path))
             
             # 如果需要创建新项目
-            if options.create_project:
-                project_name = options.project_name or options.input_path.stem
-                if not self._project_manager.create_project(project_name):
-                    self.importError.emit("创建项目失败")
-                    return False
+            if not self._create_project_if_requested(options):
+                return False
             
             # 提取内容和结构
             sections = []

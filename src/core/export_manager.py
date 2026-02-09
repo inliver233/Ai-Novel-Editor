@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Any, List, Optional
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from .concurrent_io import FileIOWorker
+from .import_export.project.markdown import export_project_to_markdown
+from .import_export.project.traversal import collect_novel_documents
 
 if TYPE_CHECKING:
     from core.project import ProjectDocument, ProjectManager
@@ -89,32 +91,7 @@ class ExportManager(QObject):
     
     def _collect_documents(self, project: Any) -> List['ProjectDocument']:
         """收集要导出的文档（按顺序）"""
-        documents = []
-        doc_dict = project.documents
-        
-        # 构建父子关系映射
-        children_map = {}
-        root_docs = []
-        
-        for doc_id, doc in doc_dict.items():
-            # 只导出小说内容
-            if doc.doc_type.value in ['act', 'chapter', 'scene']:
-                if doc.parent_id:
-                    if doc.parent_id not in children_map:
-                        children_map[doc.parent_id] = []
-                    children_map[doc.parent_id].append(doc)
-                else:
-                    root_docs.append(doc)
-        
-        # 递归收集文档
-        def collect_recursive(doc_list: List, parent_id: Optional[str] = None):
-            for doc in sorted(doc_list, key=lambda d: d.order):
-                documents.append(doc)
-                if doc.id in children_map:
-                    collect_recursive(children_map[doc.id], doc.id)
-        
-        collect_recursive(root_docs)
-        return documents
+        return collect_novel_documents(project)
     
     def _export_to_text(self, project: Any, options: ExportOptions) -> bool:
         """导出为纯文本（非阻塞版本）"""
@@ -177,40 +154,16 @@ class ExportManager(QObject):
     def _export_to_markdown(self, project: Any, options: ExportOptions) -> bool:
         """导出为Markdown格式"""
         try:
-            documents = self._collect_documents(project)
-            total = len(documents)
-            
-            with open(options.output_path, 'w', encoding=options.encoding) as f:
-                # 写入元数据
-                if options.include_metadata:
-                    title = options.title or project.name
-                    author = options.author or project.author
-                    f.write(f"# {title}\n\n")
-                    f.write(f"**作者**: {author}\n\n")
-                    f.write("---\n\n")
-                
-                # 写入文档内容
-                for i, doc in enumerate(documents):
-                    self.exportProgress.emit(i + 1, total)
-                    
-                    # 写入标题（使用Markdown标题级别）
-                    if doc.doc_type.value == 'act':
-                        f.write(f"\n# 第{doc.order + 1}幕 {doc.name}\n\n")
-                    elif doc.doc_type.value == 'chapter':
-                        f.write(f"\n## 第{doc.order + 1}章 {doc.name}\n\n")
-                    elif doc.doc_type.value == 'scene':
-                        f.write(f"\n### 场景{doc.order + 1}：{doc.name}\n\n")
-                    
-                    # 写入内容
-                    if doc.content:
-                        # 处理特殊标记
-                        content = doc.content
-                        # 保留@标记
-                        content = content.replace('@', '**@') 
-                        content = content.replace('**@', '@')
-                        f.write(content)
-                        f.write("\n\n")
-            
+            export_project_to_markdown(
+                project,
+                options.output_path,
+                include_metadata=options.include_metadata,
+                encoding=options.encoding,
+                title=options.title,
+                author=options.author,
+                progress_cb=lambda current, total: self.exportProgress.emit(current, total),
+            )
+
             self.exportCompleted.emit(str(options.output_path))
             return True
             
