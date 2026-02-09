@@ -25,6 +25,7 @@ from core.project import ProjectManager
 from gui.main_window import MainWindow
 
 from core.log import configure_logging
+from core.perf_log import log_perf_event
 def setup_logging(config: Config | None = None):
     """设置日志系统"""
     log_dir = Path.home() / ".ai-novel-editor" / "logs"
@@ -79,6 +80,7 @@ def main():
 
         # 设置日志（支持从配置控制日志级别）
         setup_logging(config_instance)
+        log_perf_event("app_start")
         logger = logging.getLogger(__name__)
         logger.info("Starting AI Novel Editor...")
         shared_instance = Shared(config=config_instance)

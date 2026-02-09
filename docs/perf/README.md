@@ -64,5 +64,5 @@ Budgets are fixed targets: record baseline first, then iteratively compress.
 - ai_completion_mock: small/medium/large ≤ 800ms
 
 ## Recording (fixed)
-- Runtime perf log (JSON lines): (see below)
+- Runtime perf log (JSON lines): `~/.ai-novel-editor/logs/perf.log`
 - Repo-tracked baselines: (see below)
