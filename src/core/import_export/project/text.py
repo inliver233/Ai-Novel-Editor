@@ -11,6 +11,11 @@ from .traversal import collect_novel_documents
 from .utils import ensure_novel_root, remove_existing_novel_documents, strip_auto_numbering
 
 
+_ACT_HEADING_RE = re.compile(r"^第[一二三四五六七八九十百千\d]+幕\s+.+$")
+_CHAPTER_HEADING_RE = re.compile(r"^第[一二三四五六七八九十百千\d]+章\s+.+$")
+_SCENE_HEADING_RE = re.compile(r"^场景[一二三四五六七八九十百千\d]+：.+$")
+
+
 def export_project_to_text(
     project: ProjectData,
     output_path: Path,
@@ -69,16 +74,55 @@ def import_novel_from_text(
     progress_cb: Optional[ProgressCallback] = None,
 ) -> int:
     content = input_path.read_text(encoding=encoding)
-    chapters: List[Tuple[str, str]]
-
-    if split_chapters:
-        chapters = _split_chapters(content, chapter_pattern)
-    else:
-        chapters = [(input_path.stem, content)]
+    sections = _parse_exported_text_structure(content)
 
     novel_root_id = ensure_novel_root(manager)
     if replace_existing:
         remove_existing_novel_documents(manager)
+
+    if sections:
+        total = len(sections)
+        imported_count = 0
+        parent_map: dict[int, str] = {}
+
+        for idx, (level, raw_title, section_content) in enumerate(sections, 1):
+            if progress_cb:
+                progress_cb(idx, total)
+
+            if level <= 1:
+                doc_type = DocumentType.ACT
+                parent_id: Optional[str] = novel_root_id
+                parent_map = {}
+            elif level == 2:
+                doc_type = DocumentType.CHAPTER
+                parent_id = parent_map.get(1) or novel_root_id
+            else:
+                doc_type = DocumentType.SCENE
+                parent_id = parent_map.get(2) or parent_map.get(1) or novel_root_id
+
+            title = strip_auto_numbering(raw_title, doc_type=doc_type)
+            created = manager.add_document(title, doc_type, parent_id, save=False)
+            if not created:
+                continue
+
+            if section_content:
+                manager.update_document(created.id, content=section_content, save=False)
+
+            if doc_type == DocumentType.ACT:
+                parent_map[1] = created.id
+            elif doc_type == DocumentType.CHAPTER:
+                parent_map[2] = created.id
+
+            imported_count += 1
+
+        manager.save_project()
+        return imported_count
+
+    chapters: List[Tuple[str, str]]
+    if split_chapters:
+        chapters = _split_chapters(content, chapter_pattern)
+    else:
+        chapters = [(input_path.stem, content)]
 
     total = len(chapters)
     imported_count = 0
@@ -95,6 +139,55 @@ def import_novel_from_text(
 
     manager.save_project()
     return imported_count
+
+
+def _parse_exported_text_structure(content: str) -> List[Tuple[int, str, str]]:
+    sections: List[Tuple[int, str, str]] = []
+    current: Optional[Tuple[int, str]] = None
+    current_content: List[str] = []
+
+    for line in content.splitlines():
+        stripped = line.strip()
+        heading = _detect_heading(stripped)
+        if heading:
+            if current:
+                sections.append((current[0], current[1], "\n".join(current_content).strip()))
+                current_content = []
+            current = heading
+            continue
+
+        if current is None:
+            continue
+
+        if not stripped:
+            current_content.append(line)
+            continue
+
+        if stripped == "---":
+            continue
+        if set(stripped) <= {"="} and len(stripped) >= 10:
+            continue
+        if set(stripped) <= {"-"} and len(stripped) >= 10:
+            continue
+
+        current_content.append(line)
+
+    if current:
+        sections.append((current[0], current[1], "\n".join(current_content).strip()))
+
+    return sections
+
+
+def _detect_heading(line: str) -> Optional[Tuple[int, str]]:
+    if not line:
+        return None
+    if _ACT_HEADING_RE.match(line):
+        return (1, line)
+    if _CHAPTER_HEADING_RE.match(line):
+        return (2, line)
+    if _SCENE_HEADING_RE.match(line):
+        return (3, line)
+    return None
 
 
 def _split_chapters(content: str, pattern: str) -> List[Tuple[str, str]]:
@@ -123,4 +216,3 @@ def _split_chapters(content: str, pattern: str) -> List[Tuple[str, str]]:
             chapters.append((title, chapter_content))
 
     return chapters
-

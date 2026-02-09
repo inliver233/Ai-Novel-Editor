@@ -32,7 +32,7 @@ def export_project_to_pdf(
 
     try:
         from weasyprint import HTML
-    except ImportError as exc:
+    except Exception as exc:
         try:
             html_path.unlink(missing_ok=True)
         except Exception:
@@ -48,4 +48,3 @@ def export_project_to_pdf(
             pass
 
     return exported_count
-

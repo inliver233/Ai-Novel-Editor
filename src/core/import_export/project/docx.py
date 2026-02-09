@@ -89,6 +89,8 @@ def import_novel_from_docx(
 
     sections: List[Tuple[int, str, List[str]]] = []
     current_section: Optional[Tuple[int, str, List[str]]] = None
+    preamble: List[str] = []
+    saw_heading = False
 
     for para in doc.paragraphs:
         text = para.text.strip()
@@ -96,19 +98,26 @@ def import_novel_from_docx(
             continue
 
         if para.style.name.startswith("Heading"):
+            saw_heading = True
             if current_section:
                 sections.append(current_section)
 
             level = int(para.style.name[-1]) if para.style.name[-1].isdigit() else 1
             current_section = (level, text, [])
-        else:
-            if current_section:
-                current_section[2].append(text)
-            else:
-                current_section = (1, "导入内容", [text])
+            continue
+
+        if not saw_heading:
+            preamble.append(text)
+            continue
+
+        if current_section:
+            current_section[2].append(text)
 
     if current_section:
         sections.append(current_section)
+
+    if not sections and preamble:
+        sections = [(1, "导入内容", preamble)]
 
     novel_root_id = ensure_novel_root(manager)
     if replace_existing:
