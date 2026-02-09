@@ -65,6 +65,7 @@ Write-once reference list of start/end code locations for perf spans (so we don'
 
 ### open_project
 - Start: enter `ProjectController.on_open_project()` (see `src/gui/controllers/project_controller.py`)
+- End: after `project_structure_changed.emit()` and the UI becomes interactive (see `src/gui/controllers/project_controller.py`)
 
 ## UI freeze monitoring (tick jitter)
 - Measure UI "freeze" via a 60Hz `QTimer` and record tick-to-tick interval jitter.
