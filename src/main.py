@@ -6,7 +6,10 @@ AI Novel Editor - 主入口文件
 
 import sys
 import logging
+import os
+import threading
 from pathlib import Path
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QIcon
 
@@ -237,6 +240,44 @@ def main():
         main_window.show()
         
         logger.info("AI Novel Editor started successfully")
+
+        smoke_project_dir = os.environ.get("ANE_SMOKE_PROJECT", "").strip()
+        if smoke_project_dir:
+            logger.warning("SMOKE mode enabled via ANE_SMOKE_PROJECT=%s", smoke_project_dir)
+
+            state: dict[str, object] = {"done": False, "ok": None}
+
+            def _worker() -> None:
+                try:
+                    state["ok"] = bool(project_manager_instance.open_project(smoke_project_dir))
+                except Exception:
+                    logger.exception("SMOKE open_project failed")
+                    state["ok"] = False
+                finally:
+                    state["done"] = True
+
+            def _poll_and_exit() -> None:
+                if not state.get("done"):
+                    return
+                ok = bool(state.get("ok"))
+                logger.info("SMOKE open_project ok=%s", ok)
+                try:
+                    poll_timer.stop()
+                except Exception:
+                    pass
+                app.exit(0 if ok else 2)
+
+            poll_timer = QTimer()
+            poll_timer.timeout.connect(_poll_and_exit)
+            poll_timer.start(100)
+
+            try:
+                hard_timeout_ms = int(os.environ.get("ANE_SMOKE_TIMEOUT_MS", "60000"))
+            except Exception:
+                hard_timeout_ms = 60000
+            QTimer.singleShot(max(0, hard_timeout_ms), lambda: app.exit(3))
+
+            threading.Thread(target=_worker, name="ane-smoke-open-project", daemon=True).start()
         
         # 运行应用程序
         sys.exit(app.exec())

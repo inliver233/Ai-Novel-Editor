@@ -175,11 +175,20 @@ def configure_logging(
         return 
     
     logger.remove()
-    logger.add(
-        sys.stdout,
-        level=level,
-        format=format,
-    )
+    stdout_sink = sys.stdout
+    if stdout_sink is not None:
+        try:
+            # Avoid Windows console encoding issues (e.g. GBK) breaking logging on unicode/emojis.
+            if hasattr(stdout_sink, "reconfigure"):
+                stdout_sink.reconfigure(encoding="utf-8", errors="backslashreplace")
+        except Exception:
+            pass
+
+        logger.add(
+            stdout_sink,
+            level=level,
+            format=format,
+        )
     if log_file is not None:
         logger.add(
             log_file,

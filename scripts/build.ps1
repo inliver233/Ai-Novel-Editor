@@ -23,10 +23,10 @@ if ($null -ne $pyLauncher) {
 }
 
 function Invoke-Python {
-    param([string[]]$Args)
-    & $pythonExe @pythonPrefixArgs @Args
+    param([string[]]$PythonArgs)
+    & $pythonExe @pythonPrefixArgs @PythonArgs
     if ($LASTEXITCODE -ne 0) {
-        throw "Python command failed (exit=$LASTEXITCODE): $pythonExe $($pythonPrefixArgs -join ' ') $($Args -join ' ')"
+        throw "Python command failed (exit=$LASTEXITCODE): $pythonExe $($pythonPrefixArgs -join ' ') $($PythonArgs -join ' ')"
     }
 }
 
@@ -44,4 +44,3 @@ if (-not (Test-Path $SpecPath)) {
 
 Invoke-Python @("-m", "PyInstaller", "--noconfirm", "--clean", $SpecPath)
 Write-Host "Build done. Output: dist/"
-

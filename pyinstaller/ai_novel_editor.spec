@@ -5,7 +5,14 @@ from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files
 
-project_root = Path(__file__).resolve().parent.parent
+cwd = Path().resolve()
+if (cwd / "src" / "main.py").exists():
+    project_root = cwd
+elif (cwd.parent / "src" / "main.py").exists():
+    project_root = cwd.parent
+else:
+    raise RuntimeError(f"Cannot locate project root from cwd={cwd}")
+
 src_root = project_root / "src"
 
 datas = []
@@ -31,7 +38,7 @@ except Exception:
     pass
 
 a = Analysis(
-    ["src/main.py"],
+    [str(src_root / "main.py")],
     pathex=[str(project_root), str(src_root)],
     binaries=[],
     datas=datas,
@@ -67,4 +74,3 @@ coll = COLLECT(
     upx_exclude=[],
     name="AI-Novel-Editor",
 )
-

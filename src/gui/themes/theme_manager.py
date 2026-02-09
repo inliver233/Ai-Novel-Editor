@@ -179,14 +179,22 @@ class ThemeManager(QObject):
         
         try:
             import os
-            style_path = os.path.join(os.path.dirname(__file__), '../../resources/styles', filename)
-            with open(style_path, 'r', encoding='utf-8') as f:
+            import sys
+            from pathlib import Path
+
+            if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+                styles_dir = Path(sys._MEIPASS) / "src" / "resources" / "styles"
+            else:
+                styles_dir = (Path(__file__).resolve().parent / ".." / ".." / "resources" / "styles").resolve()
+
+            style_path = styles_dir / filename
+            with open(style_path, "r", encoding="utf-8") as f:
                 content = f.read()
                 # 缓存样式表内容
                 self._stylesheet_cache[filename] = content
                 return content
         except FileNotFoundError:
-            logger.error(f"样式文件未找到: {filename}")
+            logger.error(f"样式文件未找到: {filename} (styles_dir={styles_dir})")
             self._stylesheet_cache[filename] = ""
             return ""
         except Exception as e:
