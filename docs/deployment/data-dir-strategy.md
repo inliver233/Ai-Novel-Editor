@@ -36,6 +36,6 @@
 
 ## 实现状态
 
-- 当前已实现 installed 模式（`QStandardPaths`）。
-- portable 模式与代码落点在后续 10.1 子任务中实现（见 ANE-0274）。
-
+- installed：默认使用 `QStandardPaths`（现已实现）。
+- portable：`src/core/config.py` 已支持 `ANE_PORTABLE=1` 或 `<base>/portable.flag`，并将配置写入 `<base>/data/ai-novel-editor`。
+  - 备注：其它数据目录（如 logs/backups/codex_temp）会在 10.1 后续子任务中逐步对齐到同一 Data Root。

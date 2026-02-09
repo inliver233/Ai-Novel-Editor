@@ -5,6 +5,8 @@
 
 import json
 import logging
+import os
+import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -40,10 +42,39 @@ class Config:
     
     def _get_config_dir(self) -> Path:
         """获取配置目录"""
+        if self._is_portable_mode():
+            portable_root = self._get_portable_data_root()
+            if portable_root is not None:
+                return portable_root / "ai-novel-editor"
+
         config_dir = Path(QStandardPaths.writableLocation(
             QStandardPaths.StandardLocation.AppConfigLocation
         ))
         return config_dir / "ai-novel-editor"
+
+    def _is_portable_mode(self) -> bool:
+        value = os.environ.get("ANE_PORTABLE", "").strip().lower()
+        if value in {"1", "true", "yes", "on"}:
+            return True
+
+        marker = self._get_portable_marker_path()
+        return marker.exists()
+
+    def _get_portable_marker_path(self) -> Path:
+        base_dir = self._get_app_base_dir()
+        return base_dir / "portable.flag"
+
+    def _get_portable_data_root(self) -> Path | None:
+        base_dir = self._get_app_base_dir()
+        return base_dir / "data"
+
+    def _get_app_base_dir(self) -> Path:
+        try:
+            if getattr(sys, "frozen", False):
+                return Path(sys.executable).resolve().parent
+        except Exception:
+            pass
+        return Path.cwd()
     
     def _load_config(self):
         """加载配置文件"""
