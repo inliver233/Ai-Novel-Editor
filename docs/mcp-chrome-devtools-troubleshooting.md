@@ -6,13 +6,8 @@
 
 ## 1) 快速自检（先排除环境问题）
 
-1. 确认本地服务正常（推荐用一键冒烟脚本）：
-   - `pwsh scripts/dev-smoke.ps1`
-2. 确认页面可访问（浏览器手动打开）：
-   - `http://127.0.0.1:5173`
-3. 若端口被占用或启动失败：
-   - 先执行 `pwsh scripts/dev-smoke-stop.ps1`
-   - 再重试启动
+1. 确认目标页面可访问（浏览器手动打开），并能完成你要自动化的关键操作。
+2. 确认浏览器没有弹出阻塞对话框（权限、下载、提示等），否则先手动处理。
 
 ## 2) 复现步骤（可选，但建议至少做一次）
 
@@ -20,7 +15,7 @@
 
 1. 启动本地环境：
    - `pwsh scripts/dev-smoke.ps1`
-2. 用浏览器打开前端并完成一些页面切换（例如：项目列表 → 项目设置 → 模型配置 → 大纲）。
+2. 用浏览器打开目标页面并完成一些页面切换（尽量覆盖会用到的 Tab/弹窗/路由）。
 3. 在 Codex CLI 中连续执行多次 UI 发现/交互类调用（示例）：
    - `chrome-devtools:take_snapshot`
    - `chrome-devtools:list_network_requests`
@@ -51,25 +46,18 @@
 完成恢复后，建议用一次轻量调用确认恢复成功：
 - `chrome-devtools:take_snapshot` 或 `chrome-devtools:list_pages`
 
-## 4) Playwright 回退验证（必须可执行）
+## 4) Manual 回退验证（必须可执行）
 
-当 MCP 无法恢复或不稳定时，使用 Playwright 作为黑盒回退证据：
+当 MCP 无法恢复或不稳定时，用 **manual 回退** 留下可追溯证据：
 
-```powershell
-cd test
-npm test
-```
-
-期望结果：
-- 测试全部通过（或至少能稳定复现失败并产出可定位的报告/trace）
+1. 复现步骤最小化（3～6 步），写清楚“点击/输入/期望结果”。
+2. 在每一步后记录证据（至少其一）：
+   - `chrome-devtools:take_screenshot`（关键页面/弹窗）
+   - `chrome-devtools:list_console_messages`（JS 错误/警告）
+   - `chrome-devtools:list_network_requests`（关键请求是否发出/失败）
 
 ## 5) 清理（避免端口/进程残留）
 
-完成排障后：
-
-```powershell
-pwsh scripts/dev-smoke-stop.ps1
-```
-
-确保端口释放：`4010/8000/5173` 均无监听。
-
+完成排障后，关闭无用页面（避免下次选择上下文误选旧页面）：
+- `chrome-devtools:list_pages`
+- `chrome-devtools:close_page`

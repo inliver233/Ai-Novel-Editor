@@ -118,7 +118,7 @@ process.terminate()
 This “black-box helper + examples” pattern is ideal for:
 - E2E test harnesses
 - Local integration test harnesses
-- UI testing via Playwright/Cypress
+- UI testing via browser automation (E2E)
 
 ---
 
