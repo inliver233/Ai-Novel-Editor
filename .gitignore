@@ -209,7 +209,12 @@ Thumbs.db
 # 构建输出
 build/
 dist/
-# PyInstaller spec files are tracked (see EPIC 10.1 packaging work)
+
+# PyInstaller spec files:
+# - ignore generated specs by default
+# - whitelist the repo-tracked spec under pyinstaller/
+*.spec
+!pyinstaller/ai_novel_editor.spec
 
 # 日志文件
 *.log
