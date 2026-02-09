@@ -492,8 +492,54 @@ class DynamicPromptGenerator:
         user_prefs = context_data.get("user_preferences", {})
         prompt_context.word_count = user_prefs.get("preferred_word_count", 300)
         prompt_context.context_size = 500 if mode == "balanced" else (300 if mode == "fast" else 800)
+
+        # 将已收集的 RAG/Codex 作为“来源明确的上下文数据”注入（避免重复检索）
+        rag_context = context_data.get("rag_context", "")
+        if isinstance(rag_context, str) and rag_context.strip():
+            prompt_context.rag_context = rag_context
+
+        codex_facts = self._format_codex_facts(context_data.get("codex_context", []))
+        if codex_facts:
+            prompt_context.auto_variables["codex_facts"] = codex_facts
         
         return prompt_context
+
+    @staticmethod
+    def _format_codex_facts(codex_context: Any) -> List[Dict[str, Any]]:
+        """Format Codex context as structured facts payload (for template injection)."""
+        if not isinstance(codex_context, list) or not codex_context:
+            return []
+
+        facts: List[Dict[str, Any]] = []
+        for entry in codex_context:
+            if not isinstance(entry, dict):
+                continue
+
+            title = str(entry.get("title") or "").strip()
+            if not title:
+                continue
+
+            entry_type = str(entry.get("type") or "").strip()
+            description = str(entry.get("description") or "").strip()
+            if len(description) > 200:
+                description = description[:200] + "..."
+
+            facts.append(
+                {
+                    "title": title,
+                    "type": entry_type,
+                    "description": description,
+                    "is_global": bool(entry.get("is_global", False)),
+                }
+            )
+
+            if len(facts) >= 5:
+                break
+
+        if not facts:
+            return []
+
+        return facts
     
     def _enhance_text_with_context(self, base_text: str, context_data: Dict[str, Any]) -> str:
         """使用上下文数据增强文本"""

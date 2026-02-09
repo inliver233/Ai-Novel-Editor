@@ -424,8 +424,10 @@ class SinglePromptManager(QObject):
         """加载基础提示词模板"""
         return """你是一个专业的小说写作助手，专门帮助作家创作高质量的小说内容。
 
-**当前写作上下文**：
+**用户输入（小说正文/上下文）**：
+```text
 {current_text}
+```
 
 **写作要求**：
 {style_guidance}
@@ -438,6 +440,8 @@ class SinglePromptManager(QObject):
 - 叙述阶段：{narrative_flow}
 
 {rag_context}
+
+{codex_facts}
 
 **检测到的角色/地点**：{detected_entities}
 
@@ -552,8 +556,19 @@ class SinglePromptManager(QObject):
         }
         
         # 2. RAG上下文检索 (如果可用)
-        rag_context = self._get_rag_context(context.text, context.cursor_position)
+        rag_context = ""
+        if getattr(context, "rag_context", ""):
+            rag_context = context.rag_context
+        else:
+            rag_context = self._get_rag_context(context.text, context.cursor_position)
         template_context["rag_context"] = rag_context
+
+        # 2.5 扩展变量（用于注入 Codex 等结构化事实）
+        template_context["codex_facts"] = ""
+        auto_vars = getattr(context, "auto_variables", None)
+        if isinstance(auto_vars, dict) and auto_vars:
+            template_context.update(auto_vars)
+        template_context.setdefault("codex_facts", "")
         
         # 3. 实体检测
         entities = self._detect_entities(context.text, context.cursor_position)
