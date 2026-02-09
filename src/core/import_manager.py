@@ -4,7 +4,6 @@
 """
 
 import logging
-import re
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -17,6 +16,8 @@ if TYPE_CHECKING:
 
 from core.project import DocumentType  # 直接导入用于运行时
 from .import_export.project.markdown import import_novel_from_markdown
+from .import_export.project.text import import_novel_from_text
+from .import_export.project.docx import import_novel_from_docx
 
 logger = logging.getLogger(__name__)
 
@@ -107,54 +108,19 @@ class ImportManager(QObject):
     def _import_from_text(self, options: ImportOptions) -> bool:
         """从纯文本导入"""
         try:
-            # 读取文件内容
-            with open(options.input_path, 'r', encoding=options.encoding) as f:
-                content = f.read()
-            
-            # 如果需要创建新项目
             if not self._create_project_if_requested(options):
                 return False
-            
-            # 如果不分割章节，作为单个文档导入
-            if not options.split_chapters:
-                doc_name = options.input_path.stem
-                doc = self._project_manager.add_document(
-                    name=doc_name,
-                    doc_type=DocumentType.SCENE,
-                    parent_id=None
-                )
-                if doc:
-                    # 更新文档内容
-                    self._project_manager.update_document(doc.id, content=content)
-                    self.importCompleted.emit(1)
-                    return True
-                else:
-                    self.importError.emit("创建文档失败")
-                    return False
-            
-            # 分割章节
-            chapters = self._split_chapters(content, options.chapter_pattern)
-            total = len(chapters)
-            
-            # 创建章节文档
-            imported_count = 0
-            for i, (title, chapter_content) in enumerate(chapters):
-                self.importProgress.emit(i + 1, total)
-                
-                # 创建章节
-                doc = self._project_manager.add_document(
-                    name=title,
-                    doc_type=DocumentType.CHAPTER,
-                    parent_id=None
-                )
-                
-                if doc:
-                    # 更新文档内容
-                    self._project_manager.update_document(doc.id, content=chapter_content)
-                    imported_count += 1
-                else:
-                    logger.warning(f"创建章节失败: {title}")
-            
+
+            imported_count = import_novel_from_text(
+                self._project_manager,
+                options.input_path,
+                encoding=options.encoding,
+                split_chapters=options.split_chapters,
+                chapter_pattern=options.chapter_pattern,
+                replace_existing=options.create_project,
+                progress_cb=lambda current, total: self.importProgress.emit(current, total),
+            )
+
             self.importCompleted.emit(imported_count)
             return imported_count > 0
             
@@ -188,83 +154,15 @@ class ImportManager(QObject):
     def _import_from_docx(self, options: ImportOptions) -> bool:
         """从Word文档导入"""
         try:
-            from docx import Document
-        except ImportError:
-            self.importError.emit("需要安装python-docx库: pip install python-docx")
-            return False
-        
-        try:
-            # 打开Word文档
-            doc = Document(str(options.input_path))
-            
-            # 如果需要创建新项目
             if not self._create_project_if_requested(options):
                 return False
-            
-            # 提取内容和结构
-            sections = []
-            current_section = None
-            
-            for para in doc.paragraphs:
-                text = para.text.strip()
-                if not text:
-                    continue
-                
-                # 检查是否是标题
-                if para.style.name.startswith('Heading'):
-                    # 保存之前的章节
-                    if current_section:
-                        sections.append(current_section)
-                    
-                    # 获取标题级别
-                    level = int(para.style.name[-1]) if para.style.name[-1].isdigit() else 1
-                    current_section = (level, text, [])
-                else:
-                    # 添加到当前章节内容
-                    if current_section:
-                        current_section[2].append(text)
-                    else:
-                        # 如果没有标题，创建默认章节
-                        current_section = (1, "导入内容", [text])
-            
-            # 保存最后一个章节
-            if current_section:
-                sections.append(current_section)
-            
-            # 创建文档
-            total = len(sections)
-            imported_count = 0
-            parent_map = {}
-            
-            for i, (level, title, paragraphs) in enumerate(sections):
-                self.importProgress.emit(i + 1, total)
-                
-                # 合并段落
-                content = '\n\n'.join(paragraphs)
-                
-                # 根据级别确定文档类型
-                if level == 1:
-                    doc_type = DocumentType.ACT
-                    parent_id = None
-                elif level == 2:
-                    doc_type = DocumentType.CHAPTER
-                    parent_id = parent_map.get(1)
-                else:
-                    doc_type = DocumentType.SCENE
-                    parent_id = parent_map.get(2) or parent_map.get(1)
-                
-                # 创建文档
-                doc = self._project_manager.add_document(
-                    name=title,
-                    doc_type=doc_type,
-                    parent_id=parent_id
-                )
-                
-                if doc:
-                    # 更新文档内容
-                    self._project_manager.update_document(doc.id, content=content)
-                    imported_count += 1
-                    parent_map[level] = doc.id
+
+            imported_count = import_novel_from_docx(
+                self._project_manager,
+                options.input_path,
+                replace_existing=options.create_project,
+                progress_cb=lambda current, total: self.importProgress.emit(current, total),
+            )
             
             self.importCompleted.emit(imported_count)
             return imported_count > 0
@@ -273,81 +171,6 @@ class ImportManager(QObject):
             logger.error(f"导入Word文档失败: {e}")
             self.importError.emit(f"导入Word文档失败: {e}")
             return False
-    
-    def _split_chapters(self, content: str, pattern: str) -> List[Tuple[str, str]]:
-        """分割章节"""
-        chapters = []
-        
-        # 编译正则表达式
-        chapter_regex = re.compile(pattern, re.MULTILINE)
-        
-        # 查找所有章节标题
-        matches = list(chapter_regex.finditer(content))
-        
-        if not matches:
-            # 没有找到章节，作为单个章节返回
-            return [("导入内容", content)]
-        
-        # 提取每个章节
-        for i, match in enumerate(matches):
-            # 章节标题
-            title_start = match.start()
-            title_end = content.find('\n', title_start)
-            if title_end == -1:
-                title_end = len(content)
-            title = content[title_start:title_end].strip()
-            
-            # 章节内容
-            content_start = title_end + 1
-            if i < len(matches) - 1:
-                content_end = matches[i + 1].start()
-            else:
-                content_end = len(content)
-            
-            chapter_content = content[content_start:content_end].strip()
-            
-            if title and chapter_content:
-                chapters.append((title, chapter_content))
-        
-        return chapters
-    
-    def _parse_markdown_structure(self, content: str) -> List[Tuple[int, str, str]]:
-        """解析Markdown结构"""
-        sections = []
-        lines = content.split('\n')
-        
-        current_section = None
-        current_content = []
-        
-        for line in lines:
-            # 检查是否是标题
-            if line.startswith('#'):
-                # 保存之前的章节
-                if current_section:
-                    sections.append((
-                        current_section[0],
-                        current_section[1],
-                        '\n'.join(current_content).strip()
-                    ))
-                    current_content = []
-                
-                # 解析标题级别
-                level = len(line) - len(line.lstrip('#'))
-                title = line.lstrip('#').strip()
-                current_section = (level, title)
-            else:
-                # 添加到内容
-                current_content.append(line)
-        
-        # 保存最后一个章节
-        if current_section:
-            sections.append((
-                current_section[0],
-                current_section[1],
-                '\n'.join(current_content).strip()
-            ))
-        
-        return sections
     
     def _import_project(self, options: ImportOptions) -> bool:
         """导入项目文件"""

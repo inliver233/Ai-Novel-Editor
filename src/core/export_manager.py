@@ -11,8 +11,11 @@ from typing import TYPE_CHECKING, Any, List, Optional
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from .concurrent_io import FileIOWorker
+from .import_export.project.docx import export_project_to_docx
+from .import_export.project.html import export_project_to_html
 from .import_export.project.markdown import export_project_to_markdown
+from .import_export.project.pdf import export_project_to_pdf
+from .import_export.project.text import export_project_to_text
 from .import_export.project.traversal import collect_novel_documents
 
 if TYPE_CHECKING:
@@ -94,56 +97,20 @@ class ExportManager(QObject):
         return collect_novel_documents(project)
     
     def _export_to_text(self, project: Any, options: ExportOptions) -> bool:
-        """导出为纯文本（非阻塞版本）"""
+        """导出为纯文本"""
         try:
-            documents = self._collect_documents(project)
-            total = len(documents)
-            
-            # 准备内容
-            content_parts = []
-            
-            # 添加标题和作者信息
-            if options.include_metadata:
-                title = options.title or project.name
-                author = options.author or project.author
-                content_parts.append(f"{title}\n")
-                content_parts.append(f"作者：{author}\n")
-                content_parts.append("\n" + "="*50 + "\n\n")
-            
-            # 生成文档内容
-            for i, doc in enumerate(documents):
-                self.exportProgress.emit(i + 1, total)
-                
-                # 添加章节标题
-                if doc.doc_type.value == 'act':
-                    content_parts.append(f"\n第{doc.order + 1}幕 {doc.name}\n")
-                    content_parts.append("="*30 + "\n\n")
-                elif doc.doc_type.value == 'chapter':
-                    content_parts.append(f"\n第{doc.order + 1}章 {doc.name}\n")
-                    content_parts.append("-"*30 + "\n\n")
-                elif doc.doc_type.value == 'scene':
-                    content_parts.append(f"\n场景{doc.order + 1}：{doc.name}\n\n")
-                
-                # 添加内容
-                if doc.content:
-                    content_parts.append(doc.content)
-                    content_parts.append("\n")
-                
-                # 章节分隔
-                if doc.doc_type.value in ['act', 'chapter']:
-                    content_parts.append(options.chapter_break)
-            
-            # 合并所有内容
-            full_content = ''.join(content_parts)
-            
-            # 使用非阻塞写入
-            worker = FileIOWorker('write', options.output_path, 
-                                data=full_content, encoding=options.encoding, 
-                                parent=self)
-            worker.finished.connect(lambda: self.exportCompleted.emit(str(options.output_path)))
-            worker.error.connect(lambda e: self.exportError.emit(f"导出文本失败: {e}"))
-            worker.start()
-            
+            export_project_to_text(
+                project,
+                options.output_path,
+                include_metadata=options.include_metadata,
+                chapter_break=options.chapter_break,
+                encoding=options.encoding,
+                title=options.title,
+                author=options.author,
+                progress_cb=lambda current, total: self.exportProgress.emit(current, total),
+            )
+
+            self.exportCompleted.emit(str(options.output_path))
             return True
             
         except Exception as e:
@@ -175,69 +142,15 @@ class ExportManager(QObject):
     def _export_to_docx(self, project: Any, options: ExportOptions) -> bool:
         """导出为Word文档"""
         try:
-            from docx import Document
-            from docx.enum.text import WD_ALIGN_PARAGRAPH
-            from docx.shared import Pt
-        except ImportError:
-            self.exportError.emit("需要安装python-docx库: pip install python-docx")
-            return False
-        
-        try:
-            documents = self._collect_documents(project)
-            total = len(documents)
-            
-            # 创建Word文档
-            doc = Document()
-            
-            # 设置标题和作者
-            if options.include_metadata:
-                title = options.title or project.name
-                author = options.author or project.author
-                
-                # 标题
-                title_para = doc.add_paragraph()
-                title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                title_run = title_para.add_run(title)
-                title_run.font.size = Pt(24)
-                title_run.bold = True
-                
-                # 作者
-                author_para = doc.add_paragraph()
-                author_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                author_run = author_para.add_run(f"作者：{author}")
-                author_run.font.size = Pt(14)
-                
-                # 分页
-                doc.add_page_break()
-            
-            # 写入文档内容
-            for i, document in enumerate(documents):
-                self.exportProgress.emit(i + 1, total)
-                
-                # 添加标题
-                if document.doc_type.value == 'act':
-                    doc.add_heading(f"第{document.order + 1}幕 {document.name}", level=1)
-                elif document.doc_type.value == 'chapter':
-                    doc.add_heading(f"第{document.order + 1}章 {document.name}", level=2)
-                elif document.doc_type.value == 'scene':
-                    doc.add_heading(f"场景{document.order + 1}：{document.name}", level=3)
-                
-                # 添加内容
-                if document.content:
-                    # 按段落分割
-                    paragraphs = document.content.split('\n')
-                    for para_text in paragraphs:
-                        if para_text.strip():
-                            para = doc.add_paragraph(para_text)
-                            para.paragraph_format.first_line_indent = Pt(24)  # 首行缩进
-                
-                # 章节之间添加分页
-                if document.doc_type.value in ['act', 'chapter'] and i < len(documents) - 1:
-                    doc.add_page_break()
-            
-            # 保存文档
-            doc.save(str(options.output_path))
-            
+            export_project_to_docx(
+                project,
+                options.output_path,
+                include_metadata=options.include_metadata,
+                title=options.title,
+                author=options.author,
+                progress_cb=lambda current, total: self.exportProgress.emit(current, total),
+            )
+
             self.exportCompleted.emit(str(options.output_path))
             return True
             
@@ -249,44 +162,18 @@ class ExportManager(QObject):
     def _export_to_pdf(self, project: Any, options: ExportOptions) -> bool:
         """导出为PDF（通过HTML转换）"""
         try:
-            # 先导出为HTML
-            html_path = options.output_path.with_suffix('.html')
-            html_options = ExportOptions(
-                format=ExportFormat.HTML,
-                output_path=html_path,
+            export_project_to_pdf(
+                project,
+                options.output_path,
                 include_metadata=options.include_metadata,
+                encoding=options.encoding,
                 title=options.title,
-                author=options.author
+                author=options.author,
+                progress_cb=lambda current, total: self.exportProgress.emit(current, total),
             )
-            
-            if not self._export_to_html(project, html_options):
-                return False
-            
-            # 使用weasyprint转换为PDF
-            try:
-                from weasyprint import HTML
-                HTML(filename=str(html_path)).write_pdf(str(options.output_path))
-                
-                # 删除临时HTML文件
-                if html_path.exists():
-                    html_path.unlink()
-                
-                self.exportCompleted.emit(str(options.output_path))
-                return True
-                
-            except ImportError:
-                # 清理临时文件
-                if html_path.exists():
-                    html_path.unlink()
-                self.exportError.emit("需要安装weasyprint库: pip install weasyprint")
-                return False
-            except Exception as weasy_error:
-                # 清理临时文件
-                if html_path.exists():
-                    html_path.unlink()
-                self.exportError.emit(f"PDF转换失败: {weasy_error}")
-                return False
-                
+
+            self.exportCompleted.emit(str(options.output_path))
+            return True
         except Exception as e:
             logger.error(f"导出PDF失败: {e}")
             self.exportError.emit(f"导出PDF失败: {e}")
@@ -295,86 +182,16 @@ class ExportManager(QObject):
     def _export_to_html(self, project: Any, options: ExportOptions) -> bool:
         """导出为HTML"""
         try:
-            documents = self._collect_documents(project)
-            total = len(documents)
-            
-            with open(options.output_path, 'w', encoding=options.encoding) as f:
-                # HTML头部
-                f.write("""<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-""")
-                
-                title = options.title or project.name
-                f.write(f"    <title>{title}</title>\n")
-                
-                # 添加样式
-                f.write("""    <style>
-        body {
-            font-family: "Microsoft YaHei", "SimSun", serif;
-            line-height: 1.8;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
-        .content {
-            background-color: white;
-            padding: 40px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        }
-        h1 { text-align: center; margin-bottom: 30px; }
-        h2 { margin-top: 40px; margin-bottom: 20px; }
-        h3 { margin-top: 30px; margin-bottom: 15px; }
-        p { text-indent: 2em; margin: 10px 0; }
-        .author { text-align: center; font-size: 18px; margin-bottom: 50px; }
-        .chapter-break { margin: 50px 0; text-align: center; }
-    </style>
-</head>
-<body>
-    <div class="content">
-""")
-                
-                # 标题和作者
-                if options.include_metadata:
-                    author = options.author or project.author
-                    f.write(f"        <h1>{title}</h1>\n")
-                    f.write(f"        <p class='author'>作者：{author}</p>\n")
-                
-                # 写入内容
-                for i, doc in enumerate(documents):
-                    self.exportProgress.emit(i + 1, total)
-                    
-                    # 写入标题
-                    if doc.doc_type.value == 'act':
-                        f.write(f"        <h1>第{doc.order + 1}幕 {doc.name}</h1>\n")
-                    elif doc.doc_type.value == 'chapter':
-                        f.write(f"        <h2>第{doc.order + 1}章 {doc.name}</h2>\n")
-                    elif doc.doc_type.value == 'scene':
-                        f.write(f"        <h3>场景{doc.order + 1}：{doc.name}</h3>\n")
-                    
-                    # 写入内容
-                    if doc.content:
-                        paragraphs = doc.content.split('\n')
-                        for para in paragraphs:
-                            if para.strip():
-                                # 转义HTML字符
-                                para = para.replace('&', '&amp;')
-                                para = para.replace('<', '&lt;')
-                                para = para.replace('>', '&gt;')
-                                f.write(f"        <p>{para}</p>\n")
-                    
-                    # 章节分隔
-                    if doc.doc_type.value in ['act', 'chapter'] and i < len(documents) - 1:
-                        f.write("        <div class='chapter-break'>* * *</div>\n")
-                
-                # HTML结尾
-                f.write("""    </div>
-</body>
-</html>""")
-            
+            export_project_to_html(
+                project,
+                options.output_path,
+                include_metadata=options.include_metadata,
+                encoding=options.encoding,
+                title=options.title,
+                author=options.author,
+                progress_cb=lambda current, total: self.exportProgress.emit(current, total),
+            )
+
             self.exportCompleted.emit(str(options.output_path))
             return True
             

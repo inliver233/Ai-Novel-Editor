@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
 from core.project import DocumentType, ProjectData, ProjectManager
 
 from .traversal import collect_novel_documents
+from .utils import (
+    ensure_novel_root,
+    looks_like_act_heading,
+    remove_existing_novel_documents,
+    strip_auto_numbering,
+)
 
 ProgressCallback = Callable[[int, int], None]
-
-
-_ACT_PREFIX_RE = re.compile(r"^第[一二三四五六七八九十百千\d]+幕\s+")
-_CHAPTER_PREFIX_RE = re.compile(r"^第[一二三四五六七八九十百千\d]+章\s+")
-_SCENE_PREFIX_RE = re.compile(r"^场景[一二三四五六七八九十百千\d]+：")
 
 
 def export_project_to_markdown(
@@ -73,10 +73,10 @@ def import_novel_from_markdown(
     if not project:
         raise RuntimeError("No active project to import into")
 
-    novel_root_id = _ensure_novel_root(manager)
+    novel_root_id = ensure_novel_root(manager)
 
     if replace_existing:
-        _remove_existing_novel_documents(manager)
+        remove_existing_novel_documents(manager)
 
     imported_count = 0
     total = len(sections)
@@ -97,7 +97,7 @@ def import_novel_from_markdown(
             doc_type = DocumentType.SCENE
             parent_id = parent_map.get(2) or parent_map.get(1) or novel_root_id
 
-        title = _strip_auto_numbering(raw_title, doc_type=doc_type)
+        title = strip_auto_numbering(raw_title, doc_type=doc_type)
         created = manager.add_document(title, doc_type, parent_id, save=False)
         if not created:
             raise RuntimeError(f"Failed to create document: {title}")
@@ -169,45 +169,4 @@ def _is_export_metadata_header(sections: List[Tuple[int, str, str]]) -> bool:
     if next_level != 1:
         return False
 
-    return bool(_ACT_PREFIX_RE.match(next_title))
-
-
-def _strip_auto_numbering(title: str, *, doc_type: DocumentType) -> str:
-    stripped = title.strip()
-    if doc_type == DocumentType.ACT:
-        stripped = _ACT_PREFIX_RE.sub("", stripped)
-    elif doc_type == DocumentType.CHAPTER:
-        stripped = _CHAPTER_PREFIX_RE.sub("", stripped)
-    elif doc_type == DocumentType.SCENE:
-        stripped = _SCENE_PREFIX_RE.sub("", stripped)
-    return stripped.strip() or title.strip()
-
-
-def _ensure_novel_root(manager: ProjectManager) -> str:
-    project = manager.get_current_project()
-    if not project:
-        raise RuntimeError("No active project")
-
-    for doc in project.documents.values():
-        if doc.doc_type == DocumentType.ROOT and doc.parent_id is None and doc.name == "小说":
-            return doc.id
-
-    created = manager.add_document("小说", DocumentType.ROOT, None, save=False)
-    if not created:
-        raise RuntimeError("Failed to create novel root")
-    return created.id
-
-
-def _remove_existing_novel_documents(manager: ProjectManager) -> None:
-    project = manager.get_current_project()
-    if not project:
-        return
-
-    to_remove = [
-        doc_id
-        for doc_id, doc in project.documents.items()
-        if doc.doc_type in {DocumentType.ACT, DocumentType.CHAPTER, DocumentType.SCENE}
-    ]
-    for doc_id in to_remove:
-        project.documents.pop(doc_id, None)
-
+    return looks_like_act_heading(next_title)
