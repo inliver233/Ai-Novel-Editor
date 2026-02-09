@@ -2,7 +2,7 @@
 
 本文件定义 **spacing / font / radius** 的最小可复用规则，用于在 PyQt6 的 QSS（Qt StyleSheet）中保持一致的视觉与交互手感。
 
-> 说明：这是执行阶段补齐的最小版本，优先覆盖 Codex/Editor 相关控件；后续可在 13.1 批次扩展为完整组件库规范。
+配套的组件库规范见：`docs/ui/components.md`。
 
 ## Spacing（px）
 | Token | Value | 用途示例 |
@@ -37,4 +37,3 @@
 3) 列表项（QListWidget::item）
 4) 按钮（例如“新建”按钮）
 5) 空状态（无数据提示）
-
