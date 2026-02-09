@@ -21,3 +21,9 @@ All datasets are generated via `tools.generate_benchmark_project` and contain **
 ## Output constraints
 - Output must be a **valid project directory** (contains at least `project.db`).
 - Must not contain any real user content; generated text is synthetic.
+
+## Metrics (measured per dataset)
+- **cold_start**: process start → main window `show()` completed
+- **open_project**: open project action → project tree + editor becomes interactive
+- **outline_refresh**: trigger outline refresh → refresh completed
+- **ai_completion_mock**: trigger completion → UI renders a suggestion (ghost/inline/popup)
