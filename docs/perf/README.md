@@ -61,6 +61,7 @@ Write-once reference list of start/end code locations for perf spans (so we don'
 
 ### cold_start
 - Start: enter `main()` (see `src/main.py`, `def main()`)
+- End: after `main_window.show()` returns (see `src/main.py`)
 
 ## UI freeze monitoring (tick jitter)
 - Measure UI "freeze" via a 60Hz `QTimer` and record tick-to-tick interval jitter.
