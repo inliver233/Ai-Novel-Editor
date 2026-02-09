@@ -14,6 +14,8 @@ from PyQt6.QtWidgets import (
     QLabel, QDialogButtonBox
 )
 from PyQt6.QtCore import Qt, pyqtSlot, QThread
+from PyQt6.QtCore import QUrl
+from PyQt6.QtGui import QDesktopServices
 
 from core.export_manager import ExportManager, ExportFormat, ExportOptions
 
@@ -264,16 +266,11 @@ class ExportDialog(QDialog):
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            import os
-            import platform
-            
             try:
-                if platform.system() == 'Windows':
-                    os.startfile(output_path)
-                elif platform.system() == 'Darwin':  # macOS
-                    os.system(f'open "{output_path}"')
-                else:  # Linux
-                    os.system(f'xdg-open "{output_path}"')
+                url = QUrl.fromLocalFile(str(output_path))
+                ok = QDesktopServices.openUrl(url)
+                if not ok:
+                    QMessageBox.warning(self, "警告", "无法打开文件（系统未能处理该路径）")
             except Exception as e:
                 QMessageBox.warning(self, "警告", f"无法打开文件: {e}")
         
