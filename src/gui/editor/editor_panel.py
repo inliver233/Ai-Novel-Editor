@@ -8,7 +8,7 @@ from typing import Optional, Dict, Any
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, 
     QPushButton, QToolButton, QSplitter, QTabWidget,
-    QProgressBar, QStatusBar
+    QProgressBar, QStatusBar, QSizePolicy
 )
 from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QTimer
 from PyQt6.QtGui import QFont, QIcon
@@ -188,7 +188,6 @@ class EditorPanel(QWidget):
         """创建状态栏"""
         frame = QFrame()
         frame.setFrameStyle(QFrame.Shape.NoFrame)
-        frame.setMaximumHeight(30)
         
         layout = QHBoxLayout(frame)
         layout.setContentsMargins(8, 4, 8, 4)
@@ -224,6 +223,10 @@ class EditorPanel(QWidget):
                 padding: 2px 8px;
             }
         """)
+
+        # Avoid hard-coded max heights (DPI/font scaling can cause clipping).
+        frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        frame.setMinimumHeight(max(26, frame.sizeHint().height()))
         
         return frame
     

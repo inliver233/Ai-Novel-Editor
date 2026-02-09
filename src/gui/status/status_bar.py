@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout, QFrame, QSizePolicy
 )
 from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QTimer, QPropertyAnimation, QEasingCurve
-from PyQt6.QtGui import QFont, QPalette
+from PyQt6.QtGui import QFont, QFontMetrics, QPalette
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +33,11 @@ class StatusIndicator(QLabel):
                 border-right: 1px solid #e1e4e8;
             }
         """)
-        
-        # 设置固定高度
-        self.setFixedHeight(22)
+
+        # Avoid hard-coded fixed heights (DPI/font scaling can cause clipping).
+        min_height = max(22, QFontMetrics(self.font()).height() + 8)
+        self.setMinimumHeight(min_height)
+        self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         
     def set_status(self, text: str, color: str = "#656d76"):
         """设置状态"""
@@ -166,9 +168,11 @@ class AIStatusWidget(QWidget):
         self._config_btn.setToolTip("AI配置")
         self._config_btn.clicked.connect(self.aiConfigRequested.emit)
         layout.addWidget(self._config_btn)
-        
-        # 设置固定高度
-        self.setFixedHeight(22)
+
+        # Avoid hard-coded fixed heights (DPI/font scaling can cause clipping).
+        min_height = max(22, QFontMetrics(self._ai_status.font()).height() + 8)
+        self.setMinimumHeight(min_height)
+        self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
     
     def _setup_animations(self):
         """设置动画"""
@@ -282,8 +286,27 @@ class EnhancedStatusBar(QStatusBar):
         # 移除硬编码样式，使用主题样式
         # 状态栏样式现在由主题管理器控制
 
-        # 设置固定高度
-        self.setFixedHeight(26)
+        # Avoid hard-coded fixed heights (DPI/font scaling can cause clipping).
+        candidate_heights = []
+        try:
+            candidate_heights.extend(
+                [
+                    self._main_message.sizeHint().height(),
+                    self._cursor_position_label.minimumSizeHint().height(),
+                    self._progress_indicator.minimumSizeHint().height(),
+                    self._word_count_label.minimumSizeHint().height(),
+                    self._char_count_label.minimumSizeHint().height(),
+                    self._paragraph_count_label.minimumSizeHint().height(),
+                    self._doc_status_label.minimumSizeHint().height(),
+                    self._ai_status_widget.minimumSizeHint().height(),
+                ]
+            )
+        except Exception:  # noqa: BLE001
+            candidate_heights = []
+
+        min_height = max([26, *candidate_heights]) if candidate_heights else 26
+        self.setMinimumHeight(min_height)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
     
     def show_message(self, message: str, timeout: int = 0):
         """显示主要消息"""
