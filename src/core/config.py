@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -34,6 +35,8 @@ class Config:
         self._config_file = self._config_dir / "config.json"
         self._settings = QSettings()
         self._config_data = {}
+        self._batch_depth = 0
+        self._dirty = False
         
         # 确保配置目录存在
         self._config_dir.mkdir(parents=True, exist_ok=True)
@@ -187,7 +190,7 @@ class Config:
             value = self._store_api_key_from_config(section, self._config_data[section], value)
 
         self._config_data[section][key] = value
-        self._save_config()
+        self._mark_dirty()
     
     def get_section(self, section: str) -> Dict[str, Any]:
         """获取整个配置段"""
@@ -200,11 +203,13 @@ class Config:
             config["api_key"] = self._store_api_key_from_config(section, config, config.get("api_key", ""))
 
         self._config_data[section] = config
-        self._save_config()
+        self._mark_dirty()
 
     def save(self):
         """保存配置（公共方法）"""
-        self._save_config()
+        ok = self._save_config()
+        if ok:
+            self._dirty = False
 
     def _save_config(self):
         """保存配置到文件"""
@@ -212,8 +217,31 @@ class Config:
             with open(self._config_file, 'w', encoding='utf-8') as f:
                 json.dump(self._config_data, f, indent=2, ensure_ascii=False)
             logger.debug("Config saved successfully")
+            return True
         except Exception as e:
             logger.error(f"Failed to save config: {e}")
+            return False
+
+    def _mark_dirty(self) -> None:
+        """Mark config as dirty and persist based on batching policy."""
+        self._dirty = True
+        if self._batch_depth > 0:
+            return
+
+        if self._save_config():
+            self._dirty = False
+
+    @contextmanager
+    def batch_update(self):
+        """Batch multiple updates and persist once on exit."""
+        self._batch_depth += 1
+        try:
+            yield self
+        finally:
+            self._batch_depth = max(0, self._batch_depth - 1)
+            if self._batch_depth == 0 and self._dirty:
+                if self._save_config():
+                    self._dirty = False
     
     def get_rag_config(self) -> Dict[str, Any]:
         """获取RAG配置"""

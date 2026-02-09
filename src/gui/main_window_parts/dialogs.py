@@ -137,12 +137,10 @@ class MainWindowDialogsMixin:
                     'entity_detection': advanced_settings.get('entity_detection', True)
                 }
                 
-                # 批量更新配置
-                for key, value in ai_config_updates.items():
-                    self._config.set('ai', key, value)
-                
-                # 一次性保存
-                self._config.save()
+                # 批量更新配置（避免每次 set 都落盘）
+                with self._config.batch_update():
+                    for key, value in ai_config_updates.items():
+                        self._config.set('ai', key, value)
                 logger.info("AI写作提示词配置已保存到配置文件")
                 
         except Exception as e:

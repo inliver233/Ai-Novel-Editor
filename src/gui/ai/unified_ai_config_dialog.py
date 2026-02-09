@@ -1322,73 +1322,66 @@ class UnifiedAIConfigDialog(QDialog):
                 provider_display = api_config.get('provider', 'OpenAI')
                 provider_internal = provider_mapping.get(provider_display, 'custom')
                 
-                # 保存API配置
-                self._config.set('ai', 'provider', provider_internal)
-                self._config.set('ai', 'api_key', api_config.get('api_key', ''))
-                self._config.set('ai', 'endpoint_url', api_config.get('api_base', ''))
-                self._config.set('ai', 'model', api_config.get('model', ''))
-                self._config.set('ai', 'temperature', api_config.get('temperature', 0.8))
-                self._config.set('ai', 'top_p', api_config.get('top_p', 0.9))
-                self._config.set('ai', 'max_tokens', api_config.get('max_tokens', 2000))
-                self._config.set('ai', 'timeout', api_config.get('timeout', 30))
-                
-                # 保存补全设置
-                # 映射补全模式到内部标识
-                mode_mapping = {
-                    '自动AI补全': 'auto_ai',
-                    '手动AI补全': 'manual_ai',
-                    '禁用补全': 'disabled'
-                }
-                
-                context_mapping = {
-                    '快速模式 (<2K tokens)': 'fast',
-                    '平衡模式 (2-8K tokens)': 'balanced',
-                    '全局模式 (200K+ tokens)': 'full'
-                }
-                
-                mode_display = completion_settings.get('completion_mode', '手动AI补全')  # 修复：默认手动模式
-                mode_internal = mode_mapping.get(mode_display, 'auto_ai')
-                
-                context_display = completion_settings.get('context_mode', '平衡模式 (2-8K tokens)')
-                context_internal = context_mapping.get(context_display, 'balanced')
-                
-                self._config.set('ai', 'completion_enabled', completion_settings.get('completion_enabled', True))
-                self._config.set('ai', 'auto_suggestions', completion_settings.get('auto_trigger_enabled', True))
-                self._config.set('ai', 'punctuation_assist', completion_settings.get('punctuation_assist', True))
-                self._config.set('ai', 'completion_delay', completion_settings.get('trigger_delay', 500))
-                self._config.set('ai', 'completion_mode', mode_internal)
-                self._config.set('ai', 'context_mode', context_internal)  # 新增上下文模式
-                self._config.set('ai', 'min_chars', completion_settings.get('min_chars', 3))
-                self._config.set('ai', 'context_length', completion_settings.get('context_length', 500))
-                self._config.set('ai', 'completion_length', completion_settings.get('completion_length', 80))
-                self._config.set('ai', 'stream_response', completion_settings.get('stream_response', True))
-                self._config.set('ai', 'show_confidence', completion_settings.get('show_confidence', True))
-                
-                # 保存RAG配置
-                self._config.set_section('rag', rag_config)
-                
-                # 保存增强提示词配置
-                self._config.set_section('prompt', prompt_config)
-                
-                # 保存大纲AI配置
-                if outline_config:
-                    self._config._config_data['outline'] = outline_config
-                    logger.debug("Saved outline AI config to config file")
-                
-                # 保存配置文件
-                self._config.save()
-                
-                # 同步更新RAG配置的API key
-                api_config = full_config.get('api', {})
-                if api_config.get('api_key'):
-                    rag_config = self._config.get_section('rag')
-                    if not rag_config:
-                        rag_config = {}
-                    rag_config['api_key'] = api_config['api_key']
-                    self._config.set_section('rag', rag_config)
-                    self._config.save()
-                    logger.info("同步更新RAG配置的API key")
-                
+                api_key = api_config.get('api_key', '')
+
+                # 批量更新配置（避免每次 set 都立即落盘）
+                with self._config.batch_update():
+                    # 保存API配置
+                    self._config.set('ai', 'provider', provider_internal)
+                    self._config.set('ai', 'api_key', api_key)
+                    self._config.set('ai', 'endpoint_url', api_config.get('api_base', ''))
+                    self._config.set('ai', 'model', api_config.get('model', ''))
+                    self._config.set('ai', 'temperature', api_config.get('temperature', 0.8))
+                    self._config.set('ai', 'top_p', api_config.get('top_p', 0.9))
+                    self._config.set('ai', 'max_tokens', api_config.get('max_tokens', 2000))
+                    self._config.set('ai', 'timeout', api_config.get('timeout', 30))
+
+                    # 保存补全设置
+                    # 映射补全模式到内部标识
+                    mode_mapping = {
+                        '自动AI补全': 'auto_ai',
+                        '手动AI补全': 'manual_ai',
+                        '禁用补全': 'disabled'
+                    }
+
+                    context_mapping = {
+                        '快速模式 (<2K tokens)': 'fast',
+                        '平衡模式 (2-8K tokens)': 'balanced',
+                        '全局模式 (200K+ tokens)': 'full'
+                    }
+
+                    mode_display = completion_settings.get('completion_mode', '手动AI补全')  # 修复：默认手动模式
+                    mode_internal = mode_mapping.get(mode_display, 'auto_ai')
+
+                    context_display = completion_settings.get('context_mode', '平衡模式 (2-8K tokens)')
+                    context_internal = context_mapping.get(context_display, 'balanced')
+
+                    self._config.set('ai', 'completion_enabled', completion_settings.get('completion_enabled', True))
+                    self._config.set('ai', 'auto_suggestions', completion_settings.get('auto_trigger_enabled', True))
+                    self._config.set('ai', 'punctuation_assist', completion_settings.get('punctuation_assist', True))
+                    self._config.set('ai', 'completion_delay', completion_settings.get('trigger_delay', 500))
+                    self._config.set('ai', 'completion_mode', mode_internal)
+                    self._config.set('ai', 'context_mode', context_internal)  # 新增上下文模式
+                    self._config.set('ai', 'min_chars', completion_settings.get('min_chars', 3))
+                    self._config.set('ai', 'context_length', completion_settings.get('context_length', 500))
+                    self._config.set('ai', 'completion_length', completion_settings.get('completion_length', 80))
+                    self._config.set('ai', 'stream_response', completion_settings.get('stream_response', True))
+                    self._config.set('ai', 'show_confidence', completion_settings.get('show_confidence', True))
+
+                    # 保存RAG配置（兼容：同步更新 RAG 的 api_key）
+                    rag_to_save = dict(rag_config or {})
+                    if api_key:
+                        rag_to_save['api_key'] = api_key
+                    self._config.set_section('rag', rag_to_save)
+
+                    # 保存增强提示词配置
+                    self._config.set_section('prompt', prompt_config)
+
+                    # 保存大纲AI配置
+                    if outline_config:
+                        self._config.set_section('outline', outline_config)
+                        logger.debug("Saved outline AI config to config file")
+            
             # 发送配置保存信号
             self.configSaved.emit(full_config)
             
