@@ -52,3 +52,4 @@ All datasets are generated via `tools.generate_benchmark_project` and contain **
 ## UI freeze monitoring (tick jitter)
 - Measure UI "freeze" via a 60Hz `QTimer` and record tick-to-tick interval jitter.
 - Record: maximum tick interval (milliseconds).
+- Budget (idle/light interaction): maximum tick interval ≤ 120ms.
