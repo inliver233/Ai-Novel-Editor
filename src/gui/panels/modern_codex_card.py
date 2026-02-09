@@ -17,6 +17,8 @@ if TYPE_CHECKING:
 
 import logging
 
+from gui.themes.ui_tokens import FONT, RADIUS, SPACING
+
 logger = logging.getLogger(__name__)
 
 
@@ -25,7 +27,7 @@ class QFlowLayout(QHBoxLayout):
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setSpacing(4)
+        self.setSpacing(SPACING.xs)
         
     def addWidget(self, widget):
         """添加组件"""
@@ -58,9 +60,9 @@ class ModernTagWidget(QLabel):
             QLabel {{
                 background-color: {color};
                 color: white;
-                padding: 2px 8px;
-                border-radius: 10px;
-                font-size: 10px;
+                padding: {SPACING.xs}px {SPACING.sm}px;
+                border-radius: {RADIUS.pill}px;
+                font-size: {FONT.sm}px;
                 font-weight: bold;
                 margin: 1px;
             }}
@@ -106,8 +108,8 @@ class ModernCodexCard(QFrame):
 
         # 主布局
         self.main_layout = QVBoxLayout(self)
-        self.main_layout.setContentsMargins(12, 10, 12, 10)
-        self.main_layout.setSpacing(8)
+        self.main_layout.setContentsMargins(SPACING.md, SPACING.sm, SPACING.md, SPACING.sm)
+        self.main_layout.setSpacing(SPACING.sm)
 
         # 创建头部（标题行）
         self._create_header()
@@ -183,19 +185,21 @@ class ModernCodexCard(QFrame):
         # 展开/收起按钮
         self.expand_btn = QToolButton()
         self.expand_btn.setText("▼")
-        self.expand_btn.setStyleSheet("""
-            QToolButton {
+        self.expand_btn.setStyleSheet(
+            f"""
+            QToolButton {{
                 border: none;
                 background: transparent;
-                font-size: 12px;
+                font-size: {FONT.lg}px;
                 color: #3498DB;
-                padding: 2px;
-            }
-            QToolButton:hover {
+                padding: {SPACING.xs}px;
+            }}
+            QToolButton:hover {{
                 background-color: #ECF0F1;
-                border-radius: 4px;
-            }
-        """)
+                border-radius: {RADIUS.sm}px;
+            }}
+            """
+        )
         self.expand_btn.clicked.connect(self._toggle_expand)
         right_layout.addWidget(self.expand_btn)
         
@@ -208,22 +212,24 @@ class ModernCodexCard(QFrame):
         self.content_frame = QFrame()
         self.content_frame.setVisible(False)
         self.content_layout = QVBoxLayout(self.content_frame)
-        self.content_layout.setContentsMargins(0, 5, 0, 0)
-        self.content_layout.setSpacing(8)
+        self.content_layout.setContentsMargins(0, SPACING.xs, 0, 0)
+        self.content_layout.setSpacing(SPACING.sm)
         
-        # 完整描述
+            # 完整描述
         if self.entry.description and len(self.entry.description) > 80:
             full_desc = QLabel(self.entry.description)
-            full_desc.setStyleSheet("""
-                QLabel {
+            full_desc.setStyleSheet(
+                f"""
+                QLabel {{
                     color: #34495E;
-                    font-size: 11px;
+                    font-size: {FONT.md}px;
                     background-color: #F8F9FA;
-                    padding: 8px;
-                    border-radius: 6px;
+                    padding: {SPACING.sm}px;
+                    border-radius: {RADIUS.md}px;
                     border-left: 3px solid #3498DB;
-                }
-            """)
+                }}
+                """
+            )
             full_desc.setWordWrap(True)
             self.content_layout.addWidget(full_desc)
         
@@ -246,18 +252,20 @@ class ModernCodexCard(QFrame):
         aliases_frame = QFrame()
         aliases_layout = QVBoxLayout(aliases_frame)
         aliases_layout.setContentsMargins(0, 0, 0, 0)
-        aliases_layout.setSpacing(4)
+        aliases_layout.setSpacing(SPACING.xs)
         
         # 别名标题
         aliases_title = QLabel("📝 别名")
-        aliases_title.setStyleSheet("""
-            QLabel {
-                font-size: 11px;
+        aliases_title.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: {FONT.md}px;
                 font-weight: bold;
                 color: #E67E22;
                 margin-bottom: 2px;
-            }
-        """)
+            }}
+            """
+        )
         aliases_layout.addWidget(aliases_title)
         
         # 别名标签流式布局
@@ -279,18 +287,20 @@ class ModernCodexCard(QFrame):
         relations_frame = QFrame()
         relations_layout = QVBoxLayout(relations_frame)
         relations_layout.setContentsMargins(0, 0, 0, 0)
-        relations_layout.setSpacing(4)
+        relations_layout.setSpacing(SPACING.xs)
         
         # 关系标题
         relations_title = QLabel("🔗 关系")
-        relations_title.setStyleSheet("""
-            QLabel {
-                font-size: 11px;
+        relations_title.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: {FONT.md}px;
                 font-weight: bold;
                 color: #9B59B6;
                 margin-bottom: 2px;
-            }
-        """)
+            }}
+            """
+        )
         relations_layout.addWidget(relations_title)
         
         # 关系列表（最多显示前3个）
@@ -303,28 +313,32 @@ class ModernCodexCard(QFrame):
                 
                 rel_text = f"{rel_type} → {target_entry.title}"
                 rel_label = QLabel(rel_text)
-                rel_label.setStyleSheet("""
-                    QLabel {
-                        font-size: 10px;
+                rel_label.setStyleSheet(
+                    f"""
+                    QLabel {{
+                        font-size: {FONT.sm}px;
                         color: #7F8C8D;
-                        padding: 2px 4px;
+                        padding: {SPACING.xs}px {SPACING.xs}px;
                         background-color: #F8F9FA;
-                        border-radius: 3px;
+                        border-radius: {RADIUS.sm}px;
                         margin: 1px 0;
-                    }
-                """)
+                    }}
+                    """
+                )
                 relations_layout.addWidget(rel_label)
         
         # 如果关系超过3个，显示更多提示
         if len(self.entry.relationships) > 3:
             more_label = QLabel(f"...还有{len(self.entry.relationships) - 3}个关系")
-            more_label.setStyleSheet("""
-                QLabel {
-                    font-size: 9px;
+            more_label.setStyleSheet(
+                f"""
+                QLabel {{
+                    font-size: {FONT.xs}px;
                     color: #BDC3C7;
                     font-style: italic;
-                }
-            """)
+                }}
+                """
+            )
             relations_layout.addWidget(more_label)
         
         self.content_layout.addWidget(relations_frame)
@@ -337,18 +351,20 @@ class ModernCodexCard(QFrame):
         progress_frame = QFrame()
         progress_layout = QVBoxLayout(progress_frame)
         progress_layout.setContentsMargins(0, 0, 0, 0)
-        progress_layout.setSpacing(4)
+        progress_layout.setSpacing(SPACING.xs)
         
         # 进展标题
         progress_title = QLabel(f"📈 发展历程 ({len(self.entry.progression)}个事件)")
-        progress_title.setStyleSheet("""
-            QLabel {
-                font-size: 11px;
+        progress_title.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: {FONT.md}px;
                 font-weight: bold;
                 color: #27AE60;
                 margin-bottom: 2px;
-            }
-        """)
+            }}
+            """
+        )
         progress_layout.addWidget(progress_title)
         
         # 最近的进展事件（按时间排序，显示最新的2个）
@@ -364,16 +380,18 @@ class ModernCodexCard(QFrame):
             event_text = f"[{event_type}] {description}"
             
             event_label = QLabel(self._truncate_text(event_text, 60))
-            event_label.setStyleSheet("""
-                QLabel {
-                    font-size: 10px;
+            event_label.setStyleSheet(
+                f"""
+                QLabel {{
+                    font-size: {FONT.sm}px;
                     color: #7F8C8D;
-                    padding: 2px 4px;
+                    padding: {SPACING.xs}px {SPACING.xs}px;
                     background-color: #F8F9FA;
-                    border-radius: 3px;
+                    border-radius: {RADIUS.sm}px;
                     margin: 1px 0;
-                }
-            """)
+                }}
+                """
+            )
             progress_layout.addWidget(event_label)
         
         self.content_layout.addWidget(progress_frame)
@@ -383,82 +401,90 @@ class ModernCodexCard(QFrame):
         actions_frame = QFrame()
         actions_frame.setVisible(False)
         actions_layout = QHBoxLayout(actions_frame)
-        actions_layout.setContentsMargins(0, 5, 0, 0)
-        actions_layout.setSpacing(8)
+        actions_layout.setContentsMargins(0, SPACING.xs, 0, 0)
+        actions_layout.setSpacing(SPACING.sm)
         
         # 编辑按钮
         edit_btn = QPushButton("编辑")
-        edit_btn.setStyleSheet("""
-            QPushButton {
+        edit_btn.setStyleSheet(
+            f"""
+            QPushButton {{
                 background-color: #3498DB;
                 color: white;
                 border: none;
-                padding: 6px 12px;
-                border-radius: 4px;
-                font-size: 10px;
+                padding: {SPACING.xs}px {SPACING.sm}px;
+                border-radius: {RADIUS.sm}px;
+                font-size: {FONT.sm}px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
+            }}
+            QPushButton:hover {{
                 background-color: #2980B9;
-            }
-        """)
+            }}
+            """
+        )
         edit_btn.clicked.connect(lambda: self.entryEdit.emit(self.entry.id))
         actions_layout.addWidget(edit_btn)
         
         # 别名管理按钮
         aliases_btn = QPushButton("别名")
-        aliases_btn.setStyleSheet("""
-            QPushButton {
+        aliases_btn.setStyleSheet(
+            f"""
+            QPushButton {{
                 background-color: #E67E22;
                 color: white;
                 border: none;
-                padding: 6px 12px;
-                border-radius: 4px;
-                font-size: 10px;
+                padding: {SPACING.xs}px {SPACING.sm}px;
+                border-radius: {RADIUS.sm}px;
+                font-size: {FONT.sm}px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
+            }}
+            QPushButton:hover {{
                 background-color: #D35400;
-            }
-        """)
+            }}
+            """
+        )
         aliases_btn.clicked.connect(lambda: self.aliasesEdit.emit(self.entry.id))
         actions_layout.addWidget(aliases_btn)
         
         # 关系管理按钮
         relations_btn = QPushButton("关系")
-        relations_btn.setStyleSheet("""
-            QPushButton {
+        relations_btn.setStyleSheet(
+            f"""
+            QPushButton {{
                 background-color: #9B59B6;
                 color: white;
                 border: none;
-                padding: 6px 12px;
-                border-radius: 4px;
-                font-size: 10px;
+                padding: {SPACING.xs}px {SPACING.sm}px;
+                border-radius: {RADIUS.sm}px;
+                font-size: {FONT.sm}px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
+            }}
+            QPushButton:hover {{
                 background-color: #8E44AD;
-            }
-        """)
+            }}
+            """
+        )
         relations_btn.clicked.connect(lambda: self.relationshipsEdit.emit(self.entry.id))
         actions_layout.addWidget(relations_btn)
         
         # 进展管理按钮
         progress_btn = QPushButton("进展")
-        progress_btn.setStyleSheet("""
-            QPushButton {
+        progress_btn.setStyleSheet(
+            f"""
+            QPushButton {{
                 background-color: #27AE60;
                 color: white;
                 border: none;
-                padding: 6px 12px;
-                border-radius: 4px;
-                font-size: 10px;
+                padding: {SPACING.xs}px {SPACING.sm}px;
+                border-radius: {RADIUS.sm}px;
+                font-size: {FONT.sm}px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
+            }}
+            QPushButton:hover {{
                 background-color: #229954;
-            }
-        """)
+            }}
+            """
+        )
         progress_btn.clicked.connect(lambda: self.progressionEdit.emit(self.entry.id))
         actions_layout.addWidget(progress_btn)
         
@@ -466,20 +492,22 @@ class ModernCodexCard(QFrame):
         
         # 删除按钮
         delete_btn = QPushButton("删除")
-        delete_btn.setStyleSheet("""
-            QPushButton {
+        delete_btn.setStyleSheet(
+            f"""
+            QPushButton {{
                 background-color: #E74C3C;
                 color: white;
                 border: none;
-                padding: 6px 12px;
-                border-radius: 4px;
-                font-size: 10px;
+                padding: {SPACING.xs}px {SPACING.sm}px;
+                border-radius: {RADIUS.sm}px;
+                font-size: {FONT.sm}px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
+            }}
+            QPushButton:hover {{
                 background-color: #C0392B;
-            }
-        """)
+            }}
+            """
+        )
         delete_btn.clicked.connect(lambda: self.entryDelete.emit(self.entry.id))
         actions_layout.addWidget(delete_btn)
         
@@ -532,34 +560,38 @@ class ModernCodexCard(QFrame):
 
         if is_dark_theme:
             # 深色主题样式
-            self.setStyleSheet("""
-                ModernCodexCard {
+            self.setStyleSheet(
+                f"""
+                ModernCodexCard {{
                     background-color: #2D3748;
                     border: 1px solid #4A5568;
-                    border-radius: 12px;
-                    margin: 4px;
+                    border-radius: {RADIUS.md}px;
+                    margin: {SPACING.xs}px;
                     color: #E2E8F0;
-                }
-                ModernCodexCard:hover {
+                }}
+                ModernCodexCard:hover {{
                     border-color: #63B3ED;
                     background-color: #364153;
-                }
-            """)
+                }}
+                """
+            )
         else:
             # 浅色主题样式
-            self.setStyleSheet("""
-                ModernCodexCard {
+            self.setStyleSheet(
+                f"""
+                ModernCodexCard {{
                     background-color: #FFFFFF;
                     border: 1px solid #E0E0E0;
-                    border-radius: 12px;
-                    margin: 4px;
+                    border-radius: {RADIUS.md}px;
+                    margin: {SPACING.xs}px;
                     color: #2D3748;
-                }
-                ModernCodexCard:hover {
+                }}
+                ModernCodexCard:hover {{
                     border-color: #3498DB;
                     background-color: #F8F9FA;
-                }
-            """)
+                }}
+                """
+            )
 
     def _is_dark_theme(self) -> bool:
         """检查当前是否为深色主题"""
@@ -616,42 +648,50 @@ class ModernCodexCard(QFrame):
         is_dark_theme = self._is_dark_theme()
 
         if is_dark_theme:
-            self.title_label.setStyleSheet("""
-                QLabel {
-                    font-size: 14px;
+            self.title_label.setStyleSheet(
+                f"""
+                QLabel {{
+                    font-size: {FONT.xl}px;
                     font-weight: bold;
                     color: #E2E8F0;
-                }
-            """)
+                }}
+                """
+            )
         else:
-            self.title_label.setStyleSheet("""
-                QLabel {
-                    font-size: 14px;
+            self.title_label.setStyleSheet(
+                f"""
+                QLabel {{
+                    font-size: {FONT.xl}px;
                     font-weight: bold;
                     color: #2C3E50;
-                }
-            """)
+                }}
+                """
+            )
 
     def _apply_desc_style(self):
         """应用描述样式"""
         is_dark_theme = self._is_dark_theme()
 
         if is_dark_theme:
-            self.desc_label.setStyleSheet("""
-                QLabel {
+            self.desc_label.setStyleSheet(
+                f"""
+                QLabel {{
                     color: #A0AEC0;
-                    font-size: 11px;
+                    font-size: {FONT.md}px;
                     line-height: 1.3;
-                }
-            """)
+                }}
+                """
+            )
         else:
-            self.desc_label.setStyleSheet("""
-                QLabel {
+            self.desc_label.setStyleSheet(
+                f"""
+                QLabel {{
                     color: #7F8C8D;
-                    font-size: 11px;
+                    font-size: {FONT.md}px;
                     line-height: 1.3;
-                }
-            """)
+                }}
+                """
+            )
 
     def _update_content(self):
         """更新卡片内容"""

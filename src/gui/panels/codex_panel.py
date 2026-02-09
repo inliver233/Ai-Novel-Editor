@@ -23,7 +23,13 @@ if TYPE_CHECKING:
 
 from core.codex_manager import CodexEntryType
 from ..services.qt_codex_adapter import QtCodexAdapter
-from .modern_codex_card import ModernCodexCard
+from ..themes.ui_tokens import FONT, RADIUS, SPACING
+from .codex_panel_parts import (
+    CodexCardView,
+    CodexFiltersWidget,
+    CodexListView,
+    CodexStatsView,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -266,9 +272,6 @@ class CodexPanel(QWidget):
         self._qt_codex_adapter = QtCodexAdapter(codex_manager, parent=self) if codex_manager else None
         self._reference_detector = reference_detector
         
-        self._current_filter = None  # 当前过滤类型
-        self._search_text = ""       # 搜索文本
-        
         self._init_ui()
         self._init_signals()
         self._apply_panel_theme()
@@ -280,8 +283,8 @@ class CodexPanel(QWidget):
     def _init_ui(self):
         """初始化UI"""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 6, 6, 6)
-        layout.setSpacing(4)
+        layout.setContentsMargins(SPACING.sm, SPACING.sm, SPACING.sm, SPACING.sm)
+        layout.setSpacing(SPACING.xs)
         
         # 标题栏
         title_frame = self._create_title_frame()
@@ -305,17 +308,19 @@ class CodexPanel(QWidget):
         frame.setFrameStyle(QFrame.Shape.NoFrame)
         
         layout = QHBoxLayout(frame)
-        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setContentsMargins(SPACING.xs, SPACING.xs, SPACING.xs, SPACING.xs)
         
         # 标题
         title_label = QLabel("📚 Codex知识库")
-        title_label.setStyleSheet("""
-            QLabel {
-                font-size: 12px;
+        title_label.setStyleSheet(
+            f"""
+            QLabel {{
+                font-size: {FONT.lg}px;
                 font-weight: bold;
-                padding: 2px;
-            }
-        """)
+                padding: {SPACING.xs}px;
+            }}
+            """
+        )
         layout.addWidget(title_label)
         
         layout.addStretch()
@@ -323,309 +328,64 @@ class CodexPanel(QWidget):
         # 新建按钮
         self._new_btn = QPushButton("新建")
         self._new_btn.setFixedSize(50, 24)
-        self._new_btn.setStyleSheet("""
-            QPushButton {
+        self._new_btn.setStyleSheet(
+            f"""
+            QPushButton {{
                 background-color: #3498DB;
                 color: white;
                 border: none;
-                border-radius: 4px;
-                font-size: 10px;
+                border-radius: {RADIUS.sm}px;
+                font-size: {FONT.sm}px;
                 font-weight: bold;
-            }
-            QPushButton:hover {
+                padding: {SPACING.xs}px {SPACING.sm}px;
+            }}
+            QPushButton:hover {{
                 background-color: #2980B9;
-            }
-        """)
+            }}
+            """
+        )
         layout.addWidget(self._new_btn)
         
         return frame
 
-    def _create_control_frame(self) -> QFrame:
-        """创建增强的控制栏"""
-        frame = QFrame()
-        frame.setFrameStyle(QFrame.Shape.NoFrame)
-        
-        layout = QVBoxLayout(frame)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-        
-        # 搜索栏（增强版）
-        search_group = QGroupBox("🔍 智能搜索")
-        self._search_group = search_group  # 保存引用以便主题更新
-        self._apply_search_group_theme()  # 应用主题样式
-        search_layout = QVBoxLayout(search_group)
-        search_layout.setSpacing(4)
-        
-        # 主搜索框
-        search_row = QHBoxLayout()
-        self._search_input = QLineEdit()
-        self._search_input.setPlaceholderText("搜索标题、描述、别名...")
-        self._apply_search_input_theme()  # 应用主题样式
-        search_row.addWidget(self._search_input)
-        
-        # 清除搜索按钮
-        clear_btn = QPushButton("✕")
-        clear_btn.setFixedSize(30, 30)
-        clear_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #E74C3C;
-                color: white;
-                border: none;
-                border-radius: 15px;
-                font-size: 12px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #C0392B;
-            }
-        """)
-        clear_btn.clicked.connect(self._clear_search)
-        search_row.addWidget(clear_btn)
-        
-        search_layout.addLayout(search_row)
-        
-        # 搜索选项
-        search_options = QHBoxLayout()
-        
-        # 搜索范围选择
-        search_scope_group = QButtonGroup(self)
-        
-        self._search_all_radio = QRadioButton("全部")
-        self._search_all_radio.setChecked(True)
-        search_scope_group.addButton(self._search_all_radio)
-        search_options.addWidget(self._search_all_radio)
-        
-        self._search_title_radio = QRadioButton("仅标题")
-        search_scope_group.addButton(self._search_title_radio)
-        search_options.addWidget(self._search_title_radio)
-        
-        self._search_desc_radio = QRadioButton("仅描述")
-        search_scope_group.addButton(self._search_desc_radio)
-        search_options.addWidget(self._search_desc_radio)
-        
-        self._search_alias_radio = QRadioButton("仅别名")
-        search_scope_group.addButton(self._search_alias_radio)
-        search_options.addWidget(self._search_alias_radio)
-        
-        # 样式化单选按钮
-        self._radio_buttons = [self._search_all_radio, self._search_title_radio,
-                              self._search_desc_radio, self._search_alias_radio]
-        self._apply_radio_theme()  # 应用主题样式
-        
-        search_options.addStretch()
-        search_layout.addLayout(search_options)
-        layout.addWidget(search_group)
-        
-        # 过滤栏（增强版）
-        filter_group = QGroupBox("🎛️ 高级过滤")
-        filter_group.setStyleSheet("""
-            QGroupBox {
-                font-size: 11px;
-                font-weight: bold;
-                color: #2C3E50;
-                border: 1px solid #BDC3C7;
-                border-radius: 6px;
-                margin-top: 8px;
-                padding-top: 4px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 8px;
-                padding: 0 4px 0 4px;
-            }
-        """)
-        filter_layout = QVBoxLayout(filter_group)
-        filter_layout.setSpacing(6)
-        
-        # 第一行：类型和状态过滤
-        filter_row1 = QHBoxLayout()
-        
-        # 类型过滤
-        filter_row1.addWidget(QLabel("类型:"))
-        self._type_filter = QComboBox()
-        self._type_filter.addItem("全部类型", None)
-        for entry_type in CodexEntryType:
-            self._type_filter.addItem(f"{entry_type.value}", entry_type)
-        self._type_filter.setStyleSheet("""
-            QComboBox {
-                padding: 4px 8px;
-                border: 1px solid #BDC3C7;
-                border-radius: 4px;
-                font-size: 10px;
-                min-width: 80px;
-            }
-        """)
-        filter_row1.addWidget(self._type_filter)
-        
-        filter_row1.addSpacing(10)
-        
-        # 状态过滤复选框
-        self._global_only_check = QCheckBox("🌐 仅全局")
-        self._has_aliases_check = QCheckBox("📝 有别名")
-        self._has_relations_check = QCheckBox("🔗 有关系")
-        self._has_progression_check = QCheckBox("📈 有进展")
-        
-        checkbox_style = """
-            QCheckBox {
-                font-size: 10px;
-                color: #34495E;
-                spacing: 4px;
-            }
-            QCheckBox::indicator {
-                width: 14px;
-                height: 14px;
-                border-radius: 3px;
-                border: 1px solid #BDC3C7;
-            }
-            QCheckBox::indicator:checked {
-                background-color: #3498DB;
-                border-color: #3498DB;
-            }
-        """
-        
-        for checkbox in [self._global_only_check, self._has_aliases_check,
-                        self._has_relations_check, self._has_progression_check]:
-            checkbox.setStyleSheet(checkbox_style)
-            filter_row1.addWidget(checkbox)
-        
-        filter_row1.addStretch()
-        filter_layout.addLayout(filter_row1)
-        
-        # 第二行：关系和进展数量过滤
-        filter_row2 = QHBoxLayout()
-        
-        # 别名数量过滤
-        filter_row2.addWidget(QLabel("别名数:"))
-        self._alias_count_min = QSpinBox()
-        self._alias_count_min.setRange(0, 99)
-        self._alias_count_min.setStyleSheet("font-size: 10px; max-width: 50px;")
-        filter_row2.addWidget(self._alias_count_min)
-        filter_row2.addWidget(QLabel("-"))
-        self._alias_count_max = QSpinBox()
-        self._alias_count_max.setRange(0, 99)
-        self._alias_count_max.setValue(99)
-        self._alias_count_max.setStyleSheet("font-size: 10px; max-width: 50px;")
-        filter_row2.addWidget(self._alias_count_max)
-        
-        filter_row2.addSpacing(10)
-        
-        # 关系数量过滤
-        filter_row2.addWidget(QLabel("关系数:"))
-        self._relation_count_min = QSpinBox()
-        self._relation_count_min.setRange(0, 99)
-        self._relation_count_min.setStyleSheet("font-size: 10px; max-width: 50px;")
-        filter_row2.addWidget(self._relation_count_min)
-        filter_row2.addWidget(QLabel("-"))
-        self._relation_count_max = QSpinBox()
-        self._relation_count_max.setRange(0, 99)
-        self._relation_count_max.setValue(99)
-        self._relation_count_max.setStyleSheet("font-size: 10px; max-width: 50px;")
-        filter_row2.addWidget(self._relation_count_max)
-        
-        filter_row2.addSpacing(10)
-        
-        # 重置过滤器按钮
-        reset_btn = QPushButton("重置")
-        reset_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #95A5A6;
-                color: white;
-                border: none;
-                padding: 4px 8px;
-                border-radius: 4px;
-                font-size: 10px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #7F8C8D;
-            }
-        """)
-        reset_btn.clicked.connect(self._reset_filters)
-        filter_row2.addWidget(reset_btn)
-        
-        filter_row2.addStretch()
-        filter_layout.addLayout(filter_row2)
-        
-        layout.addWidget(filter_group)
-        
-        # 排序选项
-        sort_group = QGroupBox("📊 排序方式")
-        sort_group.setStyleSheet("""
-            QGroupBox {
-                font-size: 11px;
-                font-weight: bold;
-                color: #2C3E50;
-                border: 1px solid #BDC3C7;
-                border-radius: 6px;
-                margin-top: 8px;
-                padding-top: 4px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 8px;
-                padding: 0 4px 0 4px;
-            }
-        """)
-        sort_layout = QHBoxLayout(sort_group)
-        
-        self._sort_combo = QComboBox()
-        self._sort_combo.addItems([
-            "按标题 (A-Z)",
-            "按标题 (Z-A)",
-            "按创建时间 (新-旧)",
-            "按创建时间 (旧-新)",
-            "按更新时间 (新-旧)",
-            "按更新时间 (旧-新)",
-            "按别名数量 (多-少)",
-            "按关系数量 (多-少)",
-            "按进展数量 (多-少)"
-        ])
-        self._sort_combo.setStyleSheet("""
-            QComboBox {
-                padding: 4px 8px;
-                border: 1px solid #BDC3C7;
-                border-radius: 4px;
-                font-size: 10px;
-                min-width: 120px;
-            }
-        """)
-        sort_layout.addWidget(self._sort_combo)
-        sort_layout.addStretch()
-        
-        layout.addWidget(sort_group)
-        
-        return frame
+    def _create_control_frame(self) -> QWidget:
+        """创建控制栏（搜索/过滤/排序）"""
+        self._filters = CodexFiltersWidget(parent=self)
+        self._filters.apply_theme(self._is_panel_dark_theme())
+        return self._filters
 
     def _create_content_area(self) -> QWidget:
         """创建内容区域"""
         # 使用Tab组织不同视图
         tab_widget = QTabWidget()
-        tab_widget.setStyleSheet("""
-            QTabWidget::pane {
+        tab_widget.setStyleSheet(
+            f"""
+            QTabWidget::pane {{
                 border: 1px solid #BDC3C7;
-                border-radius: 4px;
-            }
-            QTabBar::tab {
-                padding: 4px 12px;
+                border-radius: {RADIUS.sm}px;
+            }}
+            QTabBar::tab {{
+                padding: {SPACING.xs}px {SPACING.md}px;
                 margin-right: 2px;
-                font-size: 10px;
-            }
-            QTabBar::tab:selected {
+                font-size: {FONT.sm}px;
+            }}
+            QTabBar::tab:selected {{
                 background-color: #3498DB;
                 color: white;
-            }
-        """)
+            }}
+            """
+        )
         
         # 卡片视图
-        self._card_view = self._create_card_view()
+        self._card_view = CodexCardView(self._codex_manager, parent=self)
         tab_widget.addTab(self._card_view, "卡片视图")
         
         # 列表视图
-        self._list_view = self._create_list_view()
+        self._list_view = CodexListView(parent=self)
         tab_widget.addTab(self._list_view, "列表视图")
         
         # 统计视图
-        self._stats_view = self._create_statistics_view()
+        self._stats_view = CodexStatsView(self._codex_manager, parent=self)
         tab_widget.addTab(self._stats_view, "统计")
         
         return tab_widget
@@ -762,49 +522,41 @@ class CodexPanel(QWidget):
         frame.setMaximumHeight(30)
         
         layout = QHBoxLayout(frame)
-        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setContentsMargins(SPACING.xs, SPACING.xs, SPACING.xs, SPACING.xs)
         
         self._status_label = QLabel("就绪")
-        self._status_label.setStyleSheet("font-size: 10px; color: #7F8C8D;")
+        self._status_label.setStyleSheet(f"font-size: {FONT.sm}px; color: #7F8C8D;")
         layout.addWidget(self._status_label)
         
         layout.addStretch()
         
         self._count_label = QLabel("0 个条目")
-        self._count_label.setStyleSheet("font-size: 10px; color: #7F8C8D;")
+        self._count_label.setStyleSheet(f"font-size: {FONT.sm}px; color: #7F8C8D;")
         layout.addWidget(self._count_label)
         
         return frame
 
     def _init_signals(self):
         """初始化信号连接"""
-        # 按钮信号
         self._new_btn.clicked.connect(self._create_new_entry)
-        
-        # 搜索信号
-        self._search_input.textChanged.connect(self._on_search_changed)
-        
-        # 搜索范围信号
-        self._search_all_radio.toggled.connect(self._on_filter_changed)
-        self._search_title_radio.toggled.connect(self._on_filter_changed)
-        self._search_desc_radio.toggled.connect(self._on_filter_changed)
-        self._search_alias_radio.toggled.connect(self._on_filter_changed)
-        
-        # 过滤信号
-        self._type_filter.currentIndexChanged.connect(self._on_filter_changed)
-        self._global_only_check.toggled.connect(self._on_filter_changed)
-        self._has_aliases_check.toggled.connect(self._on_filter_changed)
-        self._has_relations_check.toggled.connect(self._on_filter_changed)
-        self._has_progression_check.toggled.connect(self._on_filter_changed)
-        
-        # 数量过滤信号
-        self._alias_count_min.valueChanged.connect(self._on_filter_changed)
-        self._alias_count_max.valueChanged.connect(self._on_filter_changed)
-        self._relation_count_min.valueChanged.connect(self._on_filter_changed)
-        self._relation_count_max.valueChanged.connect(self._on_filter_changed)
-        
-        # 排序信号
-        self._sort_combo.currentIndexChanged.connect(self._on_filter_changed)
+
+        # 搜索/过滤控件（内置 debounce）
+        self._filters.filtersChanged.connect(self._refresh_entries)
+
+        # 卡片视图信号
+        self._card_view.entrySelected.connect(self.entrySelected.emit)
+        self._card_view.entryEdit.connect(self._edit_entry)
+        self._card_view.entryDelete.connect(self._delete_entry)
+        self._card_view.aliasesEdit.connect(self._edit_aliases)
+        self._card_view.relationshipsEdit.connect(self._edit_relationships)
+        self._card_view.progressionEdit.connect(self._edit_progression)
+
+        # 列表视图信号
+        self._list_view.entrySelected.connect(self.entrySelected.emit)
+
+        # 统计视图信号
+        self._stats_view.entrySelected.connect(self._on_stats_entry_selected)
+        self._stats_view.locationClicked.connect(self._on_stats_location_clicked)
         
         # Codex domain events -> Qt signals
         if self._qt_codex_adapter:
@@ -846,52 +598,13 @@ class CodexPanel(QWidget):
             logger.error(f"创建条目失败: {e}")
             self._status_label.setText(f"创建失败: {str(e)}")
 
-    def _on_search_changed(self, text: str):
-        """搜索文本变化"""
-        self._search_text = text
-        self._apply_filters()
-
-    def _on_filter_changed(self):
-        """过滤条件变化"""
-        self._current_filter = self._type_filter.currentData()
-        self._apply_filters()
-    
     def _clear_search(self):
-        """清除搜索"""
-        self._search_input.clear()
+        """清空搜索"""
+        self._filters.clear_search()
     
     def _reset_filters(self):
         """重置所有过滤器"""
-        # 重置搜索
-        self._search_input.clear()
-        self._search_all_radio.setChecked(True)
-        
-        # 重置过滤器
-        self._type_filter.setCurrentIndex(0)
-        self._global_only_check.setChecked(False)
-        self._has_aliases_check.setChecked(False)
-        self._has_relations_check.setChecked(False)
-        self._has_progression_check.setChecked(False)
-        
-        # 重置数量过滤
-        self._alias_count_min.setValue(0)
-        self._alias_count_max.setValue(99)
-        self._relation_count_min.setValue(0)
-        self._relation_count_max.setValue(99)
-        
-        # 重置排序
-        self._sort_combo.setCurrentIndex(0)
-
-    def _apply_filters(self):
-        """应用过滤条件"""
-        # 延迟刷新以避免频繁更新
-        if not hasattr(self, '_filter_timer'):
-            self._filter_timer = QTimer()
-            self._filter_timer.setSingleShot(True)
-            self._filter_timer.timeout.connect(self._refresh_entries)
-        
-        self._filter_timer.stop()
-        self._filter_timer.start(300)  # 300ms延迟
+        self._filters.reset_all()
 
     def _refresh_entries(self):
         """刷新条目显示"""
@@ -904,82 +617,85 @@ class CodexPanel(QWidget):
         # 应用过滤
         filtered_entries = self._filter_entries(all_entries)
         
-        # 更新卡片视图
-        self._update_card_view(filtered_entries)
-        
-        # 更新列表视图
-        self._update_list_view(filtered_entries)
-        
-        # 更新统计
-        self._update_statistics()
+        # 更新视图（子组件）
+        self._card_view.set_entries(filtered_entries)
+        self._list_view.set_entries(filtered_entries)
+        self._stats_view.refresh_statistics()
         
         # 更新状态栏
         self._count_label.setText(f"{len(filtered_entries)} 个条目")
 
     def _filter_entries(self, entries: List) -> List:
-        """增强的过滤条目"""
+        """应用搜索/过滤/排序（由 CodexFiltersWidget 提供状态）。"""
+        state = self._filters.get_state()
         filtered = entries
-        
+
         # 类型过滤
-        if self._current_filter is not None:
-            filtered = [e for e in filtered if e.entry_type == self._current_filter]
-        
+        if state.entry_type is not None:
+            filtered = [e for e in filtered if e.entry_type == state.entry_type]
+
         # 状态过滤
-        if self._global_only_check.isChecked():
-            filtered = [e for e in filtered if e.is_global]
-        
-        if self._has_aliases_check.isChecked():
-            filtered = [e for e in filtered if e.aliases]
-        
-        if self._has_relations_check.isChecked():
-            filtered = [e for e in filtered if e.relationships]
-        
-        if self._has_progression_check.isChecked():
-            filtered = [e for e in filtered if e.progression]
-        
+        if state.global_only:
+            filtered = [e for e in filtered if getattr(e, "is_global", False)]
+
+        if state.has_aliases:
+            filtered = [e for e in filtered if getattr(e, "aliases", None)]
+
+        if state.has_relations:
+            filtered = [e for e in filtered if getattr(e, "relationships", None)]
+
+        if state.has_progression:
+            filtered = [e for e in filtered if getattr(e, "progression", None)]
+
         # 数量过滤
-        alias_min = self._alias_count_min.value()
-        alias_max = self._alias_count_max.value()
-        filtered = [e for e in filtered if alias_min <= len(e.aliases) <= alias_max]
-        
-        relation_min = self._relation_count_min.value()
-        relation_max = self._relation_count_max.value()
-        filtered = [e for e in filtered if relation_min <= len(e.relationships) <= relation_max]
-        
+        alias_min = state.alias_min
+        alias_max = state.alias_max
+        filtered = [
+            e
+            for e in filtered
+            if alias_min <= len(getattr(e, "aliases", []) or []) <= alias_max
+        ]
+
+        relation_min = state.relation_min
+        relation_max = state.relation_max
+        filtered = [
+            e
+            for e in filtered
+            if relation_min
+            <= len(getattr(e, "relationships", []) or [])
+            <= relation_max
+        ]
+
         # 搜索过滤（支持不同搜索范围）
-        if self._search_text:
-            search_lower = self._search_text.lower()
+        if state.search_text:
+            search_lower = state.search_text.lower()
             search_filtered = []
-            
+
             for entry in filtered:
-                match = False
-                
-                if self._search_all_radio.isChecked():
-                    # 搜索所有字段
-                    if (search_lower in entry.title.lower() or 
-                        search_lower in entry.description.lower() or
-                        any(search_lower in alias.lower() for alias in entry.aliases)):
-                        match = True
-                elif self._search_title_radio.isChecked():
-                    # 仅搜索标题
-                    if search_lower in entry.title.lower():
-                        match = True
-                elif self._search_desc_radio.isChecked():
-                    # 仅搜索描述
-                    if search_lower in entry.description.lower():
-                        match = True
-                elif self._search_alias_radio.isChecked():
-                    # 仅搜索别名
-                    if any(search_lower in alias.lower() for alias in entry.aliases):
-                        match = True
-                
+                title = (getattr(entry, "title", "") or "").lower()
+                desc = (getattr(entry, "description", "") or "").lower()
+                aliases = getattr(entry, "aliases", []) or []
+
+                if state.search_scope == "title":
+                    match = search_lower in title
+                elif state.search_scope == "desc":
+                    match = search_lower in desc
+                elif state.search_scope == "alias":
+                    match = any(search_lower in (a or "").lower() for a in aliases)
+                else:
+                    match = (
+                        search_lower in title
+                        or search_lower in desc
+                        or any(search_lower in (a or "").lower() for a in aliases)
+                    )
+
                 if match:
                     search_filtered.append(entry)
-            
+
             filtered = search_filtered
-        
+
         # 排序
-        sort_index = self._sort_combo.currentIndex()
+        sort_index = state.sort_index
         if sort_index == 0:  # 按标题 (A-Z)
             filtered.sort(key=lambda e: e.title.lower())
         elif sort_index == 1:  # 按标题 (Z-A)
@@ -993,12 +709,16 @@ class CodexPanel(QWidget):
         elif sort_index == 5:  # 按更新时间 (旧-新)
             filtered.sort(key=lambda e: e.updated_at)
         elif sort_index == 6:  # 按别名数量 (多-少)
-            filtered.sort(key=lambda e: len(e.aliases), reverse=True)
+            filtered.sort(key=lambda e: len(getattr(e, "aliases", []) or []), reverse=True)
         elif sort_index == 7:  # 按关系数量 (多-少)
-            filtered.sort(key=lambda e: len(e.relationships), reverse=True)
+            filtered.sort(
+                key=lambda e: len(getattr(e, "relationships", []) or []), reverse=True
+            )
         elif sort_index == 8:  # 按进展数量 (多-少)
-            filtered.sort(key=lambda e: len(e.progression), reverse=True)
-        
+            filtered.sort(
+                key=lambda e: len(getattr(e, "progression", []) or []), reverse=True
+            )
+
         return filtered
 
     def _update_card_view(self, entries: List):
@@ -1334,13 +1054,9 @@ class CodexPanel(QWidget):
     def _on_panel_theme_changed(self, theme_name: str):
         """响应主题变更"""
         self._apply_panel_theme()
-        # 应用搜索相关组件的主题
-        if hasattr(self, '_search_group'):
-            self._apply_search_group_theme()
-        if hasattr(self, '_search_input'):
-            self._apply_search_input_theme()
-        if hasattr(self, '_radio_buttons'):
-            self._apply_radio_theme()
+        # 应用控制栏主题
+        if hasattr(self, "_filters"):
+            self._filters.apply_theme(self._is_panel_dark_theme())
         # 刷新所有卡片以应用新主题
         self._refresh_entries()
 
@@ -1650,12 +1366,11 @@ class CodexPanel(QWidget):
     
     def _focus_search(self):
         """聚焦搜索框"""
-        self._search_input.setFocus()
-        self._search_input.selectAll()
+        self._filters.focus_search()
     
     def _clear_search(self):
         """清空搜索"""
-        self._search_input.clear()
+        self._filters.clear_search()
     
     def _delete_selected_entry(self):
         """删除选中的条目"""
