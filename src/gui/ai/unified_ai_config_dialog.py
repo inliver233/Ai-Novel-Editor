@@ -703,6 +703,7 @@ class UnifiedAPIConfigWidget(QFrame):
         """导出配置方案"""
         from PyQt6.QtWidgets import QFileDialog, QMessageBox
         import json
+        from core.sensitive import sanitize_for_export
         
         schemes = self._load_saved_schemes()
         if not schemes:
@@ -717,7 +718,7 @@ class UnifiedAPIConfigWidget(QFrame):
         if file_path:
             try:
                 with open(file_path, 'w', encoding='utf-8') as f:
-                    json.dump(schemes, f, ensure_ascii=False, indent=2)
+                    json.dump(sanitize_for_export(schemes), f, ensure_ascii=False, indent=2)
                 
                 QMessageBox.information(
                     self, "导出成功", 
@@ -733,6 +734,7 @@ class UnifiedAPIConfigWidget(QFrame):
         """从文件加载保存的配置方案"""
         import json
         import os
+        from core.sensitive import sanitize_for_export
         
         schemes_file = self._get_schemes_file_path()
         
@@ -740,7 +742,7 @@ class UnifiedAPIConfigWidget(QFrame):
             try:
                 with open(schemes_file, 'r', encoding='utf-8') as f:
                     schemes = json.load(f)
-                return schemes if isinstance(schemes, dict) else {}
+                return sanitize_for_export(schemes) if isinstance(schemes, dict) else {}
             except Exception as e:
                 logger.warning(f"加载配置方案失败: {e}")
         
@@ -750,6 +752,7 @@ class UnifiedAPIConfigWidget(QFrame):
         """保存配置方案到文件"""
         import json
         import os
+        from core.sensitive import sanitize_for_export
         
         schemes_file = self._get_schemes_file_path()
         
@@ -758,7 +761,7 @@ class UnifiedAPIConfigWidget(QFrame):
         
         try:
             with open(schemes_file, 'w', encoding='utf-8') as f:
-                json.dump(schemes, f, ensure_ascii=False, indent=2)
+                json.dump(sanitize_for_export(schemes), f, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"保存配置方案失败: {e}")
             raise
