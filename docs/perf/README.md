@@ -26,6 +26,7 @@ Generation is fixed at the command level; use the commands below to reproduce th
 
 ## Golden fixtures (update rules)
 - Golden fixture updates are controlled via the repo-root `tools/` package: `tools.update_golden`.
+- Update command (explicit): `python -m tools.update_golden --all`
 
 ## Metrics (measured per dataset)
 - **cold_start**: process start → main window `show()` completed
