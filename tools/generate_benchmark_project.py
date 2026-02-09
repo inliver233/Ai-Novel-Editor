@@ -50,7 +50,7 @@ class BenchmarkSpec:
 
 
 _SPECS: Dict[str, BenchmarkSpec] = {
-    "small": BenchmarkSpec(acts=1, chapters_per_act=5, scenes_per_chapter=10, total_chars=50_000),
+    "small": BenchmarkSpec(acts=1, chapters_per_act=5, scenes_per_chapter=9, total_chars=50_000),
     "medium": BenchmarkSpec(acts=2, chapters_per_act=10, scenes_per_chapter=10, total_chars=300_000),
     "large": BenchmarkSpec(acts=4, chapters_per_act=25, scenes_per_chapter=10, total_chars=1_500_000),
 }

@@ -7,7 +7,7 @@ This folder documents the *fixed*, reproducible benchmark datasets used to measu
 All datasets are generated via `tools.generate_benchmark_project` and contain **synthetic** text only.
 
 - **small**: ~50 novel documents, total正文 ~50k chars
-  - Spec (current generator): `acts=1`, `chapters_per_act=5`, `scenes_per_chapter=10`, `total_chars=50_000`
+  - Spec (current generator): `acts=1`, `chapters_per_act=5`, `scenes_per_chapter=9`, `total_chars=50_000` (≈51 novel docs)
   - Command: `py -3.11 -m tools.generate_benchmark_project --size small --out tests/fixtures/projects/small`
 
 - **medium**: ~300 novel documents, total正文 ~300k chars
@@ -21,4 +21,3 @@ All datasets are generated via `tools.generate_benchmark_project` and contain **
 ## Output constraints
 - Output must be a **valid project directory** (contains at least `project.db`).
 - Must not contain any real user content; generated text is synthetic.
-
