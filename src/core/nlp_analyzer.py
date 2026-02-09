@@ -151,17 +151,26 @@ class NLPAnalyzer:
     def _init_nltk(self):
         """初始化NLTK"""
         try:
-            # 下载必要的NLTK数据
-            required_data = ['punkt', 'stopwords', 'averaged_perceptron_tagger']
-            
-            for data_name in required_data:
+            # 在打包/离线环境下不自动下载语料数据；缺失时直接降级到 REGEX_ONLY。
+            required_resources = {
+                "punkt": "tokenizers/punkt",
+                "stopwords": "corpora/stopwords",
+                "averaged_perceptron_tagger": "taggers/averaged_perceptron_tagger",
+            }
+
+            missing = []
+            for data_name, resource_path in required_resources.items():
                 try:
-                    nltk.data.find(f'tokenizers/{data_name}')
+                    nltk.data.find(resource_path)
                 except LookupError:
-                    try:
-                        nltk.download(data_name, quiet=True)
-                    except:
-                        pass  # 忽略下载失败
+                    missing.append(data_name)
+
+            if missing:
+                missing_str = ", ".join(missing)
+                self.logger.warning(f"NLTK 数据缺失（{missing_str}），将降级为正则表达式后端")
+                self.backend = NLPBackend.REGEX_ONLY
+                self.initialized = True
+                return
             
             self.logger.info("NLTK初始化完成")
             self.initialized = True
