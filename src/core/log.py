@@ -1,5 +1,6 @@
 import inspect
 import logging
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +18,7 @@ __all__ = [
     "InterceptHandler",
     "intercept_logging",
     "configure_logging",
+    "redact_sensitive_text",
 ]
 
 @dataclass(frozen=True)
@@ -54,6 +56,39 @@ def _normalize_log_level(level: str) -> str:
     if normalized in _ALLOWED_LOG_LEVELS:
         return normalized
     return Defaults.LOG_LEVEL
+
+
+_REDACT_MAX_CHARS = 600
+_REDACT_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"api_key", re.IGNORECASE), "apiKey"),
+    (re.compile(r"x-api-key", re.IGNORECASE), "xApiKey"),
+    (re.compile(r"x-goog-api-key", re.IGNORECASE), "xGoogApiKey"),
+    (re.compile(r"Bearer\s+\S+", re.IGNORECASE), "AUTH_REDACTED"),
+    (re.compile(r"Bearer\s+", re.IGNORECASE), "AUTH_REDACTED "),
+    (re.compile(r"sk-[A-Za-z0-9_-]*", re.IGNORECASE), "REDACTED_KEY"),
+)
+
+
+def redact_sensitive_text(text: str) -> str:
+    if not text:
+        return text
+
+    redacted = str(text)
+    for pattern, replacement in _REDACT_PATTERNS:
+        redacted = pattern.sub(replacement, redacted)
+
+    if len(redacted) > _REDACT_MAX_CHARS:
+        tail = len(redacted) - _REDACT_MAX_CHARS
+        redacted = f"{redacted[:_REDACT_MAX_CHARS]}...<TRUNCATED {tail} chars>"
+
+    return redacted
+
+
+def _patch_loguru_record(record: dict) -> None:  # pragma: no cover - exercised via integration
+    try:
+        record["message"] = redact_sensitive_text(record.get("message", ""))
+    except Exception:
+        pass
     
 class PropagateFromLoguruHandler(logging.Handler):
     """Propagate loguru messages to logging
@@ -175,6 +210,7 @@ def configure_logging(
         return 
     
     logger.remove()
+    logger.configure(patcher=_patch_loguru_record)
     stdout_sink = sys.stdout
     if stdout_sink is not None:
         try:

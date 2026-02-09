@@ -115,7 +115,14 @@ def main():
                     if ai_config and ai_config.get('api_key'):
                         rag_config['api_key'] = ai_config['api_key']
 
-                logger.info(f"RAG配置: {rag_config}")
+                safe_rag_config = {
+                    "enabled": bool(rag_config.get("enabled", True)),
+                    "base_url": rag_config.get("base_url", ""),
+                    "embedding_model": (rag_config.get("embedding") or {}).get("model", ""),
+                    "rerank_enabled": bool((rag_config.get("rerank") or {}).get("enabled", True)),
+                    "rerank_model": (rag_config.get("rerank") or {}).get("model", ""),
+                }
+                logger.info(f"RAG配置(已脱敏): {safe_rag_config}")
 
                 # 创建RAG服务（vector_store 先保持未绑定；项目打开后会切换到 <project>/.rag/vectors.db）
                 rag_service = RAGService(rag_config)

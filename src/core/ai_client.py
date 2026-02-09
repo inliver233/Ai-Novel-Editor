@@ -314,11 +314,28 @@ class AIClient(LLMProvider):
             url = self._get_endpoint_url()
             
             self.logger.debug(f"请求URL: {url}")
-            # 不记录包含API密钥的敏感数据
-            safe_data = data.copy()
-            if 'api_key' in safe_data:
-                safe_data['api_key'] = '***REDACTED***'
-            self.logger.debug(f"请求数据: {json.dumps(safe_data, ensure_ascii=False, indent=2)}")
+            # 避免在日志中输出完整 prompt / 文档内容，仅记录摘要信息
+            try:
+                messages = data.get("messages") if isinstance(data, dict) else None
+                roles = []
+                if isinstance(messages, list):
+                    for msg in messages:
+                        if isinstance(msg, dict) and msg.get("role"):
+                            roles.append(str(msg.get("role")))
+
+                summary = {
+                    "model": data.get("model") if isinstance(data, dict) else None,
+                    "stream": bool(data.get("stream")) if isinstance(data, dict) else False,
+                    "max_tokens": data.get("max_tokens") if isinstance(data, dict) else None,
+                    "temperature": data.get("temperature") if isinstance(data, dict) else None,
+                    "top_p": data.get("top_p") if isinstance(data, dict) else None,
+                    "n_messages": len(messages) if isinstance(messages, list) else None,
+                    "roles": roles[:10],
+                    "n_tools": len(data.get("tools", [])) if isinstance(data.get("tools"), list) else 0,
+                }
+                self.logger.debug(f"请求数据摘要: {json.dumps(summary, ensure_ascii=False)}")
+            except Exception:
+                pass
             
             # 创建会话并设置适当的配置
             session = self._create_session()
