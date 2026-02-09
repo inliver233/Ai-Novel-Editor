@@ -7,8 +7,9 @@ import json
 import logging
 import sqlite3
 import threading
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Iterator
 
 from .backup_manager import BackupPaths, apply_retention_policy
 from .backup_set import (
@@ -49,6 +50,19 @@ class DatabaseManager:
         # 应优先使用 SQLite 官方 `sqlite3.Connection.backup()` 以获得一致快照。
         conn.execute("PRAGMA journal_mode=WAL")
         return conn
+
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        """Context manager that always closes the SQLite connection.
+
+        Note: `sqlite3.Connection`'s own context manager does **not** close the connection,
+        it only commits/rolls back. Use this helper to avoid leaking file handles (Windows).
+        """
+        conn = self._get_connection()
+        try:
+            yield conn
+        finally:
+            conn.close()
 
     def _get_schema_version(self, conn: sqlite3.Connection) -> int:
         """获取当前数据库模式版本"""
@@ -164,7 +178,7 @@ class DatabaseManager:
         """初始化数据库表结构"""
         with self._lock:
             try:
-                with self._get_connection() as conn:
+                with self._connect() as conn:
                     # 项目元数据表
                     conn.execute("""
                         CREATE TABLE IF NOT EXISTS project_metadata (
@@ -250,7 +264,7 @@ class DatabaseManager:
         """
         with self._lock:
             try:
-                with self._get_connection() as conn:
+                with self._connect() as conn:
                     # 保存元数据
                     metadata = data.get('metadata', {})
                     if metadata:
@@ -288,7 +302,7 @@ class DatabaseManager:
         with self._lock:
             data = {}
             try:
-                with self._get_connection() as conn:
+                with self._connect() as conn:
                     # 加载元数据
                     cursor = conn.execute("SELECT * FROM project_metadata LIMIT 1")
                     metadata_row = cursor.fetchone()
@@ -325,7 +339,7 @@ class DatabaseManager:
         """
         with self._lock:
             try:
-                with self._get_connection() as conn:
+                with self._connect() as conn:
                     # 保存Codex条目
                     if codex_entries:
                         # 先清空旧数据
@@ -382,7 +396,7 @@ class DatabaseManager:
         """
         with self._lock:
             try:
-                with self._get_connection() as conn:
+                with self._connect() as conn:
                     entry_copy = entry_data.copy()
                     # 将列表/字典字段序列化为JSON
                     for field in ['aliases', 'relationships', 'progression', 'metadata']:
@@ -422,7 +436,7 @@ class DatabaseManager:
         """
         with self._lock:
             try:
-                with self._get_connection() as conn:
+                with self._connect() as conn:
                     entry_copy = entry_data.copy()
                     # 将列表/字典字段序列化为JSON
                     for field in ['aliases', 'relationships', 'progression', 'metadata']:
@@ -464,7 +478,7 @@ class DatabaseManager:
         """
         with self._lock:
             try:
-                with self._get_connection() as conn:
+                with self._connect() as conn:
                     # 删除条目
                     conn.execute("DELETE FROM codex_entries WHERE id = ?", (entry_id,))
                     
@@ -494,7 +508,7 @@ class DatabaseManager:
             
         with self._lock:
             try:
-                with self._get_connection() as conn:
+                with self._connect() as conn:
                     for ref in references:
                         conn.execute("""
                             INSERT OR REPLACE INTO codex_references (
@@ -526,7 +540,7 @@ class DatabaseManager:
         """
         with self._lock:
             try:
-                with self._get_connection() as conn:
+                with self._connect() as conn:
                     conn.execute("DELETE FROM codex_references WHERE document_id = ?", (document_id,))
                     conn.commit()
                     logger.debug(f"Deleted codex references for document: {document_id}")
@@ -541,7 +555,7 @@ class DatabaseManager:
         with self._lock:
             codex_data = {'entries': [], 'references': []}
             try:
-                with self._get_connection() as conn:
+                with self._connect() as conn:
                     # 加载Codex条目
                     cursor = conn.execute("SELECT * FROM codex_entries")
                     entries = [dict(row) for row in cursor.fetchall()]
@@ -573,7 +587,7 @@ class DatabaseManager:
         """根据类型获取Codex条目"""
         with self._lock:
             try:
-                with self._get_connection() as conn:
+                with self._connect() as conn:
                     cursor = conn.execute(
                         "SELECT * FROM codex_entries WHERE entry_type = ?", 
                         (entry_type,)
@@ -596,7 +610,7 @@ class DatabaseManager:
         """获取标记为全局的Codex条目"""
         with self._lock:
             try:
-                with self._get_connection() as conn:
+                with self._connect() as conn:
                     cursor = conn.execute(
                         "SELECT * FROM codex_entries WHERE is_global = 1"
                     )

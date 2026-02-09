@@ -165,6 +165,11 @@ class Config:
                 },
                 # 缓存配置已移除，提升性能和稳定性
             },
+
+            # Codex设置
+            "codex": {
+                "enabled": True,
+            },
             
             # 提示词配置
             "prompt": {

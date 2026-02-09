@@ -403,7 +403,6 @@ class MainWindowIntegrationsMixin:
         self._menu_bar.get_action('save_project').setEnabled(True)
         self._menu_bar.get_action('save_project_as').setEnabled(True)
         self._menu_bar.get_action('close_project').setEnabled(True)
-        self._on_project_structure_changed()
         
         # 确保AI管理器在项目打开后仍可用
         if self._ai_manager:

@@ -1,37 +1,36 @@
 {
   "schema_version": 1,
   "kind": "current",
-  "generated_at": null,
+  "generated_at": "2026-02-09T07:38:18Z",
   "machine": {
-    "os": null,
-    "cpu": null,
+    "os": "Windows-10-10.0.26100-SP0",
+    "cpu": "Intel64 Family 6 Model 154 Stepping 3, GenuineIntel",
     "ram_gb": null,
-    "python": null,
-    "qt": null
+    "python": "3.11.6",
+    "qt": "PyQt 6.10.2 / Qt 6.10.0"
   },
   "datasets": {
     "small": {
-      "cold_start_s": null,
-      "open_project_s": null,
-      "outline_refresh_ms": null,
-      "ai_completion_mock_ms": null,
+      "cold_start_s": 0.723,
+      "open_project_s": 0.072,
+      "outline_refresh_ms": 3.9,
+      "ai_completion_mock_ms": 7.5,
       "ui_tick_jitter_max_ms": null
     },
     "medium": {
-      "cold_start_s": null,
-      "open_project_s": null,
-      "outline_refresh_ms": null,
-      "ai_completion_mock_ms": null,
+      "cold_start_s": 0.723,
+      "open_project_s": 0.095,
+      "outline_refresh_ms": 12.2,
+      "ai_completion_mock_ms": 4.4,
       "ui_tick_jitter_max_ms": null
     },
     "large": {
-      "cold_start_s": null,
-      "open_project_s": null,
-      "outline_refresh_ms": null,
-      "ai_completion_mock_ms": null,
+      "cold_start_s": 0.723,
+      "open_project_s": 0.167,
+      "outline_refresh_ms": 4.5,
+      "ai_completion_mock_ms": 3.5,
       "ui_tick_jitter_max_ms": null
     }
   },
-  "notes": "Placeholder values. Store only aggregated timings + machine summary; never store user text."
+  "notes": "Generated via tools.measure_perf; store aggregated timings + machine summary only (no user text)."
 }
-

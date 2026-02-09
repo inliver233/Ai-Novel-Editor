@@ -40,6 +40,7 @@ class SmartCompletionManager(QObject):
     
     # 信号定义
     aiCompletionRequested = pyqtSignal(str, dict)  # AI补全请求
+    suggestionRendered = pyqtSignal(str)  # suggestion rendered (ghost/inline/popup/direct insert)
     
     def __init__(self, text_editor, completion_engine: CompletionEngine):
         super().__init__()
@@ -609,6 +610,11 @@ class SmartCompletionManager(QObject):
         # 调整位置确保在屏幕内
         self._popup_widget.move(global_pos)
         self._popup_widget.show_suggestions(suggestions)
+        if suggestions:
+            try:
+                self.suggestionRendered.emit(suggestions[0].text)
+            except Exception:
+                self.suggestionRendered.emit("")
         
     def show_ai_completion(self, suggestion: str):
         """显示AI补全建议 - 增强版本，支持多种显示模式和状态同步"""
@@ -673,6 +679,7 @@ class SmartCompletionManager(QObject):
                     # 只有 Ghost Text 显示会进入 VISIBLE；其它显示方式保持 IDLE
                     if renderer.key != "ghost_text":
                         self._ghost_state_manager.force_idle()
+                    self.suggestionRendered.emit(suggestion)
                     return
                 else:
                     logger.debug(f"⚠️ {renderer.display_name}显示方法不可用，尝试下一种")

@@ -40,7 +40,8 @@ def backup_sqlite_db(source_db: str | Path, dest_db: str | Path) -> None:
 
     dest_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with sqlite3.connect(str(source_path)) as src_conn, sqlite3.connect(str(dest_path)) as dest_conn:
+    src_conn = sqlite3.connect(str(source_path))
+    try:
         try:
             backup_fn = src_conn.backup
         except AttributeError:
@@ -48,4 +49,10 @@ def backup_sqlite_db(source_db: str | Path, dest_db: str | Path) -> None:
             copy_sqlite_db_files(source_path, dest_path)
             return
 
-        backup_fn(dest_conn)
+        dest_conn = sqlite3.connect(str(dest_path))
+        try:
+            backup_fn(dest_conn)
+        finally:
+            dest_conn.close()
+    finally:
+        src_conn.close()

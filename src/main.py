@@ -88,129 +88,135 @@ def main():
         
         # 初始化RAG服务（向量库会在打开项目后由 IndexScheduler 按项目隔离绑定）
         rag_service = None
-        try:
-            # 尝试初始化RAG服务 - 修复类名：RagService -> RAGService
-            from core.rag_service import RAGService
+        rag_config = config_instance.get_section('rag') or {}
+        if not rag_config.get("enabled", True):
+            logger.info("RAG disabled by config (rag.enabled=false)")
+        else:
+            try:
+                # 尝试初始化RAG服务 - 修复类名：RagService -> RAGService
+                from core.rag_service import RAGService
 
-            logger.info(f"导入的RAGService类型: {type(RAGService)}")
-            logger.info(f"RAGService模块: {RAGService.__module__ if hasattr(RAGService, '__module__') else 'Unknown'}")
+                logger.info(f"导入的RAGService类型: {type(RAGService)}")
+                logger.info(f"RAGService模块: {RAGService.__module__ if hasattr(RAGService, '__module__') else 'Unknown'}")
 
-            # 获取RAG配置
-            rag_config = config_instance.get_section('rag')
-            if not rag_config:
-                # 如果没有RAG配置，创建默认配置
-                rag_config = {
-                    'api_key': '',
-                    'base_url': 'https://api.siliconflow.cn/v1',
-                    'embedding': {'model': 'BAAI/bge-large-zh-v1.5'},
-                    'rerank': {'model': 'BAAI/bge-reranker-v2-m3', 'enabled': True}
-                }
-                # 尝试从AI配置获取API key
-                ai_config = config_instance.get_section('ai')
-                if ai_config and ai_config.get('api_key'):
-                    rag_config['api_key'] = ai_config['api_key']
+                if not rag_config:
+                    # 如果没有RAG配置，创建默认配置
+                    rag_config = {
+                        'api_key': '',
+                        'base_url': 'https://api.siliconflow.cn/v1',
+                        'embedding': {'model': 'BAAI/bge-large-zh-v1.5'},
+                        'rerank': {'model': 'BAAI/bge-reranker-v2-m3', 'enabled': True}
+                    }
+                    # 尝试从AI配置获取API key
+                    ai_config = config_instance.get_section('ai')
+                    if ai_config and ai_config.get('api_key'):
+                        rag_config['api_key'] = ai_config['api_key']
 
-            logger.info(f"RAG配置: {rag_config}")
+                logger.info(f"RAG配置: {rag_config}")
 
-            # 创建RAG服务（vector_store 先保持未绑定；项目打开后会切换到 <project>/.rag/vectors.db）
-            rag_service = RAGService(rag_config)
+                # 创建RAG服务（vector_store 先保持未绑定；项目打开后会切换到 <project>/.rag/vectors.db）
+                rag_service = RAGService(rag_config)
 
-            # 设置到shared对象中（vector_store 默认为空，避免启动时创建/使用旧版全局库）
-            shared_instance.rag_service = rag_service
-            shared_instance.vector_store = None
+                # 设置到shared对象中（vector_store 默认为空，避免启动时创建/使用旧版全局库）
+                shared_instance.rag_service = rag_service
+                shared_instance.vector_store = None
 
-            logger.info("RAG服务初始化成功（vector_store 将在打开项目后按项目隔离绑定）")
+                logger.info("RAG服务初始化成功（vector_store 将在打开项目后按项目隔离绑定）")
 
-        except ImportError as e:
-            logger.warning(f"RAG服务初始化失败，将使用基础模式: {e}")
-        except Exception as e:
-            logger.error(f"RAG服务初始化出现错误: {e}")
+            except ImportError as e:
+                logger.warning(f"RAG服务初始化失败，将使用基础模式: {e}")
+            except Exception as e:
+                logger.error(f"RAG服务初始化出现错误: {e}")
         
         # 初始化Codex系统
         codex_manager = None
         reference_detector = None
         prompt_function_registry = None
-        try:
-            # 导入Codex相关模块
-            logger.info("开始导入Codex相关模块...")
-            from core.codex_manager import CodexManager
-            logger.info("CodexManager模块导入成功")
-            from core.reference_detector import ReferenceDetector
-            logger.info("ReferenceDetector模块导入成功")
-            from core.prompt_functions import PromptFunctionRegistry, create_default_registry
-            logger.info("PromptFunctionRegistry和create_default_registry模块导入成功")
-            
-            logger.info("所有Codex相关模块导入成功")
-            
-            # 创建CodexManager实例
-            logger.info("开始创建CodexManager实例...")
-            
-            # 检查数据库管理器是否可用
-            if not hasattr(project_manager_instance, '_db_manager') or project_manager_instance._db_manager is None:
-                logger.warning("ProjectManager的数据库管理器未初始化，正在创建临时数据库...")
-                from core.database_manager import DatabaseManager
-                import os
+        codex_enabled = bool(config_instance.get("codex", "enabled", True))
+        if not codex_enabled:
+            logger.info("Codex disabled by config (codex.enabled=false)")
+        else:
+            try:
+                # 导入Codex相关模块
+                logger.info("开始导入Codex相关模块...")
+                from core.codex_manager import CodexManager
+                logger.info("CodexManager模块导入成功")
+                from core.reference_detector import ReferenceDetector
+                logger.info("ReferenceDetector模块导入成功")
+                from core.prompt_functions import PromptFunctionRegistry, create_default_registry
+                logger.info("PromptFunctionRegistry和create_default_registry模块导入成功")
                 
-                # 创建临时数据库目录
-                temp_db_dir = os.path.expanduser("~/.ai-novel-editor/codex_temp")
-                os.makedirs(temp_db_dir, exist_ok=True)
-                temp_db_manager = DatabaseManager(temp_db_dir)
+                logger.info("所有Codex相关模块导入成功")
                 
-                codex_manager = CodexManager(temp_db_manager)
-                logger.info("CodexManager使用临时数据库创建成功")
-            else:
-                codex_manager = CodexManager(project_manager_instance._db_manager)
-                logger.info(f"CodexManager创建成功: {type(codex_manager)}")
-            
-            # 创建ReferenceDetector实例
-            logger.info("开始创建ReferenceDetector实例...")
-            reference_detector = ReferenceDetector(codex_manager=codex_manager)
-            logger.info(f"ReferenceDetector创建成功: {type(reference_detector)}")
-            
-            # 创建提示词函数注册表 - 使用扩展的create_default_registry自动注册30+函数
-            logger.info("开始创建PromptFunctionRegistry实例（包含30+个内置函数）...")
-            prompt_function_registry = create_default_registry(
-                codex_manager=codex_manager, 
-                reference_detector=reference_detector
-            )
-            logger.info(f"PromptFunctionRegistry创建成功: {type(prompt_function_registry)}")
-            
-            # 显示注册的函数统计
-            available_functions = prompt_function_registry.get_available_functions()
-            total_functions = sum(len(funcs) for funcs in available_functions.values())
-            logger.info(f"已注册 {total_functions} 个函数，命名空间: {list(available_functions.keys())}")
-            
-            # 将Codex组件设置到shared对象中
-            shared_instance.codex_manager = codex_manager
-            shared_instance.reference_detector = reference_detector
-            shared_instance.prompt_function_registry = prompt_function_registry
-            
-            logger.info("Codex系统初始化完全成功！")
-            logger.info(f"Codex组件状态: codex_manager={codex_manager is not None}, reference_detector={reference_detector is not None}")
-            
-        except ImportError as e:
-            logger.warning(f"Codex系统初始化失败，将使用基础模式: {e}")
-            logger.warning(f"ImportError详细信息: {str(e)}")
-            import traceback
-            logger.warning(f"导入错误堆栈:\n{traceback.format_exc()}")
-            codex_manager = None
-            reference_detector = None
-            prompt_function_registry = None
-        except ImportError as e:
-            logger.warning(f"Codex系统模块导入失败，将使用基础模式: {e}")
-            import traceback
-            logger.debug(f"导入错误详情:\n{traceback.format_exc()}")
-            codex_manager = None
-            reference_detector = None
-            prompt_function_registry = None
-        except Exception as e:
-            logger.error(f"Codex系统初始化出现错误: {e}")
-            logger.error(f"Exception详细信息: {str(e)}")
-            import traceback
-            logger.error(f"错误堆栈:\n{traceback.format_exc()}")
-            codex_manager = None
-            reference_detector = None
-            prompt_function_registry = None
+                # 创建CodexManager实例
+                logger.info("开始创建CodexManager实例...")
+                
+                # 检查数据库管理器是否可用
+                if not hasattr(project_manager_instance, '_db_manager') or project_manager_instance._db_manager is None:
+                    logger.warning("ProjectManager的数据库管理器未初始化，正在创建临时数据库...")
+                    from core.database_manager import DatabaseManager
+                    import os
+                    
+                    # 创建临时数据库目录
+                    temp_db_dir = os.path.expanduser("~/.ai-novel-editor/codex_temp")
+                    os.makedirs(temp_db_dir, exist_ok=True)
+                    temp_db_manager = DatabaseManager(temp_db_dir)
+                    
+                    codex_manager = CodexManager(temp_db_manager)
+                    logger.info("CodexManager使用临时数据库创建成功")
+                else:
+                    codex_manager = CodexManager(project_manager_instance._db_manager)
+                    logger.info(f"CodexManager创建成功: {type(codex_manager)}")
+                
+                # 创建ReferenceDetector实例
+                logger.info("开始创建ReferenceDetector实例...")
+                reference_detector = ReferenceDetector(codex_manager=codex_manager)
+                logger.info(f"ReferenceDetector创建成功: {type(reference_detector)}")
+                
+                # 创建提示词函数注册表 - 使用扩展的create_default_registry自动注册30+函数
+                logger.info("开始创建PromptFunctionRegistry实例（包含30+个内置函数）...")
+                prompt_function_registry = create_default_registry(
+                    codex_manager=codex_manager, 
+                    reference_detector=reference_detector
+                )
+                logger.info(f"PromptFunctionRegistry创建成功: {type(prompt_function_registry)}")
+                
+                # 显示注册的函数统计
+                available_functions = prompt_function_registry.get_available_functions()
+                total_functions = sum(len(funcs) for funcs in available_functions.values())
+                logger.info(f"已注册 {total_functions} 个函数，命名空间: {list(available_functions.keys())}")
+                
+                # 将Codex组件设置到shared对象中
+                shared_instance.codex_manager = codex_manager
+                shared_instance.reference_detector = reference_detector
+                shared_instance.prompt_function_registry = prompt_function_registry
+                
+                logger.info("Codex系统初始化完全成功！")
+                logger.info(f"Codex组件状态: codex_manager={codex_manager is not None}, reference_detector={reference_detector is not None}")
+                
+            except ImportError as e:
+                logger.warning(f"Codex系统初始化失败，将使用基础模式: {e}")
+                logger.warning(f"ImportError详细信息: {str(e)}")
+                import traceback
+                logger.warning(f"导入错误堆栈:\n{traceback.format_exc()}")
+                codex_manager = None
+                reference_detector = None
+                prompt_function_registry = None
+            except ImportError as e:
+                logger.warning(f"Codex系统模块导入失败，将使用基础模式: {e}")
+                import traceback
+                logger.debug(f"导入错误详情:\n{traceback.format_exc()}")
+                codex_manager = None
+                reference_detector = None
+                prompt_function_registry = None
+            except Exception as e:
+                logger.error(f"Codex系统初始化出现错误: {e}")
+                logger.error(f"Exception详细信息: {str(e)}")
+                import traceback
+                logger.error(f"错误堆栈:\n{traceback.format_exc()}")
+                codex_manager = None
+                reference_detector = None
+                prompt_function_registry = None
         
         # 记录Codex系统最终状态
         if codex_manager and reference_detector:
