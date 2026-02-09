@@ -15,7 +15,7 @@ All datasets are generated via `tools.generate_benchmark_project` and contain **
   - Command: `py -3.11 -m tools.generate_benchmark_project --size medium --out tests/fixtures/projects/medium`
 
 - **large**: ~1000 novel documents, total正文 ~1.5M chars
-  - Spec (current generator): `acts=4`, `chapters_per_act=25`, `scenes_per_chapter=10`, `total_chars=1_500_000`
+  - Spec (current generator): `acts=4`, `chapters_per_act=25`, `scenes_per_chapter=9`, `total_chars=1_500_000` (≈1004 novel docs)
   - Command: `py -3.11 -m tools.generate_benchmark_project --size large --out tests/fixtures/projects/large`
 
 ## Output constraints
