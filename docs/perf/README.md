@@ -38,3 +38,8 @@ All datasets are generated via `tools.generate_benchmark_project` and contain **
 - Start: enter `ProjectController.on_open_project()` (see `src/gui/controllers/project_controller.py`)
 - End: after `project_structure_changed.emit()` and the project tree + editor accept input (see `src/gui/controllers/project_controller.py`)
 - Unit: seconds (wall-clock, monotonic timer preferred)
+
+**outline_refresh**
+- Start: enter the outline refresh entrypoint (see `src/gui/panels/outline_panel.py`)
+- End: after outline model/view updates are applied (see `src/gui/panels/outline_panel.py`)
+- Unit: seconds (wall-clock, monotonic timer preferred)
