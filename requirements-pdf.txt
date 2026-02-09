@@ -1,0 +1,7 @@
+# Optional dependency set for PDF export.
+#
+# Notes:
+# - PDF export uses WeasyPrint (imported lazily); missing dependency should not prevent app startup.
+# - On some platforms, WeasyPrint may require additional native/system libraries (Cairo/Pango/Fontconfig).
+weasyprint==65.1
+

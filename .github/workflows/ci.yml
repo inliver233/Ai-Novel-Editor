@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - test
+      - "test/*"
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install -U pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Static compile check
+        run: python -m compileall -q src
+
+      - name: Run tests
+        run: python -m pytest -q
+

@@ -43,13 +43,23 @@ cd ai-novel-editor
 
 2. 创建虚拟环境
 ```bash
-python -m venv venv
-venv\Scripts\activate     # Windows
+python -m venv .venv
+.venv\Scripts\activate     # Windows
 ```
 
 3. 安装依赖
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
+```
+
+（开发/测试依赖）
+```bash
+python -m pip install -r requirements-dev.txt
+```
+
+（可选：PDF 导出依赖）
+```bash
+python -m pip install -r requirements-pdf.txt
 ```
 
 4. 运行程序
@@ -133,7 +143,7 @@ python src/main.py
 
 ## 系统要求
 
-- Python 3.8+
+- Python 3.10–3.11（推荐 3.11；与本仓库 lint/typecheck 配置一致）
 - PyQt6
 - 操作系统：Windows、macOS、Linux
 

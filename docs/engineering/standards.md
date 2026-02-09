@@ -7,6 +7,7 @@
 - 分阶段启用：先只做低风险检查（不大规模改格式），再逐步收敛到 ruff/black/mypy 全量门禁。
 
 ## 基线命令（推荐）
+- 安装（开发/测试依赖）：`py -3.11 -m pip install -r requirements-dev.txt`
 - 编译检查：`py -3.11 -m compileall -q src`
 - 单测入口（逐步统一中）：`py -3.11 -m pytest -q`
 

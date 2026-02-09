@@ -14,6 +14,14 @@ python -m pip install -r requirements.txt
 
 预期结果：安装成功，无 error。
 
+（开发/测试依赖）
+
+```bash
+python -m pip install -r requirements-dev.txt
+```
+
+预期结果：安装成功，无 error。
+
 2) 静态检查（编译）
 
 ```bash

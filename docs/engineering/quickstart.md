@@ -13,7 +13,7 @@
 py -3.11 -m venv .venv
 .venv\\Scripts\\Activate.ps1
 py -m pip install -U pip
-py -m pip install -r requirements.txt
+py -m pip install -r requirements-dev.txt
 ```
 
 预期结果：依赖安装成功。
