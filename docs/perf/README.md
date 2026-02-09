@@ -21,7 +21,7 @@ Generation is fixed at the command level; use the commands below to reproduce th
   - Command: `python -m tools.generate_benchmark_project --size large --out tests/fixtures/projects/large`
 
 ## Output constraints
-- Output must be a **valid project directory** (contains at least `project.db`).
+- Output must be a **valid project directory** (contains at least `project.db` and the minimal resources needed to open).
 - Must not contain any real user content; generated text is synthetic.
 
 ## Metrics (measured per dataset)
