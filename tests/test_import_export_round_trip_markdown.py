@@ -164,15 +164,33 @@ def test_pdf_export_smoke(tmp_path: Path) -> None:
 
     exported_pdf = tmp_path / "export.pdf"
     try:
-        exported_count = export_project_to_pdf(
-            original_project,
-            exported_pdf,
-            include_metadata=True,
-            title=original_project.name,
-            author=original_project.author,
-        )
-    except ImportError as exc:
-        pytest.skip(str(exc))
+        from weasyprint import HTML  # noqa: F401
+        weasyprint_available = True
+    except Exception:
+        weasyprint_available = False
+
+    if not weasyprint_available:
+        with pytest.raises(RuntimeError) as excinfo:
+            export_project_to_pdf(
+                original_project,
+                exported_pdf,
+                include_metadata=True,
+                title=original_project.name,
+                author=original_project.author,
+            )
+        msg = str(excinfo.value)
+        assert "PDF 导出功能不可用" in msg
+        assert "HTML" in msg and "Word" in msg and "Markdown" in msg
+        assert not exported_pdf.exists()
+        return
+
+    exported_count = export_project_to_pdf(
+        original_project,
+        exported_pdf,
+        include_metadata=True,
+        title=original_project.name,
+        author=original_project.author,
+    )
 
     assert exported_count > 0
     assert exported_pdf.exists()

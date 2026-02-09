@@ -55,3 +55,4 @@ QSS 文件位于：
 
 打包后验收点：PDF 导出/渲染链路可用；若无法完整随包分发，则需要明确降级策略（例如禁用 PDF 导出或提示用户安装运行时）。
 
+另见：`docs/deployment/dependency-risk-grading.md`（依赖风险分级与降级标准）。
