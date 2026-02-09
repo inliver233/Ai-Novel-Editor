@@ -323,7 +323,8 @@ class UnifiedAPIConfigWidget(QFrame):
         
         # Max Tokens
         self._max_tokens_spin = QSpinBox()
-        self._max_tokens_spin.setRange(50, 4000)
+        # Allow large output token limits (provider/model may still clamp at request time).
+        self._max_tokens_spin.setRange(50, 1_000_000)
         self._max_tokens_spin.setValue(2000)
         self._max_tokens_spin.setSuffix(" tokens")
         group_layout.addRow("最大长度:", self._max_tokens_spin)
