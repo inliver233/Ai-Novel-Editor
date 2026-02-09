@@ -633,12 +633,29 @@ class ProjectManager:
 def _add_to_recent_projects(project_path: str, config: 'Config'):
     """添加到最近项目列表"""
     try:
-        recent_projects = config.get('app', 'recent_projects', [])
-        if not isinstance(recent_projects, list): recent_projects = []
-        if project_path in recent_projects: recent_projects.remove(project_path)
+        # Prefer the schema-backed API when available.
+        add_recent = getattr(config, "add_recent_project", None)
+        if callable(add_recent):
+            add_recent(project_path)
+            return
+
+        recent_projects = config.get("project", "recent_projects", [])
+        if not isinstance(recent_projects, list):
+            recent_projects = []
+        if project_path in recent_projects:
+            recent_projects.remove(project_path)
         recent_projects.insert(0, project_path)
-        config.set('app', 'recent_projects', recent_projects[:10])
-        config.save()
+
+        max_recent = config.get("project", "max_recent_projects", 10)
+        try:
+            max_recent_int = int(max_recent)
+        except Exception:
+            max_recent_int = 10
+
+        config.set("project", "recent_projects", recent_projects[:max_recent_int])
+        save = getattr(config, "save", None)
+        if callable(save):
+            save()
     except Exception as e:
         logger.error(f"Failed to add to recent projects: {e}")
 

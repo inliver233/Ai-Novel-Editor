@@ -4,10 +4,13 @@
 """
 
 import logging
-from typing import Dict, Any
+from pathlib import Path
+from typing import Dict, Any, Optional
 from PyQt6.QtWidgets import QMenuBar, QMenu, QApplication
 from PyQt6.QtCore import pyqtSignal, QObject
 from PyQt6.QtGui import QAction, QKeySequence, QIcon
+
+from core.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -18,10 +21,12 @@ class MenuBar(QMenuBar):
     # 信号定义
     actionTriggered = pyqtSignal(str, dict)  # 菜单动作触发信号
     
-    def __init__(self, parent=None):
+    def __init__(self, config: Config, parent=None):
         super().__init__(parent)
         
+        self._config = config
         self._actions = {}
+        self._recent_projects_menu: Optional[QMenu] = None
         self._init_menus()
         
         logger.debug("Menu bar initialized")
@@ -160,7 +165,9 @@ class MenuBar(QMenuBar):
         
         # 最近项目
         recent_menu = file_menu.addMenu("最近项目(&R)")
-        self._populate_recent_projects(recent_menu)
+        self._recent_projects_menu = recent_menu
+        self._refresh_recent_projects_menu()
+        recent_menu.aboutToShow.connect(self._refresh_recent_projects_menu)
         
         file_menu.addSeparator()
         
@@ -590,6 +597,16 @@ class MenuBar(QMenuBar):
         )
         help_menu.addAction(about_action)
     
+    def refresh_recent_projects_menu(self) -> None:
+        """公开方法：刷新最近项目菜单（用于 clear_recent 后立即更新 UI）。"""
+        self._refresh_recent_projects_menu()
+
+    def _refresh_recent_projects_menu(self) -> None:
+        if self._recent_projects_menu is None:
+            return
+        self._recent_projects_menu.clear()
+        self._populate_recent_projects(self._recent_projects_menu)
+
     def _create_action(self, action_id: str, text: str, shortcut: str, 
                       tooltip: str, icon: str = None) -> QAction:
         """创建菜单动作"""
@@ -615,22 +632,36 @@ class MenuBar(QMenuBar):
     
     def _populate_recent_projects(self, menu: QMenu):
         """填充最近项目菜单"""
-        # TODO: 从配置中读取最近项目
-        recent_projects = [
-            "我的小说项目.nvproj",
-            "科幻小说.nvproj",
-            "爱情故事.nvproj"
-        ]
+        recent_projects = self._config.get("project", "recent_projects", [])
+        if not recent_projects:
+            # legacy fallback
+            recent_projects = self._config.get("app", "recent_projects", [])
+
+        if not isinstance(recent_projects, list):
+            recent_projects = []
+
+        max_recent = self._config.get("project", "max_recent_projects", 10)
+        try:
+            max_recent_int = int(max_recent)
+        except Exception:
+            max_recent_int = 10
         
         if not recent_projects:
             no_recent_action = QAction("无最近项目", self)
             no_recent_action.setEnabled(False)
             menu.addAction(no_recent_action)
         else:
-            for i, project in enumerate(recent_projects[:10]):  # 最多显示10个
-                action = QAction(f"&{i+1} {project}", self)
+            for i, project in enumerate(recent_projects[:max_recent_int]):
+                project_path = str(project)
+                display_name = Path(project_path).name or project_path
+
+                action = QAction(f"&{i+1} {display_name}", self)
+                action.setToolTip(project_path)
                 action.triggered.connect(
-                    lambda checked, p=project: self._on_action_triggered("open_recent", {"project": p})
+                    lambda checked=False, p=project_path: self._on_action_triggered(
+                        "open_recent",
+                        {"project_path": p},
+                    )
                 )
                 menu.addAction(action)
             

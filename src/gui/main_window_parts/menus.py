@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 class MainWindowMenusMixin:
     """MainWindow mixin."""
     def _init_menu_bar(self):
-        self._menu_bar = MenuBar(self)
+        self._menu_bar = MenuBar(config=self._config, parent=self)
         self.setMenuBar(self._menu_bar)
         self._menu_bar.actionTriggered.connect(self._on_menu_action)
         
@@ -79,6 +79,22 @@ class MainWindowMenusMixin:
     @pyqtSlot(str, dict)
     def _on_menu_action(self, action_id: str, data: dict):
         logger.debug(f"Menu action: {action_id}")
+
+        if action_id == "open_recent":
+            project_path = data.get("project_path") or data.get("project")
+            if project_path:
+                self._open_recent_project(str(project_path))
+            else:
+                logger.warning("open_recent triggered without project_path")
+            return
+
+        if action_id == "clear_recent":
+            try:
+                self._config.clear_recent_projects()
+                self._menu_bar.refresh_recent_projects_menu()
+            except Exception:
+                logger.exception("Failed to clear recent projects")
+            return
         
         # 将所有action映射到一个地方处理
         actions = {
@@ -159,6 +175,30 @@ class MainWindowMenusMixin:
             actions[action_id]()
         else:
             logger.warning(f"Unhandled menu action: {action_id}")
+
+    def _open_recent_project(self, project_dir: str) -> None:
+        """Open a project directory from Recent Projects."""
+        parent_widget = self
+
+        try:
+            project_path = Path(project_dir)
+        except Exception:
+            QMessageBox.critical(parent_widget, "错误", f"无效项目路径:\n{project_dir}")
+            return
+
+        db_file = project_path / "project.db"
+        if not db_file.exists():
+            QMessageBox.critical(parent_widget, "错误", f"项目数据库 'project.db' 未找到于:\n{project_path}")
+            return
+
+        if self._project_manager.open_project(str(project_path)):
+            project = self._project_manager.get_current_project()
+            if project:
+                QMessageBox.information(parent_widget, "成功", f"项目 '{project.name}' 打开成功！")
+                self._project_controller.project_opened.emit(project.project_path)
+                self._project_controller.project_structure_changed.emit()
+        else:
+            QMessageBox.critical(parent_widget, "错误", "项目打开失败！")
     def _toggle_fullscreen(self):
         self.showNormal() if self.isFullScreen() else self.showFullScreen()
     def _toggle_left_panel(self):

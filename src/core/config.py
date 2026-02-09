@@ -283,6 +283,10 @@ class Config:
         recent = recent[:max_recent]
         
         self.set("project", "recent_projects", recent)
+
+    def clear_recent_projects(self) -> None:
+        """清空最近项目列表"""
+        self.set("project", "recent_projects", [])
     
     @property
     def config_dir(self) -> Path:
