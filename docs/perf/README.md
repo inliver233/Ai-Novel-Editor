@@ -4,7 +4,8 @@ This folder documents the *fixed*, reproducible benchmark datasets used to measu
 
 ## Datasets (write-once, reproducible)
 
-All datasets are generated via `tools.generate_benchmark_project` and contain **synthetic** text only.
+All datasets are generated via the repo-root `tools/` package (`tools.generate_benchmark_project`) and contain **synthetic** text only.
+Recommended invocation: `python -m tools.generate_benchmark_project ...`
 Generation is fixed at the command level; use the commands below to reproduce the fixtures.
 
 - **small**: ~50 novel documents, total正文 ~50k chars
