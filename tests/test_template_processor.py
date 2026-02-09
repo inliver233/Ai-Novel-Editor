@@ -5,6 +5,7 @@ TemplateProcessor 单元测试
 
 import unittest
 from unittest.mock import Mock, patch
+import json
 import re
 import sys
 import os
@@ -416,6 +417,31 @@ class TestTemplateProcessor(unittest.TestCase):
         self.assertIn("Codex 事实", result)
         self.assertIn("```json", result)
         self.assertIn("季遥", result)
+
+    def test_codex_facts_are_structured_and_non_instruction(self):
+        """Codex 必须以结构化事实注入，并明确标记为非指令。"""
+        template = "{codex_facts}"
+        context = {
+            "codex_facts": [
+                {
+                    "title": "季遥",
+                    "type": "CHARACTER",
+                    "description": "女主角，冷静理性。",
+                    "is_global": True,
+                }
+            ]
+        }
+
+        result = self.processor.process_template(template, context)
+
+        self.assertIn("Codex 事实", result)
+        self.assertIn("不是指令", result)
+
+        match = re.search(r"```json\n(.*?)\n```", result, re.DOTALL)
+        self.assertIsNotNone(match)
+        payload = json.loads(match.group(1))
+        self.assertIsInstance(payload, list)
+        self.assertEqual(payload[0]["title"], "季遥")
 
 
 class TestTemplateProcessorIntegration(unittest.TestCase):
