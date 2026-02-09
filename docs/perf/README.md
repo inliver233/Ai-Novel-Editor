@@ -10,7 +10,7 @@ Generation is fixed at the command level; use the commands below to reproduce th
 
 - **small**: ~50 novel documents, total正文 ~50k chars
   - Spec (current generator): `acts=1`, `chapters_per_act=5`, `scenes_per_chapter=9`, `total_chars=50_000` (≈51 novel docs)
-  - Command: `py -3.11 -m tools.generate_benchmark_project --size small --out tests/fixtures/projects/small`
+  - Command: `python -m tools.generate_benchmark_project --size small --out tests/fixtures/projects/small`
 
 - **medium**: ~300 novel documents, total正文 ~300k chars
   - Spec (current generator): `acts=2`, `chapters_per_act=10`, `scenes_per_chapter=14`, `total_chars=300_000` (≈302 novel docs)
