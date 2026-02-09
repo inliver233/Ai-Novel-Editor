@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from core.config_schema import (  # noqa: E402
+    ConfigSchema,
     CURRENT_SCHEMA_VERSION,
     apply_defaults_inplace,
     migrate_config_inplace,
@@ -17,6 +18,12 @@ from core.config_schema import (  # noqa: E402
 
 
 class TestConfigSchemaMigration(unittest.TestCase):
+    def test_config_schema_exposes_version_and_defaults(self):
+        schema = ConfigSchema()
+        self.assertEqual(schema.version, CURRENT_SCHEMA_VERSION)
+        self.assertIn("ai", schema.defaults)
+        self.assertIn("ui", schema.defaults)
+
     def test_migrate_v0_fixture_adds_version_and_cleans_deprecated_keys(self):
         fixture_path = Path(__file__).resolve().parent / "fixtures" / "config_v0.json"
         data = json.loads(fixture_path.read_text(encoding="utf-8"))
@@ -39,4 +46,3 @@ class TestConfigSchemaMigration(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-
