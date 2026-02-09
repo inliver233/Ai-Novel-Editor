@@ -62,3 +62,7 @@ Budgets are fixed targets: record baseline first, then iteratively compress.
 - open_project: small ≤ 1.0s; medium ≤ 2.5s; large ≤ 5.0s
 - outline_refresh: small ≤ 150ms; medium ≤ 400ms; large ≤ 900ms
 - ai_completion_mock: small/medium/large ≤ 800ms
+
+## Recording (fixed)
+- Runtime perf log (JSON lines): (see below)
+- Repo-tracked baselines: (see below)
