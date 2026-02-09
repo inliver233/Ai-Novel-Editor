@@ -15,6 +15,7 @@ from .completion_engine import CompletionEngine, CompletionSuggestion
 from .completion_widget import CompletionWidget
 from .inline_completion import InlineCompletionManager
 from .timeout_manager import TimeoutManager
+from .ghost_text_state_manager import GhostTextStateManager, GhostTextState
 # Ghost text completion 通过 text_editor._ghost_completion 访问
 # from .completion_status_indicator import FloatingStatusIndicator  # 已移除，避免状态指示器冲突
 
@@ -64,6 +65,17 @@ class SmartCompletionManager(QObject):
                     logger.info(f"Editor.{attr} = {value} (type: {type(value)})")
                 else:
                     logger.info(f"Editor.{attr} = <不存在>")
+
+        # 统一的 Ghost Text 状态机（用于避免重复触发/残留 UI）
+        existing_ghost_state = getattr(self._text_editor, "_ghost_state_manager", None)
+        if existing_ghost_state is None:
+            self._ghost_state_manager = GhostTextStateManager(parent=self)
+            self._text_editor._ghost_state_manager = self._ghost_state_manager
+        else:
+            self._ghost_state_manager = existing_ghost_state
+
+        # 连接 Ghost Text 接受/拒绝信号到状态机，确保 Esc/Tab/输入 等路径一致收口
+        self._bind_ghost_signals()
         # 移除FloatingStatusIndicator以避免状态指示器冲突
         # self._status_indicator = FloatingStatusIndicator(text_editor)
         
@@ -92,6 +104,36 @@ class SmartCompletionManager(QObject):
         
         # FloatingStatusIndicator已被移除，状态显示由ModernAIStatusIndicator负责
         logger.info("SmartCompletionManager initialized without FloatingStatusIndicator")
+
+    def _bind_ghost_signals(self) -> None:
+        ghost = self._ghost_completion
+        if not ghost:
+            return
+
+        try:
+            accepted_signal = getattr(ghost, "completionAccepted", None)
+            if accepted_signal is not None and hasattr(accepted_signal, "connect"):
+                accepted_signal.connect(self._on_ghost_completion_accepted)
+
+            rejected_signal = getattr(ghost, "completionRejected", None)
+            if rejected_signal is not None and hasattr(rejected_signal, "connect"):
+                rejected_signal.connect(self._on_ghost_completion_rejected)
+        except Exception as e:
+            logger.warning(f"绑定Ghost Text信号失败: {e}")
+
+    def _on_ghost_completion_accepted(self, accepted_text: str) -> None:
+        try:
+            if self._ghost_state_manager:
+                self._ghost_state_manager.accept_with_text(accepted_text)
+        except Exception as e:
+            logger.debug(f"Ghost Text接受状态同步失败: {e}")
+
+    def _on_ghost_completion_rejected(self) -> None:
+        try:
+            if self._ghost_state_manager:
+                self._ghost_state_manager.force_idle()
+        except Exception as e:
+            logger.debug(f"Ghost Text拒绝状态同步失败: {e}")
         
     def _init_connections(self):
         """初始化信号连接"""
@@ -108,6 +150,14 @@ class SmartCompletionManager(QObject):
 
         # 文本编辑器信号
         self._text_editor.textChanged.connect(self._on_text_changed)
+
+    def get_popup_widget(self) -> CompletionWidget:
+        """统一的弹出式补全组件（唯一实例）。"""
+        return self._popup_widget
+
+    def get_inline_manager(self) -> InlineCompletionManager:
+        """统一的内联补全管理器（唯一实例）。"""
+        return self._inline_manager
 
     def _bind_cancel_signal(self):
         """延迟绑定AI取消信号（等待AIStatusManager初始化）"""
@@ -134,9 +184,14 @@ class SmartCompletionManager(QObject):
         """取消当前补全并重置状态"""
         if hasattr(self, '_ai_timeout_timer') and self._ai_timeout_timer.isActive():
             self._ai_timeout_timer.stop()
+        if hasattr(self, "_auto_completion_timer") and self._auto_completion_timer.isActive():
+            self._auto_completion_timer.stop()
         self.hide_all_completions()
         self._is_completing = False
         self._last_completion_pos = -1
+        if hasattr(self._text_editor, "_ai_status_manager"):
+            self._text_editor._ai_status_manager.hide()
+        self._ghost_state_manager.force_idle()
         
     def set_completion_mode(self, mode: str):
         """设置补全模式
@@ -379,6 +434,12 @@ class SmartCompletionManager(QObject):
             position: 光标位置  
             trigger_type: 触发类型 ('auto', 'manual', 'ai')
         """
+        # 状态机：仅允许在空闲状态发起新的 AI 请求
+        if self._ghost_state_manager and not self._ghost_state_manager.request_completion():
+            logger.debug("🚫 Ghost Text状态非空闲，跳过新的AI补全请求")
+            self._is_completing = False
+            return
+
         # 显示请求状态 - 使用现代状态指示器
         if hasattr(self._text_editor, '_ai_status_manager'):
             self._text_editor._ai_status_manager.show_requesting("发送AI补全请求")
@@ -436,6 +497,7 @@ class SmartCompletionManager(QObject):
         self._reset_completion_state(success=False, reason="timeout")
         if hasattr(self._text_editor, '_ai_status_manager'):
             self._text_editor._ai_status_manager.show_error("AI补全请求超时")
+        self._ghost_state_manager.force_idle()
         
     def _smart_complete(self, text: str, position: int):
         """智能补全 - 混合策略"""
@@ -538,6 +600,7 @@ class SmartCompletionManager(QObject):
             if hasattr(self._text_editor, '_ai_status_manager'):
                 self._text_editor._ai_status_manager.show_error("AI补全生成失败")
             self._reset_completion_state(success=False, reason="empty_suggestion")
+            self._ghost_state_manager.force_idle()
             return
 
         suggestion = suggestion.strip()
@@ -560,6 +623,9 @@ class SmartCompletionManager(QObject):
                     logger.info(f"✅ AI补全使用{method_name}显示成功")
                     # 🔧 修复：成功显示后确保状态正确重置
                     self._reset_completion_state(success=True)
+                    # 只有 Ghost Text 显示会进入 VISIBLE；其它显示方式保持 IDLE
+                    if method_name != "Ghost Text":
+                        self._ghost_state_manager.force_idle()
                     return
                 else:
                     logger.debug(f"⚠️ {method_name}显示方法不可用，尝试下一种")
@@ -569,6 +635,7 @@ class SmartCompletionManager(QObject):
         logger.error("所有AI补全显示方法都失败了")
         # 🔧 修复：失败时也要正确重置状态
         self._reset_completion_state(success=False, reason="display_failed")
+        self._ghost_state_manager.force_idle()
     
     def _reset_completion_state(self, success: bool = True, reason: str = ""):
         """重置补全状态 - 统一的状态管理和同步
@@ -626,6 +693,7 @@ class SmartCompletionManager(QObject):
                     self._text_editor._ai_status_manager.show_error("请求失败")
                 else:
                     self._text_editor._ai_status_manager.hide()
+            self._ghost_state_manager.force_idle()
         
     def _try_ghost_text_display(self, suggestion: str) -> bool:
         """尝试使用Ghost Text显示补全"""
@@ -638,7 +706,11 @@ class SmartCompletionManager(QObject):
             try:
                 result = self._ghost_completion.show_completion(suggestion)
                 logger.info(f"Ghost Text显示成功: {result}")
-                return True
+                if result and self._ghost_state_manager:
+                    # 正常路径：GENERATING -> VISIBLE
+                    if not self._ghost_state_manager.show(suggestion):
+                        self._ghost_state_manager.mark_visible(suggestion)
+                return bool(result)
             except Exception as e:
                 logger.error(f"Ghost Text显示失败: {e}")
                 
@@ -693,6 +765,8 @@ class SmartCompletionManager(QObject):
         if self._ghost_completion:
             self._ghost_completion.hide_completion()
         self._is_completing = False
+        if self._ghost_state_manager:
+            self._ghost_state_manager.force_idle()
         
     def _trigger_auto_completion(self):
         """自动触发补全"""
@@ -764,17 +838,18 @@ class SmartCompletionManager(QObject):
             
     def _on_popup_suggestion_accepted(self, suggestion: CompletionSuggestion):
         """弹出式建议被接受"""
-        # 插入建议到编辑器
+        # 插入建议到编辑器（保持与 IntelligentTextEditor._on_suggestion_accepted 一致）
         cursor = self._text_editor.textCursor()
+        cursor.setPosition(suggestion.insert_position)
 
-        # 如果有替换长度信息，先删除要替换的文本
         if suggestion.replace_length > 0:
-            cursor.movePosition(QTextCursor.MoveOperation.Left,
-                              QTextCursor.MoveMode.KeepAnchor,
-                              suggestion.replace_length)
-            cursor.removeSelectedText()
+            cursor.setPosition(
+                suggestion.insert_position + suggestion.replace_length,
+                QTextCursor.MoveMode.KeepAnchor,
+            )
 
         cursor.insertText(suggestion.text)
+        self._text_editor.setTextCursor(cursor)
         self._popup_widget.hide()
 
         logger.info(f"弹出式建议已接受: {suggestion.text}")

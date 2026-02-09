@@ -34,6 +34,7 @@ from core.auto_replace import get_auto_replace_engine
 from .syntax_highlighter import NovelWriterHighlighter
 from .completion_widget import CompletionWidget
 from .inline_completion import InlineCompletionManager
+from .ghost_text_state_manager import GhostTextStateManager, GhostTextState
 from .smart_completion_manager import SmartCompletionManager
 from .completion_status_indicator import EmbeddedStatusIndicator
 from .deep_integrated_ghost_text import DeepIntegratedGhostText, integrate_with_text_editor
@@ -79,6 +80,9 @@ class IntelligentTextEditor(QPlainTextEdit):
         self._is_modified = False
         self._last_save_content = ""
         self._current_document_id = None
+
+        # Ghost Text 系统选择状态（仅用于兼容旧 API）
+        self._use_deep_ghost_text = False
         
         # 自动保存定时器
         self._auto_save_timer = QTimer()
@@ -102,11 +106,9 @@ class IntelligentTextEditor(QPlainTextEdit):
         from .completion_engine import CompletionEngine
         self._completion_engine = CompletionEngine(self._config, self)
 
-        # 补全界面组件
-        self._completion_widget = CompletionWidget(self)
-
-        # 内联补全管理器
-        self._inline_completion = InlineCompletionManager(self)
+        # 补全 UI 组件由 SmartCompletionManager 统一创建/持有，避免重复实例导致状态混乱
+        self._completion_widget = None
+        self._inline_completion = None
 
         # Ghost Text系统 - 使用OptimalGhostText作为主要实现
         try:
@@ -138,9 +140,20 @@ class IntelligentTextEditor(QPlainTextEdit):
                 self._ghost_completion = None
                 self._use_optimal_ghost_text = False
 
+        # Ghost Text 状态机（唯一状态源）
+        self._ghost_state_manager = GhostTextStateManager(parent=self)
+
         # 智能补全管理器（统一管理所有补全） - 在 ghost text 初始化之后
         self._smart_completion = SmartCompletionManager(self, self._completion_engine)
         logger.info(f"SmartCompletionManager initialized, ghost_completion status: {self._smart_completion._ghost_completion is not None}")
+
+        # 统一暴露 completion/inline 组件（避免 text_editor 与 smart_manager 各自创建一套导致残留 UI）
+        try:
+            self._completion_widget = self._smart_completion.get_popup_widget()
+            self._inline_completion = self._smart_completion.get_inline_manager()
+        except Exception as e:
+            logger.warning(f"绑定统一补全组件失败: {e}")
+            # fallback: keep None, methods should guard
 
         # 现代AI状态指示器 - 使用新的优雅设计
         self._ai_status_manager = AIStatusManager(self)
@@ -185,15 +198,17 @@ class IntelligentTextEditor(QPlainTextEdit):
     # Legacy ghost text methods removed - replaced with OptimalGhostText
 
     def set_ghost_text(self, text: str, cursor_position: int):
-        """设置Ghost Text内容和位置 - 仅使用深度集成系统"""
-        if not hasattr(self, '_deep_ghost_text') or not self._deep_ghost_text:
-            logger.error("深度集成Ghost Text系统未初始化")
+        """设置Ghost Text内容和位置（统一入口）。"""
+        ghost = getattr(self, "_ghost_completion", None)
+        if not ghost:
+            logger.error("Ghost Text系统未初始化")
             return
-            
+             
         try:
-            success = self._deep_ghost_text.show_ghost_text(text, cursor_position)
+            success = ghost.show_ghost_text(text, cursor_position)
             if success:
                 logger.debug(f"深度集成Ghost Text已设置: position={cursor_position}, content='{text[:50]}...'")
+                self._ghost_state_manager.mark_visible(text)
             else:
                 logger.warning("深度集成Ghost Text设置失败")
         except Exception as e:
@@ -203,12 +218,21 @@ class IntelligentTextEditor(QPlainTextEdit):
         self.viewport().update()
 
     def clear_ghost_text(self):
-        """清除Ghost Text - 仅使用深度集成系统"""
-        if not hasattr(self, '_deep_ghost_text') or not self._deep_ghost_text:
+        """清除Ghost Text（统一入口）。
+
+        注意：当 Ghost Text 以“预览文本插入文档”的方式实现时（如 OptimalGhostText），
+        其 show/clear 会触发 textChanged。调用方需避免在 show 的同一链路中立即清除。
+        """
+        ghost = getattr(self, "_ghost_completion", None)
+        if not ghost:
             return
-            
+             
         try:
-            self._deep_ghost_text.clear_ghost_text()
+            if hasattr(ghost, "clear_ghost_text"):
+                ghost.clear_ghost_text()
+            elif hasattr(ghost, "hide_completion"):
+                ghost.hide_completion()
+            self._ghost_state_manager.force_idle()
         except Exception as e:
             logger.error(f"深度集成Ghost Text清除失败: {e}")
         
@@ -232,9 +256,24 @@ class IntelligentTextEditor(QPlainTextEdit):
         
     def get_ghost_text_manager(self):
         """获取当前使用的Ghost Text管理器"""
-        if self.is_deep_ghost_text_enabled():
-            return self._deep_ghost_text
-        return None
+        return getattr(self, "_ghost_completion", None)
+
+    def get_ghost_text_state_manager(self) -> GhostTextStateManager:
+        """获取 Ghost Text 状态机（唯一状态源）。"""
+        return self._ghost_state_manager
+
+    def _has_active_ghost_text(self) -> bool:
+        ghost = getattr(self, "_ghost_completion", None)
+        if not ghost:
+            return False
+        try:
+            if hasattr(ghost, "has_active_ghost_text"):
+                return bool(ghost.has_active_ghost_text())
+            if hasattr(ghost, "is_showing"):
+                return bool(ghost.is_showing())
+        except Exception as e:
+            logger.debug(f"检测Ghost Text状态失败: {e}")
+        return False
 
     def _create_status_bar(self):
         """创建状态栏"""
@@ -299,9 +338,7 @@ class IntelligentTextEditor(QPlainTextEdit):
         # 更新请求信号
         self.updateRequest.connect(self._update_line_number_area)
 
-        # 补全相关信号
-        self._completion_widget.suggestionAccepted.connect(self._on_suggestion_accepted)
-        self._completion_widget.cancelled.connect(self._on_completion_cancelled)
+        # 补全相关信号由 SmartCompletionManager 统一管理（避免多处插入导致重复/残留）
     
     def _init_style(self):
         """初始化样式"""
@@ -320,7 +357,7 @@ class IntelligentTextEditor(QPlainTextEdit):
         extra_selections = []
         
         # 如果当前显示Ghost Text，完全禁用当前行高亮以避免渲染冲突
-        if hasattr(self, '_deep_ghost_text') and self._deep_ghost_text and self._deep_ghost_text.has_active_ghost_text():
+        if self._has_active_ghost_text():
             self.setExtraSelections([])
             return
         
@@ -437,6 +474,12 @@ class IntelligentTextEditor(QPlainTextEdit):
         if hasattr(self, '_ghost_completion') and self._ghost_completion:
             try:
                 if self._ghost_completion.handle_key_press(event):
+                    # 状态机同步：Ghost Text 处理 Tab/Esc 后应回到 IDLE
+                    if hasattr(self, "_ghost_state_manager"):
+                        if key == Qt.Key.Key_Tab:
+                            self._ghost_state_manager.accept()
+                        elif key == Qt.Key.Key_Escape:
+                            self._ghost_state_manager.reject()
                     return
             except Exception as e:
                 logger.error(f"Ghost Text按键处理失败: {e}")
@@ -446,7 +489,7 @@ class IntelligentTextEditor(QPlainTextEdit):
             return
 
         # 第三优先级：弹出式补全组件处理
-        if self._completion_widget.isVisible():
+        if self._completion_widget and self._completion_widget.isVisible():
             if key in [Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_Return, Qt.Key.Key_Enter]:
                 # 将事件传递给补全组件（但不包括Tab键，Tab键由Ghost Text处理）
                 self._completion_widget.keyPressEvent(event)
@@ -458,6 +501,7 @@ class IntelligentTextEditor(QPlainTextEdit):
                 try:
                     if hasattr(self, '_ghost_completion') and self._ghost_completion and self._ghost_completion.has_active_ghost_text():
                         self._ghost_completion.reject_ghost_text()
+                        self._ghost_state_manager.reject()
                 except Exception as e:
                     logger.error(f"Esc键处理Ghost Text失败: {e}")
                 return
@@ -470,7 +514,7 @@ class IntelligentTextEditor(QPlainTextEdit):
         # Tab键：智能补全触发（如果没有Ghost Text显示）
         if key == Qt.Key.Key_Tab and not modifiers:
             # 检查是否有Ghost Text显示
-            if hasattr(self, '_ghost_completion') and self._ghost_completion and self._ghost_completion.is_showing():
+            if self._has_active_ghost_text():
                 # Ghost Text已经在上面处理了，这里不应该到达
                 return
             else:
@@ -552,7 +596,7 @@ class IntelligentTextEditor(QPlainTextEdit):
 
     def _update_completion_on_text_change(self):
         """文本变化时更新补全"""
-        if self._completion_widget.isVisible():
+        if self._completion_widget and self._completion_widget.isVisible():
             # 重新触发补全以更新建议
             self._trigger_completion()
 
@@ -606,6 +650,8 @@ class IntelligentTextEditor(QPlainTextEdit):
     
     def _trigger_completion(self):
         """触发智能补全"""
+        if not self._completion_widget:
+            return
         cursor_pos = self.textCursor().position()
         text = self.toPlainText()
 
@@ -644,7 +690,14 @@ class IntelligentTextEditor(QPlainTextEdit):
         """显示Ghost Text AI补全建议"""
         if suggestion and self._ghost_completion:
             try:
-                self._ghost_completion.show_completion(suggestion)
+                shown = bool(self._ghost_completion.show_completion(suggestion))
+                if shown:
+                    # 直接调用该入口时，通常没有经过 GENERATING 阶段，直接标记为 VISIBLE
+                    if self._ghost_state_manager.state == GhostTextState.GENERATING:
+                        if not self._ghost_state_manager.show(suggestion):
+                            self._ghost_state_manager.mark_visible(suggestion)
+                    elif self._ghost_state_manager.state == GhostTextState.IDLE:
+                        self._ghost_state_manager.mark_visible(suggestion)
                 logger.info(f"Ghost text AI completion shown: {suggestion[:50]}...")
             except Exception as e:
                 logger.error(f"显示Ghost Text补全失败: {e}")
@@ -659,12 +712,19 @@ class IntelligentTextEditor(QPlainTextEdit):
         if self._ghost_completion:
             try:
                 self._ghost_completion.hide_completion()
+                self._ghost_state_manager.force_idle()
             except Exception as e:
                 logger.error(f"隐藏Ghost Text补全失败: {e}")
     
     @pyqtSlot()
     def _on_text_changed(self):
         """文本变化处理"""
+        # Ghost Text 预览（如 OptimalGhostText）可能通过“插入带格式文本”实现，会触发 textChanged。
+        # 这类变化不应触发“清理 Ghost/标记修改/自动保存”等链路，否则会导致 Ghost 立即被清除或状态混乱。
+        if self._has_active_ghost_text():
+            logger.debug("🚫 检测到活跃的Ghost Text，跳过textChanged处理以防止循环/误清理")
+            return
+
         self._is_modified = True
 
         # 立即清除Ghost Text（用户输入时应该清除补全预览）
@@ -716,7 +776,7 @@ class IntelligentTextEditor(QPlainTextEdit):
         logger.debug(f"Text editor cursor position changed: line={line}, column={column}")
 
         # Ghost Text状态检查 - 如果有Ghost Text显示，完全跳过当前行高亮
-        if hasattr(self, '_deep_ghost_text') and self._deep_ghost_text and self._deep_ghost_text.has_active_ghost_text():
+        if self._has_active_ghost_text():
             # 确保没有任何ExtraSelections在Ghost Text显示时存在
             self.setExtraSelections([])
         else:
