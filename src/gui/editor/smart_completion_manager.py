@@ -14,6 +14,11 @@ from PyQt6.QtGui import QFont, QTextCursor, QKeyEvent
 from .completion_engine import CompletionEngine, CompletionSuggestion
 from .completion_widget import CompletionWidget  # editor popup widget (not gui.ai.completion_widget)
 from .inline_completion import InlineCompletionManager
+from .completion_renderers import (
+    DirectInsertRenderer,
+    GhostTextRenderer,
+    InlineCompletionRenderer,
+)
 from .timeout_manager import TimeoutManager
 from .ghost_text_state_manager import GhostTextStateManager, GhostTextState
 # Ghost text completion 通过 text_editor._ghost_completion 访问
@@ -642,34 +647,37 @@ class SmartCompletionManager(QObject):
             self._text_editor._ai_status_manager.show_completed("AI补全生成完成")
         
         # 尝试多种显示方式，按优先级排列
+        if not self._ghost_completion:
+            self._redetect_ghost_text_system()
+
         renderer_map = {
-            "ghost_text": ("Ghost Text", self._try_ghost_text_display),
-            "inline": ("内联补全", self._try_inline_display),
-            "direct_insert": ("直接插入", self._try_direct_insert),
+            "ghost_text": GhostTextRenderer(self._ghost_completion, self._ghost_state_manager),
+            "inline": InlineCompletionRenderer(self._inline_manager),
+            "direct_insert": DirectInsertRenderer(self._text_editor),
         }
-        display_methods = [renderer_map[key] for key in DEFAULT_AI_RENDERER_ORDER]
+        renderers = [renderer_map[key] for key in DEFAULT_AI_RENDERER_ORDER]
         
-        for method_name, method_func in display_methods:
+        for renderer in renderers:
             try:
-                if method_func(suggestion):
-                    logger.info(f"✅ AI补全使用{method_name}显示成功")
+                if renderer.render(suggestion):
+                    logger.info(f"✅ AI补全使用{renderer.display_name}显示成功")
                     # 🔧 修复：成功显示后确保状态正确重置
                     self._reset_completion_state(success=True)
                     try:
-                        if method_name in ("Ghost Text", "内联补全"):
+                        if renderer.key in ("ghost_text", "inline"):
                             self._completion_state_machine.set_suggestion_ready(suggestion)
                         else:
                             self._completion_state_machine.set_state(CompletionState.APPLIED)
                     except Exception:
                         pass
                     # 只有 Ghost Text 显示会进入 VISIBLE；其它显示方式保持 IDLE
-                    if method_name != "Ghost Text":
+                    if renderer.key != "ghost_text":
                         self._ghost_state_manager.force_idle()
                     return
                 else:
-                    logger.debug(f"⚠️ {method_name}显示方法不可用，尝试下一种")
+                    logger.debug(f"⚠️ {renderer.display_name}显示方法不可用，尝试下一种")
             except Exception as e:
-                logger.error(f"❌ {method_name}显示方法失败: {e}")
+                logger.error(f"❌ {renderer.display_name}显示方法失败: {e}")
                 
         logger.error("所有AI补全显示方法都失败了")
         # 🔧 修复：失败时也要正确重置状态
