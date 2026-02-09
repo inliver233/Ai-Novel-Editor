@@ -25,6 +25,17 @@
 | `aiohttp` / `requests` / `urllib3` | Low | 证书/代理/网络环境差异 | 不影响启动；错误提示要明确 |
 | `loguru` | Low | 编码/输出流差异 | Windows 默认编码注意（UTF-8 配置） |
 
+## “难打包依赖”识别清单（10.2）
+
+以下依赖在 Windows/PyInstaller 场景中最常见出现“缺 DLL / 缺数据 / hook 漏收集 / 运行时崩溃或功能不可用”：
+
+- `weasyprint`（PDF 导出）：常见报错为缺 `libgobject-2.0-0`/Cairo/Pango/Fontconfig 等；必须懒加载并在 PDF 导出时给出降级提示。
+- `PyQt6`（GUI）：Qt plugins（`platforms/` 等）漏收集会直接启动失败或 UI 异常。
+- `cryptography`（安全/密钥）：二进制扩展 + OpenSSL 后端差异；打包后需验证加解密/密钥读写链路。
+- `nltk`（NLP）：依赖额外语料数据；离线/无写权限环境下自动下载会失败，需明确“无数据时降级”策略。
+- `jieba`（分词）：依赖词典数据文件；漏收集会在运行时找不到 `dict.txt` 等资源。
+- `numpy`（数值库）：wheel 体积大，可能引入额外运行时 DLL；需关注打包体积与启动时延。
+
 ## weasyprint（PDF 导出）降级标准
 
 当 `weasyprint` 或其系统依赖不可用时：
@@ -37,4 +48,3 @@
 实现位置：
 - `src/core/import_export/project/pdf.py`
 - UI 侧通过 `ExportManager.exportError` 将错误消息展示给用户。
-
