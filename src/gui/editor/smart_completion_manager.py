@@ -19,6 +19,12 @@ from .ghost_text_state_manager import GhostTextStateManager, GhostTextState
 # Ghost text completion 通过 text_editor._ghost_completion 访问
 # from .completion_status_indicator import FloatingStatusIndicator  # 已移除，避免状态指示器冲突
 
+from domain.completion_state_machine import (
+    CompletionEventType,
+    CompletionState,
+    CompletionStateMachine,
+)
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_AI_RENDERER_ORDER = ("ghost_text", "inline", "direct_insert")
@@ -76,6 +82,9 @@ class SmartCompletionManager(QObject):
         else:
             self._ghost_state_manager = existing_ghost_state
 
+        # 纯状态机（domain/application 层）用于描述 completion 生命周期
+        self._completion_state_machine = CompletionStateMachine()
+
         # 连接 Ghost Text 接受/拒绝信号到状态机，确保 Esc/Tab/输入 等路径一致收口
         self._bind_ghost_signals()
         # 移除FloatingStatusIndicator以避免状态指示器冲突
@@ -127,6 +136,7 @@ class SmartCompletionManager(QObject):
         try:
             if self._ghost_state_manager:
                 self._ghost_state_manager.accept_with_text(accepted_text)
+            self._completion_state_machine.set_state(CompletionState.APPLIED)
         except Exception as e:
             logger.debug(f"Ghost Text接受状态同步失败: {e}")
 
@@ -134,6 +144,7 @@ class SmartCompletionManager(QObject):
         try:
             if self._ghost_state_manager:
                 self._ghost_state_manager.force_idle()
+            self._completion_state_machine.set_state(CompletionState.CANCELLED)
         except Exception as e:
             logger.debug(f"Ghost Text拒绝状态同步失败: {e}")
         
@@ -194,6 +205,10 @@ class SmartCompletionManager(QObject):
         if hasattr(self._text_editor, "_ai_status_manager"):
             self._text_editor._ai_status_manager.hide()
         self._ghost_state_manager.force_idle()
+        try:
+            self._completion_state_machine.handle_event(CompletionEventType.ESC)
+        except Exception:
+            pass
         
     def set_completion_mode(self, mode: str):
         """设置补全模式
@@ -442,6 +457,12 @@ class SmartCompletionManager(QObject):
             self._is_completing = False
             return
 
+        try:
+            self._completion_state_machine.reset()
+            self._completion_state_machine.set_state(CompletionState.REQUESTING)
+        except Exception:
+            pass
+
         # 显示请求状态 - 使用现代状态指示器
         if hasattr(self._text_editor, '_ai_status_manager'):
             self._text_editor._ai_status_manager.show_requesting("发送AI补全请求")
@@ -500,6 +521,10 @@ class SmartCompletionManager(QObject):
         if hasattr(self._text_editor, '_ai_status_manager'):
             self._text_editor._ai_status_manager.show_error("AI补全请求超时")
         self._ghost_state_manager.force_idle()
+        try:
+            self._completion_state_machine.handle_event(CompletionEventType.TIMEOUT)
+        except Exception:
+            pass
         
     def _smart_complete(self, text: str, position: int):
         """智能补全 - 混合策略"""
@@ -603,6 +628,10 @@ class SmartCompletionManager(QObject):
                 self._text_editor._ai_status_manager.show_error("AI补全生成失败")
             self._reset_completion_state(success=False, reason="empty_suggestion")
             self._ghost_state_manager.force_idle()
+            try:
+                self._completion_state_machine.set_state(CompletionState.CANCELLED)
+            except Exception:
+                pass
             return
 
         suggestion = suggestion.strip()
@@ -626,6 +655,13 @@ class SmartCompletionManager(QObject):
                     logger.info(f"✅ AI补全使用{method_name}显示成功")
                     # 🔧 修复：成功显示后确保状态正确重置
                     self._reset_completion_state(success=True)
+                    try:
+                        if method_name in ("Ghost Text", "内联补全"):
+                            self._completion_state_machine.set_suggestion_ready(suggestion)
+                        else:
+                            self._completion_state_machine.set_state(CompletionState.APPLIED)
+                    except Exception:
+                        pass
                     # 只有 Ghost Text 显示会进入 VISIBLE；其它显示方式保持 IDLE
                     if method_name != "Ghost Text":
                         self._ghost_state_manager.force_idle()
@@ -639,6 +675,10 @@ class SmartCompletionManager(QObject):
         # 🔧 修复：失败时也要正确重置状态
         self._reset_completion_state(success=False, reason="display_failed")
         self._ghost_state_manager.force_idle()
+        try:
+            self._completion_state_machine.set_state(CompletionState.CANCELLED)
+        except Exception:
+            pass
     
     def _reset_completion_state(self, success: bool = True, reason: str = ""):
         """重置补全状态 - 统一的状态管理和同步
@@ -854,16 +894,28 @@ class SmartCompletionManager(QObject):
         cursor.insertText(suggestion.text)
         self._text_editor.setTextCursor(cursor)
         self._popup_widget.hide()
+        try:
+            self._completion_state_machine.set_state(CompletionState.APPLIED)
+        except Exception:
+            pass
 
         logger.info(f"弹出式建议已接受: {suggestion.text}")
         
     def _on_popup_cancelled(self):
         """弹出式补全被取消"""
         self._popup_widget.hide()
+        try:
+            self._completion_state_machine.set_state(CompletionState.CANCELLED)
+        except Exception:
+            pass
         logger.debug("弹出式补全被取消")
         
     def _on_inline_suggestion_accepted(self, suggestion: str):
         """内联建议被接受"""
+        try:
+            self._completion_state_machine.set_state(CompletionState.APPLIED)
+        except Exception:
+            pass
         logger.info(f"内联建议已接受: {suggestion[:50]}...")
         
     def _on_inline_suggestion_rejected(self):
