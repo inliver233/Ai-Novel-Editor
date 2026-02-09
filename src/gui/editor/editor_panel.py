@@ -168,25 +168,9 @@ class EditorPanel(QWidget):
         # 添加到标签页
         tab_index = tabs.addTab(editor, "新建文档")
         tabs.setCurrentIndex(tab_index)
-        
-        # 设置示例内容
-        sample_content = """# 我的小说
 
-## 第一章：开端
-
-@char: 李明
-@location: 咖啡厅
-@time: 2024年春天
-
-李明坐在咖啡厅的角落里，手中握着一杯热腾腾的拿铁。窗外的阳光透过百叶窗洒在桌面上，形成斑驳的光影。
-
-他正在等待一个重要的人...
-
-% 这里是作者注释：需要描述女主角的出场
-% TODO: 添加更多环境描写
-
-"""
-        editor.set_document_content(sample_content, "default_doc")
+        # 默认文档不注入示例内容：保持空白，避免把样例/TODO 混入真实写作。
+        editor.set_document_content("", "default_doc")
         
         # 记录文档
         self._document_tabs["default_doc"] = editor
