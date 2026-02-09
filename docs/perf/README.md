@@ -33,3 +33,8 @@ All datasets are generated via `tools.generate_benchmark_project` and contain **
 - Start: enter `main()` (see `src/main.py`)
 - End: after `main_window.show()` returns (see `src/main.py`)
 - Unit: seconds (wall-clock, monotonic timer preferred)
+
+**open_project**
+- Start: enter `ProjectController.on_open_project()` (see `src/gui/controllers/project_controller.py`)
+- End: after `project_structure_changed.emit()` and the project tree + editor accept input (see `src/gui/controllers/project_controller.py`)
+- Unit: seconds (wall-clock, monotonic timer preferred)
