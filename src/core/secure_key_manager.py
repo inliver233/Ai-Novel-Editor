@@ -9,6 +9,8 @@ import platform
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+import tempfile
+
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -146,28 +148,21 @@ class SecureKeyManager:
         try:
             # 加密API密钥
             encrypted_key = self.encrypt_api_key(api_key)
+            if not encrypted_key:
+                logger.error("存储API密钥失败: 加密失败")
+                return False
             
             # 获取密钥存储路径
             key_store_path = self._get_key_store_path()
             
             # 读取现有密钥
-            if key_store_path.exists():
-                with open(key_store_path, 'r', encoding='utf-8') as f:
-                    key_store = json.load(f)
-            else:
-                key_store = {}
+            key_store = self._load_key_store(key_store_path)
             
             # 更新密钥
             key_store[provider] = encrypted_key
             
             # 保存密钥（设置适当的文件权限）
-            key_store_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(key_store_path, 'w', encoding='utf-8') as f:
-                json.dump(key_store, f, indent=2)
-            
-            # 设置文件权限（仅限所有者读写）
-            if self.system != "Windows":
-                os.chmod(key_store_path, 0o600)
+            self._save_key_store(key_store_path, key_store)
             
             logger.info(f"已安全存储 {provider} 的API密钥")
             return True
@@ -192,8 +187,7 @@ class SecureKeyManager:
             if not key_store_path.exists():
                 return None
             
-            with open(key_store_path, 'r', encoding='utf-8') as f:
-                key_store = json.load(f)
+            key_store = self._load_key_store(key_store_path)
             
             encrypted_key = key_store.get(provider)
             if not encrypted_key:
@@ -221,14 +215,12 @@ class SecureKeyManager:
             if not key_store_path.exists():
                 return True
             
-            with open(key_store_path, 'r', encoding='utf-8') as f:
-                key_store = json.load(f)
+            key_store = self._load_key_store(key_store_path)
             
             if provider in key_store:
                 del key_store[provider]
                 
-                with open(key_store_path, 'w', encoding='utf-8') as f:
-                    json.dump(key_store, f, indent=2)
+                self._save_key_store(key_store_path, key_store)
                 
                 logger.info(f"已删除 {provider} 的API密钥")
             
@@ -246,6 +238,42 @@ class SecureKeyManager:
             base_dir = Path(os.path.expanduser('~/.config'))
         
         return base_dir / self.app_name / "secure" / "api_keys.json"
+
+    def _load_key_store(self, path: Path) -> Dict[str, str]:
+        try:
+            if not path.exists():
+                return {}
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except Exception as e:
+            logger.warning(f"读取密钥存储失败，将忽略并重新创建: {e}")
+            return {}
+
+    def _save_key_store(self, path: Path, key_store: Dict[str, str]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile("w", delete=False, dir=str(path.parent), encoding="utf-8") as f:
+                tmp_path = Path(f.name)
+                json.dump(key_store, f, indent=2, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+
+            tmp_path.replace(path)
+        finally:
+            if tmp_path is not None and tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except Exception:
+                    pass
+
+        # 设置文件权限（仅限所有者读写）
+        if self.system != "Windows":
+            try:
+                os.chmod(path, 0o600)
+            except Exception:
+                pass
     
     def migrate_plaintext_keys(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """
