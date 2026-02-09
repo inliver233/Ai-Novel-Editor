@@ -71,6 +71,8 @@ Write-once reference list of start/end code locations for perf spans (so we don'
 - Start: enter outline refresh entrypoint (`OutlinePanelRefreshMixin._request_outline_refresh`, see `src/gui/panels/outline_panel_parts/refresh.py`)
 - End: after outline model/view is applied (`OutlinePanelRefreshMixin._apply_outline_model`, see `src/gui/panels/outline_panel_parts/refresh.py`)
 
+### ai_completion_mock
+
 ## UI freeze monitoring (tick jitter)
 - Measure UI "freeze" via a 60Hz `QTimer` and record tick-to-tick interval jitter.
 - Record: maximum tick interval (milliseconds).
