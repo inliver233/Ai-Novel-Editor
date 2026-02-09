@@ -4,6 +4,7 @@
 """
 
 import logging
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -99,6 +100,25 @@ class ImportDialog(QDialog):
         self._create_project_check = QCheckBox("创建新项目")
         self._create_project_check.setChecked(False)
         options_layout.addWidget(self._create_project_check)
+
+        # 新项目设置（create_project=True 时启用）
+        self._new_project_group = QGroupBox("新项目设置")
+        new_project_layout = QFormLayout(self._new_project_group)
+
+        self._project_name_edit = QLineEdit()
+        self._project_name_edit.setPlaceholderText("新项目名称（默认使用文件名）")
+        new_project_layout.addRow("项目名称:", self._project_name_edit)
+
+        project_dir_row = QHBoxLayout()
+        self._project_dir_edit = QLineEdit()
+        self._project_dir_edit.setPlaceholderText("选择项目父目录（将在其下创建项目文件夹）")
+        self._project_dir_browse_btn = QPushButton("选择目录...")
+        project_dir_row.addWidget(self._project_dir_edit)
+        project_dir_row.addWidget(self._project_dir_browse_btn)
+        new_project_layout.addRow("项目目录:", project_dir_row)
+
+        self._new_project_group.setVisible(False)
+        options_layout.addWidget(self._new_project_group)
         
         # 章节识别模式
         pattern_layout = QHBoxLayout()
@@ -154,6 +174,8 @@ class ImportDialog(QDialog):
         self._browse_btn.clicked.connect(self._browse_file)
         self._format_combo.currentIndexChanged.connect(self._update_format_options)
         self._split_chapters_check.toggled.connect(self._on_split_chapters_toggled)
+        self._create_project_check.toggled.connect(self._on_create_project_toggled)
+        self._project_dir_browse_btn.clicked.connect(self._browse_project_dir)
         
         # 连接导入管理器信号
         self._import_manager.importStarted.connect(self._on_import_started)
@@ -169,6 +191,43 @@ class ImportDialog(QDialog):
     def _on_split_chapters_toggled(self, checked: bool):
         """章节分割选项切换"""
         self._chapter_pattern_edit.setEnabled(checked)
+
+    def _on_create_project_toggled(self, checked: bool):
+        """创建新项目选项切换"""
+        self._new_project_group.setVisible(checked)
+        self._project_name_edit.setEnabled(checked)
+        self._project_dir_edit.setEnabled(checked)
+        self._project_dir_browse_btn.setEnabled(checked)
+
+        if not checked:
+            return
+
+        # 默认填充：项目名=文件名；目录=文件所在目录（可手动改）
+        file_path_text = self._file_path_edit.text().strip()
+        if file_path_text:
+            file_path = Path(file_path_text)
+            if not self._project_name_edit.text().strip():
+                self._project_name_edit.setText(file_path.stem)
+            if not self._project_dir_edit.text().strip():
+                self._project_dir_edit.setText(str(file_path.parent))
+
+    def _browse_project_dir(self):
+        """选择新项目父目录"""
+        start_dir = self._project_dir_edit.text().strip()
+        if not start_dir:
+            file_path_text = self._file_path_edit.text().strip()
+            if file_path_text:
+                start_dir = str(Path(file_path_text).parent)
+            else:
+                start_dir = str(Path.home())
+
+        dir_path = QFileDialog.getExistingDirectory(
+            self,
+            "选择新项目父目录",
+            start_dir,
+        )
+        if dir_path:
+            self._project_dir_edit.setText(dir_path)
     
     def _browse_file(self):
         """浏览文件"""
@@ -191,6 +250,9 @@ class ImportDialog(QDialog):
         if file_path:
             self._file_path_edit.setText(file_path)
             self._preview_file(file_path)
+
+            if self._create_project_check.isChecked():
+                self._on_create_project_toggled(True)
     
     def _preview_file(self, file_path: str):
         """预览文件内容"""
@@ -229,13 +291,36 @@ class ImportDialog(QDialog):
             2: ImportFormat.DOCX
         }
         
+        create_project = self._create_project_check.isChecked()
+        project_name: Optional[str] = None
+        project_path: Optional[Path] = None
+
+        if create_project:
+            raw_name = self._project_name_edit.text().strip() or file_path.stem
+            project_name = re.sub(r'[<>:"/\\\\|?*]', "_", raw_name).strip()
+            if not project_name:
+                QMessageBox.warning(self, "警告", "项目名称不能为空")
+                return
+
+            base_dir = self._project_dir_edit.text().strip()
+            if not base_dir:
+                self._browse_project_dir()
+                base_dir = self._project_dir_edit.text().strip()
+
+            if not base_dir:
+                QMessageBox.warning(self, "警告", "请选择新项目目录")
+                return
+
+            project_path = Path(base_dir) / project_name
+
         options = ImportOptions(
             format=format_map[self._format_combo.currentIndex()],
             input_path=file_path,
             split_chapters=self._split_chapters_check.isChecked(),
             chapter_pattern=self._chapter_pattern_edit.text(),
-            create_project=self._create_project_check.isChecked(),
-            project_name=file_path.stem if self._create_project_check.isChecked() else None
+            create_project=create_project,
+            project_name=project_name,
+            project_path=project_path,
         )
 
         # 危险操作：导入可能覆盖大量文档，导入前必须先备份。
@@ -281,6 +366,7 @@ class ImportDialog(QDialog):
         self._format_combo.setEnabled(enabled)
         self._split_chapters_check.setEnabled(enabled)
         self._create_project_check.setEnabled(enabled)
+        self._new_project_group.setEnabled(enabled and self._create_project_check.isChecked())
         self._chapter_pattern_edit.setEnabled(enabled and self._split_chapters_check.isChecked())
         self._import_btn.setEnabled(enabled)
         
