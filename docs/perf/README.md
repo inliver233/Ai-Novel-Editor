@@ -24,6 +24,9 @@ Generation is fixed at the command level; use the commands below to reproduce th
 - Output must be a **valid project directory** (contains at least `project.db` and the minimal resources needed to open).
 - Must not contain any real user content; generated text is synthetic.
 
+## Golden fixtures (update rules)
+- Golden fixture updates are controlled via the repo-root `tools/` package: `tools.update_golden`.
+
 ## Metrics (measured per dataset)
 - **cold_start**: process start → main window `show()` completed
 - **open_project**: open project action → project tree + editor becomes interactive
