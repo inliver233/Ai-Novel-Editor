@@ -333,11 +333,17 @@ class MainWindowMenusMixin:
         if hasattr(self, '_left_panel'):
             action = self._menu_bar.get_action('toggle_project_panel')
             if action:
-                action.setChecked(self._left_panel.isVisible())
+                try:
+                    action.setChecked(self._left_panel.isVisible())
+                except RuntimeError:
+                    return
         
         # 同步右侧面板状态（大纲面板）
         if hasattr(self, '_right_panel'):
-            is_right_visible = self._right_panel.isVisible()
+            try:
+                is_right_visible = self._right_panel.isVisible()
+            except RuntimeError:
+                return
             
             # 大纲面板状态（右侧面板就是大纲面板）
             outline_action = self._menu_bar.get_action('toggle_outline_panel')
@@ -353,19 +359,28 @@ class MainWindowMenusMixin:
             if main_toolbar:
                 action = self._menu_bar.get_action('toggle_main_toolbar')
                 if action:
-                    action.setChecked(main_toolbar.isVisible())
+                    try:
+                        action.setChecked(main_toolbar.isVisible())
+                    except RuntimeError:
+                        return
             
             # AI工具栏
             ai_toolbar = self._toolbar_manager.get_toolbar("ai")
             if ai_toolbar:
                 action = self._menu_bar.get_action('toggle_ai_toolbar')
                 if action:
-                    action.setChecked(ai_toolbar.isVisible())
+                    try:
+                        action.setChecked(ai_toolbar.isVisible())
+                    except RuntimeError:
+                        return
             
             # 格式工具栏
             format_toolbar = self._toolbar_manager.get_toolbar("format")
             if format_toolbar:
                 action = self._menu_bar.get_action('toggle_format_toolbar')
                 if action:
-                    action.setChecked(format_toolbar.isVisible())
+                    try:
+                        action.setChecked(format_toolbar.isVisible())
+                    except RuntimeError:
+                        return
 
