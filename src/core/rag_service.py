@@ -146,11 +146,17 @@ class RAGService:
             key_manager = get_secure_key_manager()
             
             # 尝试从配置中获取provider信息
-            provider = config.get('provider', 'openai')
+            provider = str(config.get("provider") or "rag")
             api_key = key_manager.retrieve_api_key(provider)
             
             if api_key:
                 return api_key
+
+            # 兼容历史：RAG 未单独配置 provider 时，可能复用 openai 的 key
+            if provider != "openai":
+                legacy_key = key_manager.retrieve_api_key("openai")
+                if legacy_key:
+                    return legacy_key
             
             # 如果安全存储中没有，尝试从配置中获取（用于兼容性）
             return config.get('api_key', '')

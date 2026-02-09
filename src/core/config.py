@@ -258,6 +258,15 @@ class Config:
                     provider_section['api_key'] = ""  # 清空明文密钥
                     logger.info(f"已迁移 {provider} 的API密钥到安全存储")
                     needs_save = True
+
+            # 迁移 RAG 配置的 API key（避免落盘为明文）
+            rag_section = self._config_data.get("rag", {})
+            if isinstance(rag_section, dict) and rag_section.get("api_key"):
+                rag_provider = str(rag_section.get("provider") or "rag")
+                key_manager.store_api_key(rag_provider, str(rag_section.get("api_key", "")))
+                rag_section["api_key"] = ""
+                logger.info(f"已迁移 {rag_provider} 的RAG API密钥到安全存储")
+                needs_save = True
             
             if needs_save:
                 self._save_config()
@@ -265,6 +274,32 @@ class Config:
                 
         except Exception as e:
             logger.error(f"迁移API密钥失败: {e}")
+
+    def _store_api_key_from_config(self, section: str, config: Dict[str, Any], api_key: Any) -> str:
+        """将 api_key 写入安全存储，并返回应写入 config.json 的值（永不返回明文）"""
+        api_key_str = str(api_key or "").strip()
+        if not (AI_AVAILABLE and api_key_str):
+            return ""
+
+        try:
+            key_manager = get_secure_key_manager()
+        except Exception as e:
+            logger.error(f"获取安全密钥管理器失败: {e}")
+            return ""
+
+        if section == "ai":
+            provider = str(config.get("provider") or self._config_data.get("ai", {}).get("provider") or "openai")
+        elif section == "rag":
+            provider = str(config.get("provider") or self._config_data.get("rag", {}).get("provider") or "rag")
+        else:
+            provider = section
+
+        try:
+            key_manager.store_api_key(provider, api_key_str)
+        except Exception as e:
+            logger.error(f"写入安全存储失败: {e}")
+
+        return ""
     
     def get(self, section: str, key: str, default: Any = None) -> Any:
         """获取配置值"""
@@ -277,7 +312,10 @@ class Config:
         """设置配置值"""
         if section not in self._config_data:
             self._config_data[section] = {}
-        
+
+        if AI_AVAILABLE and section in {"ai", "rag"} and key == "api_key":
+            value = self._store_api_key_from_config(section, self._config_data[section], value)
+
         self._config_data[section][key] = value
         self._save_config()
     
@@ -287,6 +325,10 @@ class Config:
     
     def set_section(self, section: str, config: Dict[str, Any]):
         """设置整个配置段"""
+        if AI_AVAILABLE and section in {"ai", "rag"} and isinstance(config, dict) and config.get("api_key"):
+            config = dict(config)
+            config["api_key"] = self._store_api_key_from_config(section, config, config.get("api_key", ""))
+
         self._config_data[section] = config
         self._save_config()
 
