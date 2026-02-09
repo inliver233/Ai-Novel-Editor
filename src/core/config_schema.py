@@ -197,6 +197,20 @@ def _migrate_v0_to_v1(config_data: Dict[str, Any]) -> bool:
         ui.setdefault("theme", theme_value)
         changed = True
 
+    ai = config_data.get("ai")
+    if isinstance(ai, dict):
+        # Historical naming: tools_enabled -> enable_tools
+        if "tools_enabled" in ai and "enable_tools" not in ai:
+            ai["enable_tools"] = bool(ai.pop("tools_enabled"))
+            changed = True
+
+    prompt = config_data.get("prompt")
+    if isinstance(prompt, dict):
+        # Historical naming: preset_name -> preset
+        if "preset_name" in prompt and "preset" not in prompt:
+            prompt["preset"] = str(prompt.pop("preset_name"))
+            changed = True
+
     rag = config_data.get("rag")
     if isinstance(rag, dict):
         # cache-related keys were removed (keep config clean).

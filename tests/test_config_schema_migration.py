@@ -43,6 +43,27 @@ class TestConfigSchemaMigration(unittest.TestCase):
         self.assertIn("project", data)
         self.assertIn("enable_tools", data["ai"])
 
+    def test_migrate_v0_deprecated_fixture_renames_and_cleans(self):
+        fixture_path = Path(__file__).resolve().parent / "fixtures" / "config_v0_deprecated.json"
+        data = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+        migrate_config_inplace(data)
+        apply_defaults_inplace(data)
+
+        self.assertEqual(data["schema_version"], CURRENT_SCHEMA_VERSION)
+
+        # ai.tools_enabled -> ai.enable_tools
+        self.assertNotIn("tools_enabled", data["ai"])
+        self.assertTrue(data["ai"]["enable_tools"])
+
+        # prompt.preset_name -> prompt.preset
+        self.assertNotIn("preset_name", data["prompt"])
+        self.assertEqual(data["prompt"]["preset"], "默认设置")
+
+        # rag cache keys removed
+        self.assertNotIn("cache_enabled", data["rag"])
+        self.assertNotIn("cache_ttl", data["rag"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

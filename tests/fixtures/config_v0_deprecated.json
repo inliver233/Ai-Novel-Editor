@@ -1,0 +1,15 @@
+{
+  "ai": {
+    "provider": "openai",
+    "model": "gpt-3.5-turbo",
+    "tools_enabled": true
+  },
+  "prompt": {
+    "preset_name": "默认设置"
+  },
+  "rag": {
+    "enabled": true,
+    "cache_enabled": true,
+    "cache_ttl": 120
+  }
+}
