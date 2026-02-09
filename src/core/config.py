@@ -131,6 +131,7 @@ class Config:
                 "top_p": 0.9,
                 "timeout": 30,
                 "max_retries": 3,
+                "enable_tools": False,  # 工具调用必须显式开启（默认关闭）
                 "completion_delay": 500,  # 毫秒
                 "auto_suggestions": True,
                 "suggestion_types": [
@@ -427,7 +428,8 @@ class Config:
                 timeout=ai_section.get('timeout', 30),
                 max_retries=ai_section.get('max_retries', 3),
                 disable_ssl_verify=ai_section.get('disable_ssl_verify', False),
-                reasoning_effort=ai_section.get('reasoning_effort', 'medium')
+                reasoning_effort=ai_section.get('reasoning_effort', 'medium'),
+                enable_tools=ai_section.get('enable_tools', False),
             )
             
             # 处理旧版本的api_key（如果存在）
@@ -466,6 +468,7 @@ class Config:
             self.set('ai', 'timeout', config.timeout)
             self.set('ai', 'max_retries', config.max_retries)
             self.set('ai', 'disable_ssl_verify', config.disable_ssl_verify)
+            self.set('ai', 'enable_tools', getattr(config, 'enable_tools', False))
 
             logger.info(f"AI配置已保存: {config.provider.value} - {config.model}")
 

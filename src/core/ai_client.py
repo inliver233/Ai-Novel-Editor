@@ -52,6 +52,7 @@ class AIConfig:
     max_retries: int = 3
     disable_ssl_verify: bool = False  # SSL验证开关
     reasoning_effort: str = "medium"  # 推理模型努力级别: low, medium, high
+    enable_tools: bool = False  # 工具调用必须显式开启（默认关闭）
     _has_api_key: bool = False  # 标记是否有API密钥
     
     @property
@@ -83,6 +84,7 @@ class AIConfig:
             'max_retries': self.max_retries,
             'disable_ssl_verify': self.disable_ssl_verify,
             'reasoning_effort': self.reasoning_effort,
+            'enable_tools': self.enable_tools,
             'has_api_key': self._has_api_key
         }
     
@@ -99,7 +101,8 @@ class AIConfig:
             timeout=data.get('timeout', 30),
             max_retries=data.get('max_retries', 3),
             disable_ssl_verify=data.get('disable_ssl_verify', False),
-            reasoning_effort=data.get('reasoning_effort', 'medium')
+            reasoning_effort=data.get('reasoning_effort', 'medium'),
+            enable_tools=bool(data.get('enable_tools', False)),
         )
         
         # 处理旧版本的api_key字段（迁移到安全存储）
@@ -488,6 +491,9 @@ class AIClient(LLMProvider):
                            tool_manager: Optional[ToolManager] = None,
                            max_tool_rounds: int = 3, **kwargs) -> Optional[str]:
         """带工具调用的补全"""
+        if not getattr(self.config, "enable_tools", False):
+            raise AIClientError("Tool calling is disabled by config (ai.enable_tools=false)")
+
         if tools is None:
             tools = []
         
@@ -787,6 +793,9 @@ class AsyncAIClient(AIClient):
                                        tool_manager: Optional[ToolManager] = None,
                                        max_tool_rounds: int = 3, **kwargs) -> Optional[str]:
         """异步带工具调用的补全"""
+        if not getattr(self.config, "enable_tools", False):
+            raise AIClientError("Tool calling is disabled by config (ai.enable_tools=false)")
+
         if not self._session:
             self._session = aiohttp.ClientSession()
         
