@@ -59,6 +59,6 @@ All datasets are generated via `tools.generate_benchmark_project` and contain **
 Budgets are fixed targets: record baseline first, then iteratively compress.
 
 - cold_start: small ≤ 2.0s; medium ≤ 3.5s; large ≤ 6.0s
-- open_project: (see below)
+- open_project: small ≤ 1.0s; medium ≤ 2.5s; large ≤ 5.0s
 - outline_refresh: (see below)
 - ai_completion_mock: (see below)
