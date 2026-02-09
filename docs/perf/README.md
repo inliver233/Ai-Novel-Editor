@@ -27,3 +27,9 @@ All datasets are generated via `tools.generate_benchmark_project` and contain **
 - **open_project**: open project action → project tree + editor becomes interactive
 - **outline_refresh**: trigger outline refresh → refresh completed
 - **ai_completion_mock**: trigger completion → UI renders a suggestion (ghost/inline/popup)
+
+### Metric definitions
+**cold_start**
+- Start: enter `main()` (see `src/main.py`)
+- End: after `main_window.show()` returns (see `src/main.py`)
+- Unit: seconds (wall-clock, monotonic timer preferred)
