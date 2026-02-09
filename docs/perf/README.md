@@ -54,3 +54,11 @@ All datasets are generated via `tools.generate_benchmark_project` and contain **
 - Record: maximum tick interval (milliseconds).
 - Budget (idle/light interaction): maximum tick interval ≤ 120ms.
 - Heavy operations (index/import/rebuild) may exceed 120ms, but must show progress + be cancellable, and must be logged.
+
+## Budgets (default targets)
+Budgets are fixed targets: record baseline first, then iteratively compress.
+
+- cold_start: (see below)
+- open_project: (see below)
+- outline_refresh: (see below)
+- ai_completion_mock: (see below)
