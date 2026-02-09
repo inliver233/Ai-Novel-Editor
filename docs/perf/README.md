@@ -43,3 +43,8 @@ All datasets are generated via `tools.generate_benchmark_project` and contain **
 - Start: enter the outline refresh entrypoint (see `src/gui/panels/outline_panel.py`)
 - End: after outline model/view updates are applied (see `src/gui/panels/outline_panel.py`)
 - Unit: seconds (wall-clock, monotonic timer preferred)
+
+**ai_completion_mock**
+- Start: enter the completion trigger (see `src/gui/editor/smart_completion_manager.py`)
+- End: after a suggestion is rendered (ghost/inline/popup) (see `src/gui/editor/smart_completion_manager.py`)
+- Unit: seconds (wall-clock, monotonic timer preferred)
