@@ -209,7 +209,7 @@ Thumbs.db
 # 构建输出
 build/
 dist/
-*.spec
+# PyInstaller spec files are tracked (see EPIC 10.1 packaging work)
 
 # 日志文件
 *.log
