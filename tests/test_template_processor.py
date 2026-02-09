@@ -179,6 +179,17 @@ class TestTemplateProcessor(unittest.TestCase):
         self.assertIn("当前文本：", result)
         self.assertTrue(len(result.split("：")[1]) <= 53)  # 50 + "..."
         self.assertIn("...", result)
+
+    def test_current_text_escapes_code_fences(self):
+        """用户输入中的 ``` 不应破坏 Prompt 的 fenced block 边界。"""
+        template = "{current_text}"
+        context = {"current_text": "Hello ``` world"}
+
+        result = self.processor.process_template(template, context)
+
+        self.assertIn("Hello", result)
+        self.assertIn("world", result)
+        self.assertNotIn("```", result)
     
     def test_word_count_handler(self):
         """测试字数要求处理器"""
