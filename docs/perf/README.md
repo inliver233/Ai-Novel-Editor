@@ -5,6 +5,7 @@ This folder documents the *fixed*, reproducible benchmark datasets used to measu
 ## Datasets (write-once, reproducible)
 
 All datasets are generated via `tools.generate_benchmark_project` and contain **synthetic** text only.
+Generation is fixed at the command level; use the commands below to reproduce the fixtures.
 
 - **small**: ~50 novel documents, total正文 ~50k chars
   - Spec (current generator): `acts=1`, `chapters_per_act=5`, `scenes_per_chapter=9`, `total_chars=50_000` (≈51 novel docs)
