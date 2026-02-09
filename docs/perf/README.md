@@ -72,6 +72,8 @@ Write-once reference list of start/end code locations for perf spans (so we don'
 - End: after outline model/view is applied (`OutlinePanelRefreshMixin._apply_outline_model`, see `src/gui/panels/outline_panel_parts/refresh.py`)
 
 ### ai_completion_mock
+- Start: enter `SmartCompletionManager.trigger_completion()` (see `src/gui/editor/smart_completion_manager.py`)
+- End: after a suggestion is rendered (e.g. `SmartCompletionManager.show_ai_completion()` success path) (see `src/gui/editor/smart_completion_manager.py`)
 
 ## UI freeze monitoring (tick jitter)
 - Measure UI "freeze" via a 60Hz `QTimer` and record tick-to-tick interval jitter.
