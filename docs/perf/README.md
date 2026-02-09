@@ -65,4 +65,4 @@ Budgets are fixed targets: record baseline first, then iteratively compress.
 
 ## Recording (fixed)
 - Runtime perf log (JSON lines): `~/.ai-novel-editor/logs/perf.log`
-- Repo-tracked baselines: (see below)
+- Repo-tracked baselines: `docs/perf/baseline.json` + `docs/perf/current.json` (aggregated stats + machine summary only; no user text)
