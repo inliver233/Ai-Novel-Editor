@@ -44,6 +44,9 @@ from .modern_ai_indicator import AIStatusManager
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_GHOST_TEXT_SYSTEM = "optimal"  # "optimal" | "deep"
+ALLOW_GHOST_TEXT_FALLBACK_TO_DEEP = True
+
 
 class LineNumberArea(QWidget):
     """行号区域"""
@@ -110,35 +113,86 @@ class IntelligentTextEditor(QPlainTextEdit):
         self._completion_widget = None
         self._inline_completion = None
 
-        # Ghost Text系统 - 使用OptimalGhostText作为主要实现
-        try:
-            from .optimal_ghost_text import integrate_optimal_ghost_text
-            self._optimal_ghost_text = integrate_optimal_ghost_text(self)
-            if self._optimal_ghost_text is None:
-                logger.error("integrate_optimal_ghost_text returned None!")
-                raise ValueError("Optimal ghost text integration failed")
-            # 为了兼容性，将_ghost_completion指向OptimalGhostText系统
-            self._ghost_completion = self._optimal_ghost_text
-            self._use_optimal_ghost_text = True  # 启用OptimalGhostText系统
-            logger.info(f"✅ OptimalGhostText初始化成功: type={type(self._ghost_completion)}, has_show_completion={hasattr(self._ghost_completion, 'show_completion')}")
-        except Exception as e:
-            logger.error(f"OptimalGhostText初始化失败，尝试使用DeepIntegratedGhostText: {e}")
-            # 回退到DeepIntegratedGhostText系统
+        # Ghost Text系统（默认取舍写死：优先 OptimalGhostText）
+        self._optimal_ghost_text = None
+        self._deep_ghost_text = None
+        self._ghost_completion = None
+        self._use_optimal_ghost_text = False
+
+        if DEFAULT_GHOST_TEXT_SYSTEM == "deep":
             try:
                 self._deep_ghost_text = integrate_with_text_editor(self)
                 if self._deep_ghost_text is None:
                     logger.error("integrate_with_text_editor returned None!")
                     raise ValueError("Deep integrated ghost text integration failed")
-                # 为了兼容性，将_ghost_completion指向DeepIntegratedGhostText系统
                 self._ghost_completion = self._deep_ghost_text
                 self._use_optimal_ghost_text = False
-                logger.info(f"✅ DeepIntegratedGhostText回退成功: type={type(self._ghost_completion)}, has_show_completion={hasattr(self._ghost_completion, 'show_completion')}")
-            except Exception as fallback_error:
-                logger.error(f"所有Ghost Text系统初始化失败: {fallback_error}", exc_info=True)
-                self._optimal_ghost_text = None
-                self._deep_ghost_text = None
-                self._ghost_completion = None
-                self._use_optimal_ghost_text = False
+                logger.info(
+                    f"✅ DeepIntegratedGhostText初始化成功: type={type(self._ghost_completion)}, has_show_completion={hasattr(self._ghost_completion, 'show_completion')}"
+                )
+            except Exception as e:
+                logger.error(f"DeepIntegratedGhostText初始化失败，尝试使用OptimalGhostText: {e}")
+                if not ALLOW_GHOST_TEXT_FALLBACK_TO_DEEP:
+                    self._optimal_ghost_text = None
+                    self._deep_ghost_text = None
+                    self._ghost_completion = None
+                    self._use_optimal_ghost_text = False
+                else:
+                    try:
+                        from .optimal_ghost_text import integrate_optimal_ghost_text
+
+                        self._optimal_ghost_text = integrate_optimal_ghost_text(self)
+                        if self._optimal_ghost_text is None:
+                            logger.error("integrate_optimal_ghost_text returned None!")
+                            raise ValueError("Optimal ghost text integration failed")
+                        self._ghost_completion = self._optimal_ghost_text
+                        self._use_optimal_ghost_text = True
+                        logger.info(
+                            f"✅ OptimalGhostText回退成功: type={type(self._ghost_completion)}, has_show_completion={hasattr(self._ghost_completion, 'show_completion')}"
+                        )
+                    except Exception as fallback_error:
+                        logger.error(f"所有Ghost Text系统初始化失败: {fallback_error}", exc_info=True)
+                        self._optimal_ghost_text = None
+                        self._deep_ghost_text = None
+                        self._ghost_completion = None
+                        self._use_optimal_ghost_text = False
+        else:
+            try:
+                from .optimal_ghost_text import integrate_optimal_ghost_text
+
+                self._optimal_ghost_text = integrate_optimal_ghost_text(self)
+                if self._optimal_ghost_text is None:
+                    logger.error("integrate_optimal_ghost_text returned None!")
+                    raise ValueError("Optimal ghost text integration failed")
+                self._ghost_completion = self._optimal_ghost_text
+                self._use_optimal_ghost_text = True
+                logger.info(
+                    f"✅ OptimalGhostText初始化成功: type={type(self._ghost_completion)}, has_show_completion={hasattr(self._ghost_completion, 'show_completion')}"
+                )
+            except Exception as e:
+                logger.error(f"OptimalGhostText初始化失败，尝试使用DeepIntegratedGhostText: {e}")
+                if not ALLOW_GHOST_TEXT_FALLBACK_TO_DEEP:
+                    self._optimal_ghost_text = None
+                    self._deep_ghost_text = None
+                    self._ghost_completion = None
+                    self._use_optimal_ghost_text = False
+                else:
+                    try:
+                        self._deep_ghost_text = integrate_with_text_editor(self)
+                        if self._deep_ghost_text is None:
+                            logger.error("integrate_with_text_editor returned None!")
+                            raise ValueError("Deep integrated ghost text integration failed")
+                        self._ghost_completion = self._deep_ghost_text
+                        self._use_optimal_ghost_text = False
+                        logger.info(
+                            f"✅ DeepIntegratedGhostText回退成功: type={type(self._ghost_completion)}, has_show_completion={hasattr(self._ghost_completion, 'show_completion')}"
+                        )
+                    except Exception as fallback_error:
+                        logger.error(f"所有Ghost Text系统初始化失败: {fallback_error}", exc_info=True)
+                        self._optimal_ghost_text = None
+                        self._deep_ghost_text = None
+                        self._ghost_completion = None
+                        self._use_optimal_ghost_text = False
 
         # Ghost Text 状态机（唯一状态源）
         self._ghost_state_manager = GhostTextStateManager(parent=self)

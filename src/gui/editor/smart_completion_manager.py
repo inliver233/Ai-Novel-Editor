@@ -12,7 +12,7 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
 from PyQt6.QtGui import QFont, QTextCursor, QKeyEvent
 
 from .completion_engine import CompletionEngine, CompletionSuggestion
-from .completion_widget import CompletionWidget
+from .completion_widget import CompletionWidget  # editor popup widget (not gui.ai.completion_widget)
 from .inline_completion import InlineCompletionManager
 from .timeout_manager import TimeoutManager
 from .ghost_text_state_manager import GhostTextStateManager, GhostTextState
@@ -20,6 +20,8 @@ from .ghost_text_state_manager import GhostTextStateManager, GhostTextState
 # from .completion_status_indicator import FloatingStatusIndicator  # 已移除，避免状态指示器冲突
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_AI_RENDERER_ORDER = ("ghost_text", "inline", "direct_insert")
 
 
 class SmartCompletionManager(QObject):
@@ -611,11 +613,12 @@ class SmartCompletionManager(QObject):
             self._text_editor._ai_status_manager.show_completed("AI补全生成完成")
         
         # 尝试多种显示方式，按优先级排列
-        display_methods = [
-            ("Ghost Text", self._try_ghost_text_display),
-            ("内联补全", self._try_inline_display),
-            ("直接插入", self._try_direct_insert)
-        ]
+        renderer_map = {
+            "ghost_text": ("Ghost Text", self._try_ghost_text_display),
+            "inline": ("内联补全", self._try_inline_display),
+            "direct_insert": ("直接插入", self._try_direct_insert),
+        }
+        display_methods = [renderer_map[key] for key in DEFAULT_AI_RENDERER_ORDER]
         
         for method_name, method_func in display_methods:
             try:
