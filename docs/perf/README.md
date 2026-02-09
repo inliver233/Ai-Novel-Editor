@@ -53,3 +53,4 @@ All datasets are generated via `tools.generate_benchmark_project` and contain **
 - Measure UI "freeze" via a 60Hz `QTimer` and record tick-to-tick interval jitter.
 - Record: maximum tick interval (milliseconds).
 - Budget (idle/light interaction): maximum tick interval ≤ 120ms.
+- Heavy operations (index/import/rebuild) may exceed 120ms, but must show progress + be cancellable, and must be logged.
