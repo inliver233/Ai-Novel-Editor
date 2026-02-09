@@ -1,5 +1,8 @@
 # Module Boundaries (Draft)
 
+Related:
+- Data flow overview: `docs/architecture/data_flow.md`
+
 ## Current Shared responsibilities
 
 Shared currently bundles multiple concerns that should be separated over time:
