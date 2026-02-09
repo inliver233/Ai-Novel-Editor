@@ -60,6 +60,7 @@ Generation is fixed at the command level; use the commands below to reproduce th
 Write-once reference list of start/end code locations for perf spans (so we don't guess in the call chain during implementation).
 
 ### cold_start
+- Start: enter `main()` (see `src/main.py`, `def main()`)
 
 ## UI freeze monitoring (tick jitter)
 - Measure UI "freeze" via a 60Hz `QTimer` and record tick-to-tick interval jitter.
