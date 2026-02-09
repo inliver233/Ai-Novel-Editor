@@ -14,7 +14,7 @@ Generation is fixed at the command level; use the commands below to reproduce th
 
 - **medium**: ~300 novel documents, total正文 ~300k chars
   - Spec (current generator): `acts=2`, `chapters_per_act=10`, `scenes_per_chapter=14`, `total_chars=300_000` (≈302 novel docs)
-  - Command: `py -3.11 -m tools.generate_benchmark_project --size medium --out tests/fixtures/projects/medium`
+  - Command: `python -m tools.generate_benchmark_project --size medium --out tests/fixtures/projects/medium`
 
 - **large**: ~1000 novel documents, total正文 ~1.5M chars
   - Spec (current generator): `acts=4`, `chapters_per_act=25`, `scenes_per_chapter=9`, `total_chars=1_500_000` (≈1004 novel docs)
