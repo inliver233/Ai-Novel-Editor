@@ -60,12 +60,17 @@ class Shared(QObject):
     def current_project_path(self, path: Path | str | None):
         """设置当前项目路径"""
         if isinstance(path, str):
-            path = Path(path)
+            if not path.strip():
+                path = None
+            else:
+                path = Path(path)
         if self._current_project_path != path:
             self._current_project_path = path
+            self.projectChanged.emit(str(path) if path else "")
             if path:
-                self.projectChanged.emit(str(path))
                 logger.info(f"Current project changed to: {path}")
+            else:
+                logger.info("Current project cleared")
     
     @property
     def current_document_id(self) -> Optional[str]:

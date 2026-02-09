@@ -1026,7 +1026,7 @@ class CompletionSettingsWidget(QFrame):
         self.punctuation_assist.setChecked(settings.get('punctuation_assist', True))
         self.trigger_delay_slider.setValue(settings.get('trigger_delay', 500))
         
-        mode = settings.get('completion_mode', '自动AI补全')
+        mode = settings.get('completion_mode', '手动AI补全')
         index = self.completion_mode.findText(mode)
         if index >= 0:
             self.completion_mode.setCurrentIndex(index)
@@ -1217,7 +1217,7 @@ class UnifiedAIConfigDialog(QDialog):
                 'full': '全局模式 (200K+ tokens)'
             }
             
-            mode_internal = self._config.get('ai', 'completion_mode', 'auto_ai')
+            mode_internal = self._config.get('ai', 'completion_mode', 'manual_ai')
             mode_display = mode_reverse_mapping.get(mode_internal, '手动AI补全')  # 修复：默认手动模式
             
             context_internal = self._config.get('ai', 'context_mode', 'balanced')
@@ -1352,7 +1352,7 @@ class UnifiedAIConfigDialog(QDialog):
                     }
 
                     mode_display = completion_settings.get('completion_mode', '手动AI补全')  # 修复：默认手动模式
-                    mode_internal = mode_mapping.get(mode_display, 'auto_ai')
+                    mode_internal = mode_mapping.get(mode_display, 'manual_ai')
 
                     context_display = completion_settings.get('context_mode', '平衡模式 (2-8K tokens)')
                     context_internal = context_mapping.get(context_display, 'balanced')

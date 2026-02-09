@@ -97,7 +97,8 @@ class IndexScheduler(QObject):
     def _on_project_changed(self, project_path: str) -> None:
         logger.debug("IndexScheduler received projectChanged: %s", project_path)
         if not project_path:
-            self.schedule_full_scan()
+            # No active project: unbind vector store to avoid cross-project retrieval leaks.
+            self._disable_rag()
             return
 
         try:

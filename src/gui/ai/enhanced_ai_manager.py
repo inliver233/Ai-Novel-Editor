@@ -574,8 +574,21 @@ class EnhancedAIManager(QObject):
         
         # 获取当前文本和光标位置
         cursor = self._current_editor.textCursor()
-        context = self._current_editor.toPlainText()
+        context = self._current_editor.toPlainText() or ""
         cursor_pos = cursor.position()
+
+        # 空/短文本不触发自动补全（避免空白项目“自发补全”和无意义RAG查询）
+        try:
+            min_chars = int(self._config.get("ai", "min_chars", 3) or 3)
+        except Exception:
+            min_chars = 3
+        if len(context.strip()) < max(1, min_chars):
+            return
+
+        # 无项目路径时不触发自动补全（避免跨项目检索泄露/污染）
+        project_path = getattr(self._shared, "current_project_path", None) if self._shared else None
+        if not project_path:
+            return
         
         # 调度自动补全
         self.schedule_completion(context, cursor_pos)

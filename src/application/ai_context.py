@@ -188,6 +188,16 @@ class IntelligentContextBuilder:
             
             # RAG检索
             if self.rag_service:
+                placeholder_queries = {"默认查询内容", "默认查询", "强制默认查询"}
+                query_stripped = (query_text or "").strip()
+                if (
+                    (not query_stripped)
+                    or len(query_stripped) < 5
+                    or query_stripped in placeholder_queries
+                ):
+                    logger.debug("跳过RAG检索：查询为空/过短/占位符 query=%r", query_stripped)
+                    return ""
+
                 context_mode = {"fast": "fast", "balanced": "balanced", "full": "full"}
                 planned_tokens = []
                 try:
