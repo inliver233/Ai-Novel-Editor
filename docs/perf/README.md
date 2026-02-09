@@ -56,6 +56,9 @@ Generation is fixed at the command level; use the commands below to reproduce th
 - End: after a suggestion is rendered (ghost/inline/popup) (see `src/gui/editor/smart_completion_manager.py`)
 - Unit: seconds (wall-clock, monotonic timer preferred)
 
+## Instrumentation points (fixed)
+Write-once reference list of start/end code locations for perf spans (so we don't guess in the call chain during implementation).
+
 ## UI freeze monitoring (tick jitter)
 - Measure UI "freeze" via a 60Hz `QTimer` and record tick-to-tick interval jitter.
 - Record: maximum tick interval (milliseconds).
