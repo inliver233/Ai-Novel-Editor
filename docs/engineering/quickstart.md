@@ -48,6 +48,7 @@ py -m pytest -q
 
 - 工程门禁：`docs/engineering/standards.md`
 - 日志：`docs/engineering/logging.md`
+- 提交策略：`docs/engineering/git-workflow.md`
+- 调试指南：`docs/engineering/debugging.md`
 - 架构边界：`docs/architecture/boundaries.md`
 - 打包/发布：`docs/deployment/pyinstaller-resources.md`
-
