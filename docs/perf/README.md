@@ -18,7 +18,7 @@ Generation is fixed at the command level; use the commands below to reproduce th
 
 - **large**: ~1000 novel documents, total正文 ~1.5M chars
   - Spec (current generator): `acts=4`, `chapters_per_act=25`, `scenes_per_chapter=9`, `total_chars=1_500_000` (≈1004 novel docs)
-  - Command: `py -3.11 -m tools.generate_benchmark_project --size large --out tests/fixtures/projects/large`
+  - Command: `python -m tools.generate_benchmark_project --size large --out tests/fixtures/projects/large`
 
 ## Output constraints
 - Output must be a **valid project directory** (contains at least `project.db`).
