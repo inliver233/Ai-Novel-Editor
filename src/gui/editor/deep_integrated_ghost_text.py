@@ -605,6 +605,7 @@ class DeepIntegratedGhostText(QObject):
                                 user_data: GhostTextUserData):
         """渲染单个块的Ghost Text"""
         # 计算精确位置
+        position_is_viewport = False
         position = self.layout_calculator.calculate_ghost_position(
             block, user_data.ghost_position
         )
@@ -617,6 +618,7 @@ class DeepIntegratedGhostText(QObject):
             if not cursor_rect.isNull():
                 # 使用 cursorRect 的位置，更可靠
                 position = QRectF(cursor_rect)
+                position_is_viewport = True
                 logger.debug(f"Using cursorRect for block {block.blockNumber()}: {position}")
             else:
                 logger.warning(f"Both methods failed for block {block.blockNumber()}")
@@ -630,20 +632,19 @@ class DeepIntegratedGhostText(QObject):
             cursor_rect = self.text_editor.cursorRect(cursor)
             if not cursor_rect.isNull() and cursor_rect.y() > 0:
                 position = QRectF(cursor_rect)
+                position_is_viewport = True
                 logger.debug(f"Using cursor rect as fallback for block {block.blockNumber()}: {position}")
         
         # 转换到viewport坐标 - 使用translated方法正确转换
         content_offset = self.text_editor.contentOffset()
-        viewport_position = position.translated(content_offset)
+        viewport_position = position if position_is_viewport else position.translated(content_offset)
         viewport_x = viewport_position.x()
         viewport_y = viewport_position.y()
         
         logger.debug(f"坐标转换: doc_pos=({position.x()}, {position.y()}), content_offset=({content_offset.x()}, {content_offset.y()}), viewport=({viewport_x}, {viewport_y})")
         
         # 检查是否需要换行
-        available_width = self.layout_calculator.get_line_available_width(
-            block, user_data.ghost_position, self.text_editor.width()
-        )
+        available_width = max(0.0, float(self.text_editor.viewport().width()) - float(viewport_x) - 2.0)
         
         # 智能换行
         lines = self.rendering_engine.wrap_text_to_width(
