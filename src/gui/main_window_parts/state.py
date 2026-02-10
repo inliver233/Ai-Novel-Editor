@@ -114,6 +114,14 @@ class MainWindowStateMixin:
         # 保存窗口和布局状态
         self._save_window_state()
         self._save_layout_state()
+
+        # Flush editor buffers (project docs + scratch recovery) before closing the project DB.
+        try:
+            editor_panel = getattr(self, "_editor_panel", None)
+            if editor_panel and hasattr(editor_panel, "flush_all_editors"):
+                editor_panel.flush_all_editors()
+        except Exception:
+            logger.exception("Failed to flush editors before close; continuing")
         
         # 关闭项目
         if not self._project_controller.on_close_project():

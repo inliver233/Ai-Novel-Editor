@@ -4,6 +4,7 @@
 """
 
 import logging
+from pathlib import Path
 from typing import Optional, Dict, Any
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, 
@@ -23,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 class EditorPanel(QWidget):
     """编辑器面板"""
+
+    SCRATCH_DOCUMENT_ID = "default_doc"
     
     # 信号定义
     documentModified = pyqtSignal(str, bool)  # 文档修改信号 (文档ID, 是否修改)
@@ -167,11 +170,69 @@ class EditorPanel(QWidget):
         tabs.setCurrentIndex(tab_index)
 
         # 默认文档不注入示例内容：保持空白，避免把样例/TODO 混入真实写作。
-        editor.set_document_content("", "default_doc")
+        editor.set_document_content("", self.SCRATCH_DOCUMENT_ID)
         
         # 记录文档
-        self._document_tabs["default_doc"] = editor
-        self._current_document_id = "default_doc"
+        self._document_tabs[self.SCRATCH_DOCUMENT_ID] = editor
+        self._current_document_id = self.SCRATCH_DOCUMENT_ID
+
+    def _scratch_recovery_path(self) -> Path:
+        config_dir_value = getattr(self._config, "config_dir", None)
+        try:
+            if isinstance(config_dir_value, Path):
+                config_dir = config_dir_value
+            elif callable(config_dir_value):
+                config_dir = Path(config_dir_value())
+            else:
+                config_dir = Path.home() / ".ai-novel-editor"
+        except Exception:
+            config_dir = Path.home() / ".ai-novel-editor"
+        return config_dir / "scratch_recovery.txt"
+
+    def _save_scratch_recovery(self, content: str) -> None:
+        path = self._scratch_recovery_path()
+        text = str(content or "")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if not text.strip():
+                if path.exists():
+                    path.unlink(missing_ok=True)  # type: ignore[call-arg]
+                return
+            path.write_text(text, encoding="utf-8")
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Failed to save scratch recovery to %s: %s", path, exc)
+
+    def _load_scratch_recovery(self) -> str:
+        path = self._scratch_recovery_path()
+        try:
+            if not path.is_file():
+                return ""
+            return path.read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Failed to load scratch recovery from %s: %s", path, exc)
+            return ""
+
+    def restore_scratch_recovery_if_available(self) -> bool:
+        """Restore the scratch editor content from the recovery file (if no project is opened)."""
+        editor = self._document_tabs.get(self.SCRATCH_DOCUMENT_ID)
+        if not editor:
+            return False
+
+        # Avoid overwriting any user-visible content.
+        try:
+            if editor.is_modified() or editor.toPlainText().strip():
+                return False
+        except Exception:
+            return False
+
+        recovered = self._load_scratch_recovery()
+        if not recovered.strip():
+            return False
+
+        editor.set_document_content(recovered, self.SCRATCH_DOCUMENT_ID)
+        self._emit_editor_state(editor)
+        logger.info("Scratch recovery restored (%d chars)", len(recovered))
+        return True
     
     def _connect_editor_signals(self, editor: IntelligentTextEditor):
         """连接编辑器信号"""
@@ -257,10 +318,34 @@ class EditorPanel(QWidget):
     @pyqtSlot(str)
     def _on_auto_save(self, content: str):
         """自动保存处理"""
-        if self._current_document_id:
-            # 发出保存信号
-            self.documentSaved.emit(self._current_document_id)
-            self.documentModified.emit(self._current_document_id, False)
+        sender = self.sender()
+        editor = sender if isinstance(sender, IntelligentTextEditor) else None
+
+        doc_id = None
+        if editor is not None:
+            try:
+                doc_id = editor.get_current_document_id()
+            except Exception:
+                doc_id = None
+
+        if not doc_id:
+            doc_id = self._current_document_id
+
+        if doc_id == self.SCRATCH_DOCUMENT_ID:
+            self._save_scratch_recovery(content)
+            return
+
+        if doc_id:
+            self.documentSaved.emit(doc_id)
+            self.documentModified.emit(doc_id, False)
+
+    def flush_all_editors(self) -> None:
+        """Flush pending edits to their backing stores (project DB or scratch recovery)."""
+        for editor in list(self._document_tabs.values()):
+            try:
+                editor.save_document()
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Failed to flush editor: %s", exc)
     
     @pyqtSlot(int)
     def _close_document_tab(self, index: int):

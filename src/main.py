@@ -252,7 +252,21 @@ def main():
 
         def _restore_last_session() -> None:
             try:
+                editor_panel = getattr(main_window, "_editor_panel", None)
+
+                def _restore_scratch() -> None:
+                    try:
+                        # Only restore scratch when no project is opened.
+                        if getattr(shared_instance, "current_project_path", None):
+                            return
+                        if editor_panel and hasattr(editor_panel, "restore_scratch_recovery_if_available"):
+                            restored = bool(editor_panel.restore_scratch_recovery_if_available())
+                            logger.info("Scratch restore restored=%s", restored)
+                    except Exception:
+                        logger.debug("Scratch restore failed", exc_info=True)
+
                 if not bool(config_instance.get("app", "restore_session", True)):
+                    _restore_scratch()
                     return
 
                 recent_projects = config_instance.get("project", "recent_projects", [])
@@ -261,16 +275,19 @@ def main():
                     project_path = str(recent_projects[0] or "").strip()
 
                 if not project_path:
+                    _restore_scratch()
                     return
 
                 db_file = Path(project_path) / "project.db"
                 if not db_file.is_file():
                     logger.info("Session restore skipped; project.db not found: %s", db_file)
+                    _restore_scratch()
                     return
 
                 ok = bool(project_manager_instance.open_project(project_path))
                 logger.info("Session restore open_project ok=%s path=%s", ok, project_path)
                 if not ok:
+                    _restore_scratch()
                     return
 
                 try:
