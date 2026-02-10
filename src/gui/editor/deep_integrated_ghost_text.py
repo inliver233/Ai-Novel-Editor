@@ -604,47 +604,25 @@ class DeepIntegratedGhostText(QObject):
     def _render_block_ghost_text(self, painter: QPainter, block: QTextBlock, 
                                 user_data: GhostTextUserData):
         """渲染单个块的Ghost Text"""
-        # 计算精确位置
-        position_is_viewport = False
-        position = self.layout_calculator.calculate_ghost_position(
-            block, user_data.ghost_position
-        )
-        
-        # 如果位置计算失败或y为0，使用 cursorRect 作为主要方法
-        if position.isNull() or position.y() == 0:
-            cursor = QTextCursor(self.document)
-            cursor.setPosition(block.position() + user_data.ghost_position)
-            cursor_rect = self.text_editor.cursorRect(cursor)
-            if not cursor_rect.isNull():
-                # 使用 cursorRect 的位置，更可靠
-                position = QRectF(cursor_rect)
-                position_is_viewport = True
-                logger.debug(f"Using cursorRect for block {block.blockNumber()}: {position}")
-            else:
-                logger.warning(f"Both methods failed for block {block.blockNumber()}")
-                return
-        
-        # 如果y坐标为0且不是第一个块，尝试使用备用方法
-        if position.y() == 0 and block.blockNumber() > 0:
-            # 使用QTextCursor获取更准确的位置
-            cursor = QTextCursor(block)
-            cursor.setPosition(block.position() + user_data.ghost_position)
-            cursor_rect = self.text_editor.cursorRect(cursor)
-            if not cursor_rect.isNull() and cursor_rect.y() > 0:
-                position = QRectF(cursor_rect)
-                position_is_viewport = True
-                logger.debug(f"Using cursor rect as fallback for block {block.blockNumber()}: {position}")
-        
-        # 转换到viewport坐标 - 使用translated方法正确转换
-        content_offset = self.text_editor.contentOffset()
-        viewport_position = position if position_is_viewport else position.translated(content_offset)
-        viewport_x = viewport_position.x()
-        viewport_y = viewport_position.y()
-        
-        logger.debug(f"坐标转换: doc_pos=({position.x()}, {position.y()}), content_offset=({content_offset.x()}, {content_offset.y()}), viewport=({viewport_x}, {viewport_y})")
+        # Always anchor to viewport coordinates via cursorRect.
+        # Doc-layout based calculations can drift for large documents / wrapping / scrolling and
+        # will make Ghost Text appear far from the trigger caret.
+        cursor = QTextCursor(self.document)
+        cursor.setPosition(block.position() + user_data.ghost_position)
+        cursor_rect = self.text_editor.cursorRect(cursor)
+        if cursor_rect.isNull():
+            # Fallback to doc-layout calculation only when cursorRect is unavailable.
+            position = self.layout_calculator.calculate_ghost_position(block, user_data.ghost_position)
+            content_offset = self.text_editor.contentOffset()
+            viewport_position = position.translated(content_offset)
+            cursor_rect = viewport_position.toRect()
+
+        viewport_x = float(cursor_rect.x())
+        viewport_y = float(cursor_rect.y())
+        line_height = max(1.0, float(cursor_rect.height()))
         
         # 检查是否需要换行
-        available_width = max(0.0, float(self.text_editor.viewport().width()) - float(viewport_x) - 2.0)
+        available_width = max(0.0, float(self.text_editor.viewport().width()) - viewport_x - 2.0)
         
         # 智能换行
         lines = self.rendering_engine.wrap_text_to_width(
@@ -653,10 +631,9 @@ class DeepIntegratedGhostText(QObject):
         
         # 渲染每一行
         try:
-            line_height = float(position.height())
             # 使用viewport坐标
-            pos_x = float(viewport_x)
-            pos_y = float(viewport_y)
+            pos_x = viewport_x
+            pos_y = viewport_y
             
             for i, line_text in enumerate(lines):
                 # 计算文本实际宽度以确保QRectF有效
