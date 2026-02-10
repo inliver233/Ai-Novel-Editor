@@ -37,6 +37,7 @@ class EditorPanel(QWidget):
         
         self._config = config
         self._shared = shared
+        self._project_manager = None
         
         # 当前文档状态
         self._current_document_id: Optional[str] = None
@@ -328,6 +329,19 @@ class EditorPanel(QWidget):
         """共享文档变化处理"""
         # 切换到指定文档
         self.switch_to_document(document_id)
+
+    def set_project_manager(self, project_manager) -> None:
+        """Bind a ProjectManager instance to all project-backed editors."""
+        self._project_manager = project_manager
+
+        for doc_id, editor in self._document_tabs.items():
+            # Keep the scratch tab unbound unless it is reused for a real project document.
+            if doc_id == "default_doc":
+                continue
+            try:
+                editor.set_project_manager(project_manager)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Failed to set project manager on editor %s: %s", doc_id, exc)
     
     def get_current_editor(self) -> Optional[IntelligentTextEditor]:
         """获取当前编辑器"""
@@ -352,6 +366,30 @@ class EditorPanel(QWidget):
         """创建新文档"""
         if document_id in self._document_tabs:
             return False  # 文档已存在
+
+        # Prefer reusing the initial scratch tab when it is still empty/unmodified.
+        scratch_editor = self._document_tabs.get("default_doc")
+        if scratch_editor and not scratch_editor.is_modified() and not scratch_editor.toPlainText().strip():
+            for i in range(self._editor_tabs.count()):
+                if self._editor_tabs.widget(i) == scratch_editor:
+                    self._editor_tabs.setTabText(i, title)
+                    self._editor_tabs.setCurrentIndex(i)
+                    break
+
+            self._document_tabs.pop("default_doc", None)
+            self._document_tabs[document_id] = scratch_editor
+            self._current_document_id = document_id
+
+            if self._project_manager:
+                try:
+                    scratch_editor.set_project_manager(self._project_manager)
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("Failed to bind project manager to reused tab: %s", exc)
+
+            scratch_editor.set_document_content(content, document_id)
+            self._emit_editor_state(scratch_editor)
+            logger.info("Reused scratch tab for document: %s", document_id)
+            return True
         
         # 创建新编辑器
         editor = IntelligentTextEditor(self._config, self._shared)
@@ -360,7 +398,13 @@ class EditorPanel(QWidget):
         # 如果已有Codex组件，立即设置
         if hasattr(self, '_codex_manager') and hasattr(self, '_reference_detector'):
             editor.set_codex_components(self._codex_manager, self._reference_detector)
-        
+
+        if self._project_manager:
+            try:
+                editor.set_project_manager(self._project_manager)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Failed to bind project manager to new editor: %s", exc)
+         
         # 设置内容
         editor.set_document_content(content, document_id)
         

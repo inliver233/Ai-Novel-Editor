@@ -411,7 +411,61 @@ class MainWindowIntegrationsMixin:
                 logger.warning("项目打开后AI客户端不可用，尝试恢复")
                 self._ai_manager.force_reinit_ai()
         
+        # Open a default project document to avoid leaving users in an unbound scratch tab.
+        try:
+            self._open_default_document_after_project_open()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Failed to open default document after project open: %s", exc)
+
         logger.info(f"Project opened at: {project_path}")
+
+    def _open_default_document_after_project_open(self) -> None:
+        """Open a default project document if the editor is still on an empty scratch tab."""
+        project_manager = getattr(self, "_project_manager", None)
+        if not project_manager or not getattr(project_manager, "has_project", lambda: False)():
+            return
+
+        editor_panel = getattr(self, "_editor_panel", None)
+        if not editor_panel:
+            return
+
+        current_editor = editor_panel.get_current_editor()
+        if not current_editor:
+            return
+
+        try:
+            current_doc_id = current_editor.get_current_document_id()
+        except Exception:
+            current_doc_id = None
+
+        if current_doc_id and current_doc_id != "default_doc":
+            return
+
+        if current_editor.toPlainText().strip():
+            return
+
+        def _walk(nodes) -> str | None:
+            for node in nodes or []:
+                doc = node.get("document")
+                if doc is None:
+                    continue
+                doc_type = getattr(doc, "doc_type", None)
+                if getattr(doc_type, "value", None) == "scene":
+                    return getattr(doc, "id", None)
+
+                child = _walk(node.get("children") or [])
+                if child:
+                    return child
+            return None
+
+        doc_id = None
+        try:
+            doc_id = _walk(project_manager.get_document_tree())
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Failed to traverse document tree for default open: %s", exc)
+
+        if doc_id:
+            self._on_document_selected(doc_id)
     @pyqtSlot()
     def _on_project_closed(self):
         """项目关闭后的处理"""

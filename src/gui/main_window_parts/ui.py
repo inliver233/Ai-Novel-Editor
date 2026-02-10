@@ -131,6 +131,10 @@ class MainWindowUIMixin:
     def _create_center_panel(self) -> QWidget:
         # 直接创建并返回编辑器面板
         self._editor_panel = EditorPanel(self._config, self._shared, self)
+        try:
+            self._editor_panel.set_project_manager(self._project_manager)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Failed to bind ProjectManager to EditorPanel: %s", exc)
         self._editor_panel.documentModified.connect(self._on_document_modified)
         self._editor_panel.documentSaved.connect(self._on_document_saved)
         if self._ai_manager:
