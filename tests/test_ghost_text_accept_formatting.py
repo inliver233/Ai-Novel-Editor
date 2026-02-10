@@ -50,7 +50,8 @@ def test_ghost_text_accept_restores_normal_formatting():
     assert ghost is not None, "Ghost Text manager should be initialized"
 
     # 设置基础正文
-    editor.setPlainText("Hello world")
+    base_text = "Hello world"
+    editor.setPlainText(base_text)
 
     # 取一段普通正文的字符格式作为“正常格式”参考
     base_cursor = editor.textCursor()
@@ -62,23 +63,14 @@ def test_ghost_text_accept_restores_normal_formatting():
     cursor = editor.textCursor()
     cursor.movePosition(QTextCursor.MoveOperation.End)
     editor.setTextCursor(cursor)
+    start = editor.textCursor().position()
 
     suggestion = "Hello world and beyond"
     editor.show_ghost_ai_completion(suggestion)
 
     assert ghost.has_active_ghost_text() is True
-
-    start = ghost._ghost_start_pos
-    end = ghost._ghost_end_pos
-    assert start >= 0 and end > start
-
-    ghost_cursor = editor.textCursor()
-    ghost_cursor.setPosition(start)
-    ghost_cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
-    ghost_format = ghost_cursor.charFormat()
-
-    # 接受前：Ghost Text 应该有单独的前景色属性
-    assert ghost_format.hasProperty(QTextFormat.Property.ForegroundBrush) is True
+    # DeepIntegratedGhostText uses a non-destructive overlay preview: document text must be unchanged.
+    assert editor.toPlainText() == base_text
 
     # 模拟按 Tab 接受 Ghost Text
     tab_event = QKeyEvent(
@@ -90,8 +82,11 @@ def test_ghost_text_accept_restores_normal_formatting():
 
     # 接受后：Ghost Text 状态应被清理
     assert ghost.has_active_ghost_text() is False
+    assert editor.toPlainText() == suggestion
 
     accepted_cursor = editor.textCursor()
+    expected_insert = suggestion[len(base_text) :]
+    end = start + len(expected_insert)
     accepted_cursor.setPosition(start)
     accepted_cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
     accepted_format = accepted_cursor.charFormat()
