@@ -214,6 +214,68 @@ class AIClient(LLMProvider):
             return self._provider_strategy.get_endpoint_url()
         except Exception as e:
             raise AIClientError(str(e))
+
+    async def _iter_sse_event_data(self, byte_iter) -> AsyncGenerator[tuple[str | None, str], None]:
+        """Parse SSE stream and yield (event, data) tuples.
+
+        Notes:
+        - aiohttp may yield arbitrary byte chunks, not line-delimited data.
+        - This parser tolerates chunk boundaries splitting SSE lines and multiple SSE events per chunk.
+        - For non-SSE servers that return raw JSON lines, it will yield them as (None, line).
+        """
+        buffer = b""
+        current_event: str | None = None
+        data_lines: List[str] = []
+
+        async for chunk in byte_iter:
+            if not chunk:
+                continue
+            if not isinstance(chunk, (bytes, bytearray)):
+                continue
+
+            buffer += bytes(chunk)
+            while True:
+                newline_index = buffer.find(b"\n")
+                if newline_index < 0:
+                    break
+                line_bytes = buffer[:newline_index]
+                buffer = buffer[newline_index + 1 :]
+
+                if line_bytes.endswith(b"\r"):
+                    line_bytes = line_bytes[:-1]
+
+                line = line_bytes.decode("utf-8", errors="replace")
+                if line == "":
+                    if data_lines:
+                        yield current_event, "\n".join(data_lines)
+                    current_event = None
+                    data_lines = []
+                    continue
+
+                if line.startswith(":"):
+                    continue
+                if line.startswith("event:"):
+                    current_event = line[6:].lstrip() or None
+                    continue
+                if line.startswith("data:"):
+                    data_lines.append(line[5:].lstrip())
+                    continue
+
+                # Fallback: some providers/proxies may return JSON lines without SSE framing.
+                stripped = line.strip()
+                if stripped.startswith("{") or stripped.startswith("["):
+                    yield None, stripped
+
+        # Flush any remaining buffered content.
+        if buffer:
+            tail = buffer.decode("utf-8", errors="replace").strip()
+            if tail.startswith("data:"):
+                data_lines.append(tail[5:].lstrip())
+            elif tail.startswith("{") or tail.startswith("["):
+                yield None, tail
+
+        if data_lines:
+            yield current_event, "\n".join(data_lines)
     
     def _build_messages(self, prompt: Union[str, List[MultimodalMessage]], system_prompt: Optional[str] = None) -> List[Dict[str, Any]]:
         """构建消息列表 - 支持多模态内容"""
@@ -747,31 +809,17 @@ class AsyncAIClient(AIClient):
                 headers=headers,
                 json=data,
                 timeout=aiohttp.ClientTimeout(total=self.config.timeout)
-            ) as response:
+                ) as response:
                 if response.status != 200:
                     error_text = await response.text()
                     self._raise_http_error(response.status, error_text)
 
                 self.logger.debug("开始接收多模态流式数据")
 
-                async for line in response.content:
-                    if not line:
-                        continue
-
-                    line_str = line.decode("utf-8", errors="replace").strip()
-                    if not line_str:
-                        continue
-
-                    # 处理Server-Sent Events格式
-                    if line_str.startswith("event:"):
-                        continue
-
-                    data_str: str | None = None
-                    if line_str.startswith("data:"):
-                        data_str = line_str[5:].lstrip()
-                    elif line_str.startswith("{") or line_str.startswith("["):
-                        data_str = line_str
-
+                async for event_name, data_str in self._iter_sse_event_data(
+                    response.content.iter_any()
+                ):
+                    data_str = (data_str or "").strip()
                     if not data_str:
                         continue
                     if data_str == "[DONE]":
@@ -781,7 +829,9 @@ class AsyncAIClient(AIClient):
                     try:
                         chunk_data = json.loads(data_str)
                     except json.JSONDecodeError as e:
-                        self.logger.warning(f"解析多模态流式数据失败: {e}, 数据: {data_str}")
+                        self.logger.warning(
+                            f"解析多模态流式数据失败: {e}, event: {event_name}, 数据: {data_str}"
+                        )
                         continue
 
                     content = self._extract_stream_content(chunk_data)
@@ -926,31 +976,17 @@ class AsyncAIClient(AIClient):
                 headers=headers,
                 json=data,
                 timeout=aiohttp.ClientTimeout(total=self.config.timeout)
-            ) as response:
+                ) as response:
                 if response.status != 200:
                     error_text = await response.text()
                     self._raise_http_error(response.status, error_text)
 
                 self.logger.debug("开始接收流式数据")
 
-                async for line in response.content:
-                    if not line:
-                        continue
-
-                    line_str = line.decode("utf-8", errors="replace").strip()
-                    if not line_str:
-                        continue
-
-                    # 处理Server-Sent Events格式
-                    if line_str.startswith("event:"):
-                        continue
-
-                    data_str: str | None = None
-                    if line_str.startswith("data:"):
-                        data_str = line_str[5:].lstrip()
-                    elif line_str.startswith("{") or line_str.startswith("["):
-                        data_str = line_str
-
+                async for event_name, data_str in self._iter_sse_event_data(
+                    response.content.iter_any()
+                ):
+                    data_str = (data_str or "").strip()
                     if not data_str:
                         continue
                     if data_str == "[DONE]":
@@ -960,7 +996,9 @@ class AsyncAIClient(AIClient):
                     try:
                         chunk_data = json.loads(data_str)
                     except json.JSONDecodeError as e:
-                        self.logger.warning(f"解析流式数据失败: {e}, 数据: {data_str}")
+                        self.logger.warning(
+                            f"解析流式数据失败: {e}, event: {event_name}, 数据: {data_str}"
+                        )
                         continue
 
                     content = self._extract_stream_content(chunk_data)
