@@ -54,7 +54,7 @@ class EnhancedAIManager(QObject):
     completionReady = pyqtSignal(str, str)      # (completion_text, context)
     completionReceived = pyqtSignal(str, dict)  # (response, metadata)
     completionError = pyqtSignal(str)           # (error_message)
-    streamUpdate = pyqtSignal(str)              # (partial_text)
+    streamUpdate = pyqtSignal(str, dict)        # (partial_text, context)
     configChanged = pyqtSignal()                # 配置更改信号
     
     def __init__(self, config: Config, shared=None, parent: QWidget = None):
@@ -64,6 +64,7 @@ class EnhancedAIManager(QObject):
         self._parent = parent
         self._task_manager = getattr(shared, "task_manager", None) if shared else None
         self._cancelled_task_keys: set[str] = set()
+        self._active_request_ids: dict[str, str] = {}
         self._ai_service = AICompletionService(
             config,
             shared,
@@ -156,6 +157,10 @@ class EnhancedAIManager(QObject):
                 # 连接信号
                 self._ai_client.responseReceived.connect(self._on_completion_ready)
                 self._ai_client.errorOccurred.connect(self._on_completion_error)
+                if hasattr(self._ai_client, "requestStarted"):
+                    self._ai_client.requestStarted.connect(self._on_request_started)
+                if hasattr(self._ai_client, "requestCompleted"):
+                    self._ai_client.requestCompleted.connect(self._on_request_completed)
                 if hasattr(self._ai_client, 'streamChunkReceived'):
                     self._ai_client.streamChunkReceived.connect(self._on_stream_update)
                 
@@ -433,6 +438,23 @@ class EnhancedAIManager(QObject):
             }
             self._task_manager.fail_external(task_key, error, details)
         self.completionError.emit(error)
+
+    @pyqtSlot(dict)
+    def _on_request_started(self, context: dict) -> None:
+        task_key = context.get("task_key") if isinstance(context, dict) else None
+        request_id = context.get("request_id") if isinstance(context, dict) else None
+        if task_key and request_id:
+            self._active_request_ids[str(task_key)] = str(request_id)
+
+    @pyqtSlot(dict)
+    def _on_request_completed(self, context: dict) -> None:
+        task_key = context.get("task_key") if isinstance(context, dict) else None
+        request_id = context.get("request_id") if isinstance(context, dict) else None
+        if not task_key:
+            return
+        active = self._active_request_ids.get(str(task_key))
+        if (not request_id) or (active == str(request_id)):
+            self._active_request_ids.pop(str(task_key), None)
     
     @pyqtSlot(str, dict)
     def _on_stream_update(self, partial_text: str, context: dict):
@@ -443,7 +465,21 @@ class EnhancedAIManager(QObject):
         task_key = context.get("task_key")
         if task_key and task_key in self._cancelled_task_keys:
             return
-        self.streamUpdate.emit(partial_text)
+        request_id = context.get("request_id")
+        if task_key and request_id:
+            active = self._active_request_ids.get(str(task_key))
+            if active and active != str(request_id):
+                return
+
+        try:
+            editor = getattr(self, "_current_editor", None)
+            smart_completion = getattr(editor, "_smart_completion", None) if editor else None
+            if smart_completion and hasattr(smart_completion, "update_streaming_ai_completion"):
+                smart_completion.update_streaming_ai_completion(partial_text, context)
+        except Exception:
+            logger.debug("Failed to forward stream update to SmartCompletionManager", exc_info=True)
+
+        self.streamUpdate.emit(partial_text, context)
     
     # 兼容性方法 - 保持与SimpleAIManager的接口兼容
     def set_completion_enabled(self, enabled: bool):
@@ -947,7 +983,7 @@ class EnhancedAIManager(QObject):
         try:
             logger.debug(f"开始流式响应: {text[:50]}...")
             # 发送流式更新信号
-            self.streamUpdate.emit(text)
+            self.streamUpdate.emit(text, {})
         except Exception as e:
             logger.error(f"流式响应失败: {e}")
     

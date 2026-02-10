@@ -6,7 +6,7 @@
 import logging
 import re
 import time
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Tuple, Callable
 from PyQt6.QtWidgets import QWidget, QLabel
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
 from PyQt6.QtGui import QFont, QTextCursor, QKeyEvent
@@ -33,6 +33,92 @@ from domain.completion_state_machine import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_AI_RENDERER_ORDER = ("ghost_text", "inline", "direct_insert")
+
+
+class TypedStreamingGhostTextController(QObject):
+    """Buffer streaming chunks and render as typing-like ghost text.
+
+    - Appends incoming chunks in-order.
+    - Flushes to UI at a steady cadence to avoid jitter.
+    - Ignores chunks from stale request_id/task_key.
+    """
+
+    def __init__(
+        self,
+        *,
+        render: Callable[[str], None],
+        hide: Callable[[], None],
+        flush_interval_ms: int = 15,
+        max_chars_per_tick: int = 3,
+        parent: QObject | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._render = render
+        self._hide = hide
+        self._flush_interval_ms = max(1, int(flush_interval_ms))
+        self._max_chars_per_tick = max(1, int(max_chars_per_tick))
+
+        self._active_request_id: str | None = None
+        self._active_task_key: str | None = None
+        self._pending: str = ""
+        self._displayed: str = ""
+
+        self._timer = QTimer(self)
+        self._timer.setInterval(self._flush_interval_ms)
+        self._timer.timeout.connect(self._on_tick)
+
+    def cancel(self) -> None:
+        self._timer.stop()
+        self._pending = ""
+        self._displayed = ""
+        self._active_request_id = None
+        self._active_task_key = None
+        try:
+            self._hide()
+        except Exception:
+            return
+
+    def on_chunk(self, chunk_text: str, context: dict) -> None:
+        chunk = str(chunk_text or "")
+        if not chunk:
+            return
+
+        request_id = context.get("request_id") if isinstance(context, dict) else None
+        task_key = context.get("task_key") if isinstance(context, dict) else None
+
+        if self._active_task_key and task_key and task_key != self._active_task_key:
+            return
+
+        if self._active_request_id and request_id and request_id != self._active_request_id:
+            return
+
+        if self._active_request_id is None and request_id:
+            self._active_request_id = str(request_id)
+        if self._active_task_key is None and task_key:
+            self._active_task_key = str(task_key)
+
+        self._pending += chunk
+        if not self._timer.isActive():
+            self._timer.start()
+
+    def _on_tick(self) -> None:
+        if not self._pending:
+            self._timer.stop()
+            return
+
+        take = self._pending[: self._max_chars_per_tick]
+        self._pending = self._pending[self._max_chars_per_tick :]
+        self._displayed += take
+
+        try:
+            self._render(self._displayed)
+        except Exception:
+            # Rendering should never break the stream loop.
+            self.cancel()
+            return
+
+        if not self._pending:
+            self._timer.stop()
 
 
 class SmartCompletionManager(QObject):
@@ -90,6 +176,14 @@ class SmartCompletionManager(QObject):
 
         # 纯状态机（domain/application 层）用于描述 completion 生命周期
         self._completion_state_machine = CompletionStateMachine()
+
+        self._streaming_typed_controller = TypedStreamingGhostTextController(
+            render=self._render_streaming_ghost_text,
+            hide=self._hide_streaming_ghost_text,
+            flush_interval_ms=15,
+            max_chars_per_tick=3,
+            parent=self,
+        )
 
         # 连接 Ghost Text 接受/拒绝信号到状态机，确保 Esc/Tab/输入 等路径一致收口
         self._bind_ghost_signals()
@@ -205,6 +299,7 @@ class SmartCompletionManager(QObject):
             self._ai_timeout_timer.stop()
         if hasattr(self, "_auto_completion_timer") and self._auto_completion_timer.isActive():
             self._auto_completion_timer.stop()
+        self.stop_streaming_ai_completion()
         self.hide_all_completions()
         self._is_completing = False
         self._last_completion_pos = -1
@@ -463,6 +558,9 @@ class SmartCompletionManager(QObject):
             self._is_completing = False
             return
 
+        # Reset any in-flight streaming render before starting a new request.
+        self.stop_streaming_ai_completion()
+
         try:
             self._completion_state_machine.reset()
             self._completion_state_machine.set_state(CompletionState.REQUESTING)
@@ -615,9 +713,41 @@ class SmartCompletionManager(QObject):
                 self.suggestionRendered.emit(suggestions[0].text)
             except Exception:
                 self.suggestionRendered.emit("")
+
+    def update_streaming_ai_completion(self, chunk_text: str, context: dict) -> None:
+        """Render streaming chunks as typing-like Ghost Text."""
+        if not chunk_text:
+            return
+        if not self._ghost_completion:
+            self._redetect_ghost_text_system()
+        if not self._ghost_completion:
+            return
+        try:
+            self._streaming_typed_controller.on_chunk(chunk_text, context or {})
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Streaming typed render failed: %s", exc)
+
+    def stop_streaming_ai_completion(self) -> None:
+        try:
+            self._streaming_typed_controller.cancel()
+        except Exception:
+            return
+
+    def _render_streaming_ghost_text(self, suggestion: str) -> None:
+        if not suggestion:
+            return
+        if not self._ghost_completion:
+            self._redetect_ghost_text_system()
+        renderer = GhostTextRenderer(self._ghost_completion, self._ghost_state_manager)
+        renderer.render(suggestion)
+
+    def _hide_streaming_ghost_text(self) -> None:
+        renderer = GhostTextRenderer(self._ghost_completion, self._ghost_state_manager)
+        renderer.hide()
         
     def show_ai_completion(self, suggestion: str):
         """显示AI补全建议 - 增强版本，支持多种显示模式和状态同步"""
+        self.stop_streaming_ai_completion()
         # 🔧 修复：标记请求已完成，防止超时处理冲突
         self._ai_request_completed = True
         
