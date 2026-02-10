@@ -48,6 +48,7 @@ class MainWindowIntegrationsMixin:
     """MainWindow mixin."""
     def _init_signals(self):
         self._shared.projectChanged.connect(self._on_project_changed)
+        self._shared.documentChanged.connect(self._on_document_changed_for_session_restore)
         self._shared.themeChanged.connect(self._on_theme_changed)
         self._theme_manager.themeChanged.connect(self._on_theme_manager_changed)
         
@@ -411,13 +412,68 @@ class MainWindowIntegrationsMixin:
                 logger.warning("项目打开后AI客户端不可用，尝试恢复")
                 self._ai_manager.force_reinit_ai()
         
-        # Open a default project document to avoid leaving users in an unbound scratch tab.
+        # Persist session metadata and open the last document when appropriate.
         try:
-            self._open_default_document_after_project_open()
+            self._open_last_or_default_document_after_project_open(project_path)
         except Exception as exc:  # noqa: BLE001
-            logger.debug("Failed to open default document after project open: %s", exc)
+            logger.debug("Failed to open session/default document after project open: %s", exc)
 
         logger.info(f"Project opened at: {project_path}")
+
+    @pyqtSlot(str)
+    def _on_document_changed_for_session_restore(self, document_id: str) -> None:
+        """Persist last active project/document for optional session restore."""
+        try:
+            if not document_id or document_id == "default_doc":
+                return
+            if not getattr(self, "_project_manager", None) or not self._project_manager.has_project():
+                return
+            if not self._project_manager.get_document(document_id):
+                return
+
+            self._config.set("app", "last_document_id", document_id)
+
+            project_path = ""
+            try:
+                current_path = self._shared.current_project_path
+                if current_path:
+                    project_path = str(current_path)
+            except Exception:
+                project_path = ""
+
+            if project_path:
+                self._config.set("app", "last_project_path", project_path)
+        except Exception:
+            logger.debug("Failed to persist session restore metadata", exc_info=True)
+
+    def _open_last_or_default_document_after_project_open(self, project_path: str) -> None:
+        """Open last active doc for the same project; fallback to default scene."""
+        prior_last_project = str(self._config.get("app", "last_project_path", "") or "").strip()
+        last_document_id = str(self._config.get("app", "last_document_id", "") or "").strip()
+        restore_enabled = bool(self._config.get("app", "restore_session", True))
+
+        try:
+            self._config.set("app", "last_project_path", project_path)
+        except Exception:
+            logger.debug("Failed to persist last_project_path", exc_info=True)
+
+        def _norm(path_str: str) -> str:
+            from pathlib import Path
+
+            if not path_str:
+                return ""
+            try:
+                return str(Path(path_str).resolve())
+            except Exception:
+                return str(Path(path_str))
+
+        if restore_enabled and prior_last_project and last_document_id:
+            if _norm(prior_last_project) == _norm(project_path):
+                if getattr(self, "_project_manager", None) and self._project_manager.get_document(last_document_id):
+                    self._on_document_selected(last_document_id)
+                    return
+
+        self._open_default_document_after_project_open()
 
     def _open_default_document_after_project_open(self) -> None:
         """Open a default project document if the editor is still on an empty scratch tab."""

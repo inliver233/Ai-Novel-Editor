@@ -11,6 +11,10 @@ DEFAULT_CONFIG_SECTIONS: Dict[str, Dict[str, Any]] = {
     # 应用程序设置
     "app": {
         "language": "zh_CN",
+        "restore_session": True,
+        "last_project_path": "",
+        "last_document_id": "",
+        "auto_save_enabled": True,
         "auto_save_interval": 30,  # 秒
         "backup_count": 5,
         "check_updates": True,

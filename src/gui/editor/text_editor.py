@@ -785,8 +785,12 @@ class IntelligentTextEditor(QPlainTextEdit):
         self.clear_ghost_text()
 
         # 重启自动保存定时器
-        auto_save_interval = self._config.get("app", "auto_save_interval", 30) * 1000
-        self._auto_save_timer.start(auto_save_interval)
+        auto_save_enabled = bool(self._config.get("app", "auto_save_enabled", True))
+        if auto_save_enabled:
+            auto_save_interval = self._config.get("app", "auto_save_interval", 30) * 1000
+            self._auto_save_timer.start(auto_save_interval)
+        else:
+            self._auto_save_timer.stop()
 
         # 发出文本变化信号
         text = self.toPlainText()
@@ -844,6 +848,8 @@ class IntelligentTextEditor(QPlainTextEdit):
     @pyqtSlot()
     def _trigger_auto_save(self):
         """触发自动保存"""
+        if not bool(self._config.get("app", "auto_save_enabled", True)):
+            return
         if self._is_modified:
             content = self.toPlainText()
             if content != self._last_save_content:

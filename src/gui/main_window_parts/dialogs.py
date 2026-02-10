@@ -47,8 +47,107 @@ logger = logging.getLogger(__name__)
 class MainWindowDialogsMixin:
     """MainWindow mixin."""
     def _show_preferences(self):
-        dialog = SettingsDialog(self, {})
+        dialog = SettingsDialog(self, self._get_settings_dialog_payload())
+        dialog.settingsChanged.connect(self._apply_settings_dialog_payload)
         dialog.exec()
+
+    def _get_settings_dialog_payload(self) -> dict:
+        def _map_theme_to_label(theme: str) -> str:
+            mapping = {
+                "dark": "深色主题",
+                "light": "浅色主题",
+                "high_contrast": "高对比度",
+            }
+            return mapping.get(theme, "深色主题")
+
+        def _map_language_to_label(language: str) -> str:
+            mapping = {
+                "zh_CN": "简体中文",
+                "en_US": "English",
+                "zh_TW": "繁體中文",
+            }
+            return mapping.get(language, "简体中文")
+
+        try:
+            auto_save_interval_seconds = int(self._config.get("app", "auto_save_interval", 30))
+        except Exception:
+            auto_save_interval_seconds = 30
+        auto_save_minutes = max(1, min(60, max(1, auto_save_interval_seconds) // 60))
+
+        return {
+            "general": {
+                "language": _map_language_to_label(str(self._config.get("app", "language", "zh_CN"))),
+                "theme": _map_theme_to_label(str(self._config.get("ui", "theme", "dark"))),
+                "auto_save": bool(self._config.get("app", "auto_save_enabled", True)),
+                "auto_save_interval": auto_save_minutes,
+                "backup_enabled": bool(self._config.get("project", "auto_backup", True)),
+                "backup_count": int(self._config.get("app", "backup_count", 5)),
+                "restore_session": bool(self._config.get("app", "restore_session", True)),
+            },
+            "editor": dict(self._config.get_section("editor") or {}),
+            "ai": {},
+        }
+
+    @pyqtSlot(dict)
+    def _apply_settings_dialog_payload(self, settings: dict) -> None:
+        def _map_label_to_theme(theme_label: str) -> str:
+            mapping = {
+                "深色主题": "dark",
+                "浅色主题": "light",
+                "高对比度": "high_contrast",
+            }
+            return mapping.get(theme_label, "dark")
+
+        def _map_label_to_language(language_label: str) -> str:
+            mapping = {
+                "简体中文": "zh_CN",
+                "English": "en_US",
+                "繁體中文": "zh_TW",
+            }
+            return mapping.get(language_label, "zh_CN")
+
+        general = settings.get("general", {}) if isinstance(settings, dict) else {}
+        editor_settings = settings.get("editor", {}) if isinstance(settings, dict) else {}
+
+        try:
+            with self._config.batch_update():
+                self._config.set("app", "language", _map_label_to_language(str(general.get("language", "简体中文"))))
+                self._config.set("ui", "theme", _map_label_to_theme(str(general.get("theme", "深色主题"))))
+
+                self._config.set("app", "restore_session", bool(general.get("restore_session", True)))
+                self._config.set("app", "auto_save_enabled", bool(general.get("auto_save", True)))
+
+                try:
+                    minutes = int(general.get("auto_save_interval", 5))
+                except Exception:
+                    minutes = 5
+                minutes = max(1, min(60, minutes))
+                self._config.set("app", "auto_save_interval", minutes * 60)
+
+                self._config.set("project", "auto_backup", bool(general.get("backup_enabled", True)))
+                try:
+                    backup_count = int(general.get("backup_count", 5))
+                except Exception:
+                    backup_count = 5
+                self._config.set("app", "backup_count", max(1, min(20, backup_count)))
+
+                if isinstance(editor_settings, dict) and editor_settings:
+                    merged_editor = dict(self._config.get_section("editor") or {})
+                    merged_editor.update(editor_settings)
+                    self._config.set_section("editor", merged_editor)
+        except Exception:
+            logger.exception("Failed to apply settings dialog payload")
+
+        try:
+            self._shared.auto_save_enabled = bool(self._config.get("app", "auto_save_enabled", True))
+        except Exception:
+            pass
+
+        if hasattr(self, "_apply_theme"):
+            try:
+                self._apply_theme()
+            except Exception:
+                logger.debug("Theme apply failed", exc_info=True)
     def _show_about(self):
         dialog = AboutDialog(self)
         dialog.exec()

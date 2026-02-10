@@ -249,6 +249,46 @@ def main():
         logger.info("AI Novel Editor started successfully")
 
         smoke_project_dir = os.environ.get("ANE_SMOKE_PROJECT", "").strip()
+
+        def _restore_last_session() -> None:
+            try:
+                if not bool(config_instance.get("app", "restore_session", True)):
+                    return
+
+                recent_projects = config_instance.get("project", "recent_projects", [])
+                project_path = str(config_instance.get("app", "last_project_path", "") or "").strip()
+                if (not project_path) and isinstance(recent_projects, list) and recent_projects:
+                    project_path = str(recent_projects[0] or "").strip()
+
+                if not project_path:
+                    return
+
+                db_file = Path(project_path) / "project.db"
+                if not db_file.is_file():
+                    logger.info("Session restore skipped; project.db not found: %s", db_file)
+                    return
+
+                ok = bool(project_manager_instance.open_project(project_path))
+                logger.info("Session restore open_project ok=%s path=%s", ok, project_path)
+                if not ok:
+                    return
+
+                try:
+                    main_window._project_controller.project_opened.emit(project_path)
+                    main_window._project_controller.project_structure_changed.emit()
+                except Exception:
+                    logger.debug("Session restore controller signal emit failed", exc_info=True)
+                    try:
+                        main_window._on_project_opened(project_path)
+                        main_window._on_project_structure_changed()
+                    except Exception:
+                        logger.debug("Session restore UI refresh failed", exc_info=True)
+            except Exception:
+                logger.exception("Session restore failed")
+
+        if not smoke_project_dir:
+            QTimer.singleShot(0, _restore_last_session)
+
         if smoke_project_dir:
             logger.warning("SMOKE mode enabled via ANE_SMOKE_PROJECT=%s", smoke_project_dir)
 
