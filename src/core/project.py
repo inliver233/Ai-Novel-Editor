@@ -441,6 +441,14 @@ class ProjectManager:
             logger.info(f"Document updated: {doc.name}")
         return doc
 
+    def update_document_content(self, doc_id: str, content: str, save: bool = True) -> bool:
+        """更新文档内容（便捷方法，供编辑器自动保存/手动保存使用）"""
+        if not self._current_project or doc_id not in self._current_project.documents:
+            return False
+
+        doc = self.update_document(doc_id, save=save, content=content)
+        return doc is not None
+
     def get_document(self, doc_id: str) -> Optional[ProjectDocument]:
         if self._current_project:
             return self._current_project.documents.get(doc_id)

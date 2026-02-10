@@ -886,14 +886,29 @@ class IntelligentTextEditor(QPlainTextEdit):
         """检查是否已修改"""
         return self._is_modified
     
-    def save_document(self):
-        """保存文档"""
-        if self._is_modified:
-            content = self.toPlainText()
-            self._last_save_content = content
-            self._is_modified = False
-            self.autoSaveTriggered.emit(content)
-            logger.info("Document saved manually")
+    def save_document(self) -> bool:
+        """保存文档（优先持久化到项目数据库）。"""
+        if not self._is_modified:
+            return True
+
+        content = self.toPlainText()
+
+        # If bound to a project document, persist via ProjectManager.
+        if self._current_document_id and self._project_manager:
+            try:
+                success = bool(self._project_manager.update_document_content(self._current_document_id, content))
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Failed to save via project manager: {e}")
+                success = False
+
+            if not success:
+                return False
+
+        self._last_save_content = content
+        self._is_modified = False
+        self.autoSaveTriggered.emit(content)
+        logger.info("Document saved manually")
+        return True
     
     def insert_text_at_cursor(self, text: str):
         """在光标位置插入文本"""
