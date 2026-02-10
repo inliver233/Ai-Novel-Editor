@@ -44,7 +44,7 @@ from .modern_ai_indicator import AIStatusManager
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_GHOST_TEXT_SYSTEM = "optimal"  # "optimal" | "deep"
+DEFAULT_GHOST_TEXT_SYSTEM = "deep"  # "optimal" | "deep" (deep is non-destructive; safer for streaming/autosave)
 ALLOW_GHOST_TEXT_FALLBACK_TO_DEEP = True
 
 
@@ -245,9 +245,32 @@ class IntelligentTextEditor(QPlainTextEdit):
         logger.info("Intelligent text editor initialized")
 
     def paintEvent(self, event: QPaintEvent):
-        """简化的paintEvent - OptimalGhostText无需特殊渲染"""
-        # OptimalGhostText直接在文档中插入格式化文本，无需额外渲染
+        """Paint editor text, then (optionally) paint Ghost Text overlay.
+
+        DeepIntegratedGhostText is non-destructive and relies on an overlay render pass.
+        OptimalGhostText inserts formatted text into the document and does not require overlay rendering.
+        """
         super().paintEvent(event)
+
+        ghost = getattr(self, "_ghost_completion", None)
+        render_fn = getattr(ghost, "render_ghost_text", None)
+        if not callable(render_fn):
+            return
+
+        try:
+            painter = QPainter(self.viewport())
+            try:
+                painter.setClipRect(event.rect())
+            except Exception:
+                pass
+            render_fn(painter)
+        except Exception:
+            logger.debug("Ghost text overlay paint failed", exc_info=True)
+        finally:
+            try:
+                painter.end()
+            except Exception:
+                return
 
     # Legacy ghost text methods removed - replaced with OptimalGhostText
 
@@ -877,6 +900,11 @@ class IntelligentTextEditor(QPlainTextEdit):
     
     def set_document_content(self, content: str, document_id: str = None):
         """设置文档内容"""
+        # Ensure any in-flight Ghost Text preview does not bleed into the new document UI.
+        try:
+            self.clear_ghost_text()
+        except Exception:
+            pass
         self.setPlainText(content)
         self._current_document_id = document_id
         self._last_save_content = content
@@ -894,6 +922,12 @@ class IntelligentTextEditor(QPlainTextEdit):
     
     def save_document(self) -> bool:
         """保存文档（优先持久化到项目数据库）。"""
+        # Never persist preview-only Ghost Text into the document storage.
+        try:
+            self.clear_ghost_text()
+        except Exception:
+            pass
+
         if not self._is_modified:
             return True
 

@@ -234,6 +234,7 @@ class SmartCompletionManager(QObject):
 
     def _on_ghost_completion_accepted(self, accepted_text: str) -> None:
         try:
+            self.stop_streaming_ai_completion()
             if self._ghost_state_manager:
                 self._ghost_state_manager.accept_with_text(accepted_text)
             self._completion_state_machine.set_state(CompletionState.APPLIED)
@@ -242,6 +243,7 @@ class SmartCompletionManager(QObject):
 
     def _on_ghost_completion_rejected(self) -> None:
         try:
+            self.stop_streaming_ai_completion()
             if self._ghost_state_manager:
                 self._ghost_state_manager.force_idle()
             self._completion_state_machine.set_state(CompletionState.CANCELLED)
@@ -722,6 +724,17 @@ class SmartCompletionManager(QObject):
             self._redetect_ghost_text_system()
         if not self._ghost_completion:
             return
+        # If the user has moved the caret since the request was started, stop rendering
+        # to avoid "jumping" previews and confusing cursor/overwrite behavior.
+        try:
+            anchor_pos = context.get("cursor_position") if isinstance(context, dict) else None
+            if isinstance(anchor_pos, int) and anchor_pos >= 0:
+                current_pos = self._text_editor.textCursor().position()
+                if current_pos != anchor_pos:
+                    self.stop_streaming_ai_completion()
+                    return
+        except Exception:
+            pass
         try:
             self._streaming_typed_controller.on_chunk(chunk_text, context or {})
         except Exception as exc:  # noqa: BLE001

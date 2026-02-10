@@ -515,9 +515,17 @@ class DeepIntegratedGhostText(QObject):
         self.clear_ghost_text()
         
         # 插入实际文本
-        cursor = QTextCursor(self.document)
+        try:
+            cursor = self.text_editor.textCursor()
+        except Exception:
+            cursor = QTextCursor(self.document)
+
         cursor.setPosition(position)
         cursor.insertText(ghost_text)
+        try:
+            self.text_editor.setTextCursor(cursor)
+        except Exception:
+            pass
         
         # 发射信号
         self.ghost_text_accepted.emit(ghost_text)
