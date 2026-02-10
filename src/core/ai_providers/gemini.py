@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from typing import Any, Dict, List, Optional
 
 from .base import BaseProviderStrategy
@@ -27,6 +28,32 @@ class GeminiProvider(BaseProviderStrategy):
             base_url = self.config.endpoint_url.rstrip("/")
             return f"{base_url}/v1beta/models/{self.config.model}:generateContent"
         return f"https://generativelanguage.googleapis.com/v1beta/models/{self.config.model}:generateContent"
+
+    def get_stream_endpoint_url(self) -> str:
+        endpoint_url = (self.config.endpoint_url or "").strip()
+        if endpoint_url:
+            if ":streamGenerateContent" in endpoint_url:
+                return self._ensure_alt_sse(endpoint_url)
+            if ":generateContent" in endpoint_url:
+                return self._ensure_alt_sse(endpoint_url.replace(":generateContent", ":streamGenerateContent"))
+            if (
+                "/chat/completions" in endpoint_url
+                or "/messages" in endpoint_url
+                or "/api/generate" in endpoint_url
+                or "/api/chat" in endpoint_url
+            ):
+                return endpoint_url
+            base_url = endpoint_url.rstrip("/")
+            return f"{base_url}/v1beta/models/{self.config.model}:streamGenerateContent?alt=sse"
+
+        return f"https://generativelanguage.googleapis.com/v1beta/models/{self.config.model}:streamGenerateContent?alt=sse"
+
+    @staticmethod
+    def _ensure_alt_sse(url: str) -> str:
+        parts = urlsplit(url)
+        query = dict(parse_qsl(parts.query, keep_blank_values=True))
+        query.setdefault("alt", "sse")
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
     def format_multimodal_message(self, message: MultimodalMessage) -> Optional[Dict[str, Any]]:
         return message.to_gemini_format()
@@ -208,3 +235,43 @@ class GeminiProvider(BaseProviderStrategy):
             return False
         except Exception:
             return False
+
+    def extract_stream_content(self, chunk_data: Dict[str, Any]) -> Optional[str]:
+        """Extract incremental text from Gemini streamGenerateContent SSE chunks."""
+        try:
+            if not isinstance(chunk_data, dict):
+                return None
+
+            candidates = chunk_data.get("candidates")
+            if not candidates:
+                return None
+
+            candidate = candidates[0] if isinstance(candidates, list) else candidates
+            if not isinstance(candidate, dict):
+                return None
+
+            content = candidate.get("content") or {}
+            if not isinstance(content, dict):
+                return None
+
+            parts = content.get("parts") or []
+            if not isinstance(parts, list):
+                return None
+
+            text_parts: List[str] = []
+            for part in parts:
+                if not isinstance(part, dict):
+                    continue
+                text = part.get("text")
+                if not isinstance(text, str) or not text:
+                    continue
+                if part.get("thought", False):
+                    continue
+                text_parts.append(text)
+
+            if text_parts:
+                return "\n".join(text_parts)
+            return None
+        except Exception as exc:  # noqa: BLE001
+            self.logger.warning(f"提取Gemini流式内容失败: {exc}")
+            return None

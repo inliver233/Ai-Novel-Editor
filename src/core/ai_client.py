@@ -204,6 +204,16 @@ class AIClient(LLMProvider):
             return self._provider_strategy.get_endpoint_url()
         except Exception as e:
             raise AIClientError(str(e))
+
+    def _get_stream_endpoint_url(self) -> str:
+        """获取流式端点URL（部分提供商的 streaming 端点不同）。"""
+        try:
+            stream_fn = getattr(self._provider_strategy, "get_stream_endpoint_url", None)
+            if callable(stream_fn):
+                return str(stream_fn())
+            return self._provider_strategy.get_endpoint_url()
+        except Exception as e:
+            raise AIClientError(str(e))
     
     def _build_messages(self, prompt: Union[str, List[MultimodalMessage]], system_prompt: Optional[str] = None) -> List[Dict[str, Any]]:
         """构建消息列表 - 支持多模态内容"""
@@ -726,15 +736,11 @@ class AsyncAIClient(AIClient):
             self.logger.debug(f"开始异步多模态流式补全请求: {len(messages)} 条消息")
 
             formatted_messages = self._build_messages(messages, system_prompt)
-            data = self._build_request_data(formatted_messages, stream=True)
-
-            # 应用额外参数
-            for key, value in kwargs.items():
-                if key in ['max_tokens', 'temperature', 'top_p']:
-                    data[key] = value
+            data = self._build_request_data(formatted_messages, stream=True, **kwargs)
 
             headers = self._get_headers()
-            url = self._get_endpoint_url()
+            headers["Accept"] = "text/event-stream"
+            url = self._get_stream_endpoint_url()
 
             async with self._session.post(
                 url,
@@ -752,29 +758,36 @@ class AsyncAIClient(AIClient):
                     if not line:
                         continue
 
-                    line_str = line.decode('utf-8').strip()
+                    line_str = line.decode("utf-8", errors="replace").strip()
                     if not line_str:
                         continue
 
                     # 处理Server-Sent Events格式
-                    if line_str.startswith('data: '):
-                        data_str = line_str[6:]  # 移除'data: '前缀
+                    if line_str.startswith("event:"):
+                        continue
 
-                        if data_str == '[DONE]':
-                            self.logger.debug("多模态流式响应完成")
-                            break
+                    data_str: str | None = None
+                    if line_str.startswith("data:"):
+                        data_str = line_str[5:].lstrip()
+                    elif line_str.startswith("{") or line_str.startswith("["):
+                        data_str = line_str
 
-                        try:
-                            chunk_data = json.loads(data_str)
-                            content = self._extract_stream_content(chunk_data)
+                    if not data_str:
+                        continue
+                    if data_str == "[DONE]":
+                        self.logger.debug("多模态流式响应完成")
+                        break
 
-                            if content:
-                                self.logger.debug(f"接收到多模态流式内容: {content}")
-                                yield content
+                    try:
+                        chunk_data = json.loads(data_str)
+                    except json.JSONDecodeError as e:
+                        self.logger.warning(f"解析多模态流式数据失败: {e}, 数据: {data_str}")
+                        continue
 
-                        except json.JSONDecodeError as e:
-                            self.logger.warning(f"解析多模态流式数据失败: {e}, 数据: {data_str}")
-                            continue
+                    content = self._extract_stream_content(chunk_data)
+                    if content:
+                        self.logger.debug(f"接收到多模态流式内容: {content}")
+                        yield content
 
                 elapsed_time = time.time() - start_time
                 self.logger.info(f"多模态流式补全完成，总耗时: {elapsed_time:.2f}秒")
@@ -902,15 +915,11 @@ class AsyncAIClient(AIClient):
             self.logger.debug(f"开始流式补全请求: {prompt[:50]}...")
 
             messages = self._build_messages(prompt, system_prompt)
-            data = self._build_request_data(messages, stream=True)
-
-            # 应用额外参数
-            for key, value in kwargs.items():
-                if key in ['max_tokens', 'temperature', 'top_p']:
-                    data[key] = value
+            data = self._build_request_data(messages, stream=True, **kwargs)
 
             headers = self._get_headers()
-            url = self._get_endpoint_url()
+            headers["Accept"] = "text/event-stream"
+            url = self._get_stream_endpoint_url()
 
             async with self._session.post(
                 url,
@@ -928,29 +937,36 @@ class AsyncAIClient(AIClient):
                     if not line:
                         continue
 
-                    line_str = line.decode('utf-8').strip()
+                    line_str = line.decode("utf-8", errors="replace").strip()
                     if not line_str:
                         continue
 
                     # 处理Server-Sent Events格式
-                    if line_str.startswith('data: '):
-                        data_str = line_str[6:]  # 移除'data: '前缀
+                    if line_str.startswith("event:"):
+                        continue
 
-                        if data_str == '[DONE]':
-                            self.logger.debug("流式响应完成")
-                            break
+                    data_str: str | None = None
+                    if line_str.startswith("data:"):
+                        data_str = line_str[5:].lstrip()
+                    elif line_str.startswith("{") or line_str.startswith("["):
+                        data_str = line_str
 
-                        try:
-                            chunk_data = json.loads(data_str)
-                            content = self._extract_stream_content(chunk_data)
+                    if not data_str:
+                        continue
+                    if data_str == "[DONE]":
+                        self.logger.debug("流式响应完成")
+                        break
 
-                            if content:
-                                self.logger.debug(f"接收到流式内容: {content}")
-                                yield content
+                    try:
+                        chunk_data = json.loads(data_str)
+                    except json.JSONDecodeError as e:
+                        self.logger.warning(f"解析流式数据失败: {e}, 数据: {data_str}")
+                        continue
 
-                        except json.JSONDecodeError as e:
-                            self.logger.warning(f"解析流式数据失败: {e}, 数据: {data_str}")
-                            continue
+                    content = self._extract_stream_content(chunk_data)
+                    if content:
+                        self.logger.debug(f"接收到流式内容: {content}")
+                        yield content
 
                 elapsed_time = time.time() - start_time
                 self.logger.info(f"流式补全完成，总耗时: {elapsed_time:.2f}秒")
