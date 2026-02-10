@@ -7,7 +7,7 @@ import logging
 from typing import Dict, Any, Optional
 from PyQt6.QtWidgets import (
     QStatusBar, QLabel, QProgressBar, QPushButton, QWidget, 
-    QHBoxLayout, QFrame, QSizePolicy
+    QHBoxLayout, QSizePolicy
 )
 from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QTimer, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QFont, QFontMetrics, QPalette
@@ -30,7 +30,6 @@ class StatusIndicator(QLabel):
             QLabel {
                 color: #656d76;
                 padding: 2px 8px;
-                border-right: 1px solid #e1e4e8;
             }
         """)
 
@@ -46,7 +45,6 @@ class StatusIndicator(QLabel):
             QLabel {{
                 color: {color};
                 padding: 2px 8px;
-                border-right: 1px solid #e1e4e8;
             }}
         """)
 
@@ -231,17 +229,9 @@ class EnhancedStatusBar(QStatusBar):
         self._cursor_position_label.setToolTip("当前光标位置")
         self.addWidget(self._cursor_position_label)
         
-        # 分隔符
-        separator1 = self._create_separator()
-        self.addPermanentWidget(separator1)
-        
         # 进度指示器
         self._progress_indicator = ProgressIndicator()
         self.addPermanentWidget(self._progress_indicator)
-        
-        # 分隔符
-        separator2 = self._create_separator()
-        self.addPermanentWidget(separator2)
         
         # 字数统计
         self._word_count_label = StatusIndicator("字数: 0")
@@ -263,23 +253,10 @@ class EnhancedStatusBar(QStatusBar):
         self._doc_status_label.setToolTip("当前文档的保存状态")
         self.addPermanentWidget(self._doc_status_label)
         
-        # 分隔符
-        separator3 = self._create_separator()
-        self.addPermanentWidget(separator3)
-        
         # AI状态
         self._ai_status_widget = AIStatusWidget()
         self._ai_status_widget.aiConfigRequested.connect(self.aiConfigRequested.emit)
         self.addPermanentWidget(self._ai_status_widget)
-    
-    def _create_separator(self) -> QFrame:
-        """创建分隔符"""
-        separator = QFrame()
-        separator.setFrameShape(QFrame.Shape.VLine)
-        separator.setFrameShadow(QFrame.Shadow.Sunken)
-        separator.setFixedHeight(16)
-        separator.setStyleSheet("color: #e1e4e8;")
-        return separator
     
     def _setup_style(self):
         """设置样式"""
