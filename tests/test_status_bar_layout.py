@@ -54,22 +54,31 @@ def test_editor_panel_status_frame_not_clipped(qtbot) -> None:
     config = Config()
     shared = Shared(config)
 
-    panel = EditorPanel(config, shared)
-    qtbot.addWidget(panel)
+    window = QMainWindow()
+    qtbot.addWidget(window)
 
-    panel.resize(900, 600)
-    panel.show()
+    status_bar = EnhancedStatusBar(window)
+    window.setStatusBar(status_bar)
+
+    panel = EditorPanel(config, shared)
+    window.setCentralWidget(panel)
+
+    panel.textStatisticsChanged.connect(status_bar.update_text_statistics)
+    panel.cursorPositionChanged.connect(status_bar.update_cursor_position)
+
+    window.resize(900, 600)
+    window.show()
     qtbot.wait(50)
 
-    status_frame = panel._cursor_label.parentWidget()
-    assert status_frame is not None
-
-    assert status_frame.maximumHeight() > status_frame.minimumHeight()
-
-    children = [panel._cursor_label, panel._word_count_label, panel._modified_label]
-    _assert_children_not_vertically_clipped(status_frame, children)
+    # EditorPanel should not render a secondary bottom status frame; the QMainWindow status bar is the single source.
+    assert panel.layout() is not None
+    assert panel.layout().count() == 2
 
     editor = panel.get_current_editor()
-    if editor and hasattr(editor, "_status_indicator") and editor._status_indicator:
-        _assert_children_not_vertically_clipped(status_frame, [editor._status_indicator])
+    assert editor is not None
 
+    editor.setPlainText("你好 world")
+    qtbot.wait(50)
+
+    assert "字数:" in status_bar._word_count_label.text()
+    assert status_bar._cursor_position_label.text().startswith("行:")

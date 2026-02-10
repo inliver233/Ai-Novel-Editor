@@ -69,10 +69,6 @@ class EditorPanel(QWidget):
         self._editor_tabs = self._create_editor_tabs()
         layout.addWidget(self._editor_tabs)
         
-        # 状态栏
-        status_frame = self._create_status_frame()
-        layout.addWidget(status_frame)
-        
         # 设置样式
         # Style is now managed globally by the theme QSS files.
         self.setStyleSheet("""
@@ -184,51 +180,18 @@ class EditorPanel(QWidget):
         editor.conceptDetected.connect(self._on_concepts_detected)
         editor.autoSaveTriggered.connect(self._on_auto_save)
     
-    def _create_status_frame(self) -> QFrame:
-        """创建状态栏"""
-        frame = QFrame()
-        frame.setFrameStyle(QFrame.Shape.NoFrame)
-        
-        layout = QHBoxLayout(frame)
-        layout.setContentsMargins(8, 4, 8, 4)
-        
-        # 光标位置
-        self._cursor_label = QLabel("行: 1, 列: 1")
-        layout.addWidget(self._cursor_label)
-        
-        layout.addStretch()
-        
-        # 字数统计
-        self._word_count_label = QLabel("字数: 0")
-        layout.addWidget(self._word_count_label)
-        
-        # 修改状态
-        self._modified_label = QLabel("")
-        layout.addWidget(self._modified_label)
+    def _emit_editor_state(self, editor: IntelligentTextEditor) -> None:
+        """Emit editor stats/cursor state without mutating UI widgets."""
+        try:
+            text = editor.toPlainText()
+            self.textStatisticsChanged.emit(text)
 
-        # 补全状态指示器
-        current_editor = self.get_current_editor()
-        if current_editor and hasattr(current_editor, '_status_indicator'):
-            layout.addWidget(current_editor._status_indicator)
-        
-        # 设置样式
-        # Style is now managed globally by the theme QSS files.
-        frame.setStyleSheet("""
-            QFrame {
-                border-top: 1px solid #555555;
-                border-radius: 0px;
-            }
-            QLabel {
-                font-size: 12px;
-                padding: 2px 8px;
-            }
-        """)
-
-        # Avoid hard-coded max heights (DPI/font scaling can cause clipping).
-        frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        frame.setMinimumHeight(max(26, frame.sizeHint().height()))
-        
-        return frame
+            cursor = editor.textCursor()
+            line = cursor.blockNumber() + 1
+            column = cursor.columnNumber()
+            self.cursorPositionChanged.emit(line, column)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Emit editor state failed: %s", exc)
     
     def _init_signals(self):
         """初始化信号连接"""
@@ -237,26 +200,9 @@ class EditorPanel(QWidget):
 
     def _trigger_initial_update(self):
         """触发初始统计更新"""
-        if (self._current_document_id and
-            self._current_document_id in self._document_tabs and
-            hasattr(self, '_cursor_label') and
-            hasattr(self, '_word_count_label')):
-
+        if self._current_document_id and self._current_document_id in self._document_tabs:
             editor = self._document_tabs[self._current_document_id]
-            text = editor.toPlainText()
-
-            # 直接更新UI组件，不发出信号避免递归
-            word_count = self._calculate_word_count(text)
-            self._word_count_label.setText(f"字数: {word_count}")
-
-            cursor = editor.textCursor()
-            line = cursor.blockNumber() + 1
-            column = cursor.columnNumber()  # 修复列数多1的问题
-            self._cursor_label.setText(f"行: {line}, 列: {column}")
-
-            # 发出信号给主窗口
-            self.textStatisticsChanged.emit(text)
-            self.cursorPositionChanged.emit(line, column)
+            self._emit_editor_state(editor)
 
     def _calculate_word_count(self, text: str) -> int:
         """计算字数（中文友好）"""
@@ -281,16 +227,6 @@ class EditorPanel(QWidget):
     def _on_text_modified(self, text: str):
         """文本修改处理"""
         if self._current_document_id:
-            # 更新字数统计（使用中文友好算法）
-            word_count = self._calculate_word_count(text)
-            self._word_count_label.setText(f"字数: {word_count}")
-
-            # 更新修改状态
-            self._modified_label.setText("● 已修改")
-            # Color should be handled by a more robust state/theme system
-            # For now, we use a slightly less alarming color that might fit a dark theme better
-            self._modified_label.setStyleSheet("QLabel { color: #f08080; }")
-
             # 发出文本统计变化信号
             self.textStatisticsChanged.emit(text)
 
@@ -301,7 +237,6 @@ class EditorPanel(QWidget):
     def _on_cursor_position_changed(self, line: int, column: int):
         """光标位置变化处理"""
         logger.debug(f"Editor panel cursor position changed: line={line}, column={column}")
-        self._cursor_label.setText(f"行: {line}, 列: {column}")
 
         # 发出光标位置变化信号
         self.cursorPositionChanged.emit(line, column)
@@ -322,12 +257,6 @@ class EditorPanel(QWidget):
     def _on_auto_save(self, content: str):
         """自动保存处理"""
         if self._current_document_id:
-            # 更新修改状态
-            self._modified_label.setText("✓ 已保存")
-            # Color should be handled by a more robust state/theme system
-            # For now, we use a color that fits a dark theme better
-            self._modified_label.setStyleSheet("QLabel { color: #98fb98; }")
-            
             # 发出保存信号
             self.documentSaved.emit(self._current_document_id)
             self.documentModified.emit(self._current_document_id, False)
@@ -373,45 +302,13 @@ class EditorPanel(QWidget):
                     self._current_document_id = doc_id
                     self._shared.current_document_id = doc_id
 
-                    # 触发初始统计更新
-                    text = editor.toPlainText()
-                    self._on_text_modified(text)
-
-                    # 触发光标位置更新
-                    cursor = editor.textCursor()
-                    line = cursor.blockNumber() + 1
-                    column = cursor.columnNumber()  # 修复列数多1的问题
-                    self._on_cursor_position_changed(line, column)
-                    
-                    # 更新状态栏的状态指示器
-                    self._update_status_indicator(editor)
+                    self._emit_editor_state(editor)
                     break
     
     def _update_status_indicator(self, editor: IntelligentTextEditor):
-        """更新状态栏的状态指示器"""
-        # 在状态栏中查找并更新状态指示器
-        status_frame = None
-        for i in range(self.layout().count()):
-            widget = self.layout().itemAt(i).widget()
-            if widget and hasattr(widget, '_status_indicator'):
-                status_frame = widget
-                break
-        
-        if status_frame and hasattr(editor, '_status_indicator') and editor._status_indicator:
-            # 移除旧的状态指示器
-            status_layout = status_frame.layout()
-            for i in range(status_layout.count()):
-                item = status_layout.itemAt(i)
-                if item and item.widget():
-                    widget = item.widget()
-                    # 检查是否是状态指示器组件
-                    if hasattr(widget, 'get_current_mode'):
-                        status_layout.removeWidget(widget)
-                        break
-            
-            # 添加新的状态指示器
-            status_layout.addWidget(editor._status_indicator)
-            logger.debug(f"状态指示器已更新为编辑器: {editor}")
+        """更新状态指示器（legacy no-op; status is unified in MainWindow status bar)."""
+        _ = editor
+        return
     
     @pyqtSlot()
     def _on_ai_assistant(self):
@@ -475,15 +372,7 @@ class EditorPanel(QWidget):
         self._document_tabs[document_id] = editor
         self._current_document_id = document_id
 
-        # 触发初始统计更新
-        text = editor.toPlainText()
-        self._on_text_modified(text)
-
-        # 触发光标位置更新
-        cursor = editor.textCursor()
-        line = cursor.blockNumber() + 1
-        column = cursor.columnNumber()  # 修复列数多1的问题
-        self._on_cursor_position_changed(line, column)
+        self._emit_editor_state(editor)
 
         logger.info(f"New document created: {document_id}")
         return True
@@ -501,15 +390,7 @@ class EditorPanel(QWidget):
                 self._editor_tabs.setCurrentIndex(i)
                 self._current_document_id = document_id
 
-                # 触发初始统计更新
-                text = editor.toPlainText()
-                self._on_text_modified(text)
-
-                # 触发光标位置更新
-                cursor = editor.textCursor()
-                line = cursor.blockNumber() + 1
-                column = cursor.columnNumber()  # 修复列数多1的问题
-                self._on_cursor_position_changed(line, column)
+                self._emit_editor_state(editor)
 
                 return True
         
