@@ -160,9 +160,20 @@ class UnifiedAPIConfigWidget(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._test_worker = None
+        self._pending_model: str | None = None
+        self._set_model_timer = QTimer(self)
+        self._set_model_timer.setSingleShot(True)
+        self._set_model_timer.timeout.connect(self._apply_pending_model)
         self._provider_presets = {}  # 先初始化为空字典
         self._load_provider_presets()  # 加载预设配置
         self._init_ui()  # 然后创建UI
+
+    def _apply_pending_model(self) -> None:
+        model = (self._pending_model or "").strip()
+        self._pending_model = None
+        if not model:
+            return
+        self._set_model_delayed(model)
         
     def _init_ui(self):
         """初始化UI"""
@@ -559,7 +570,12 @@ class UnifiedAPIConfigWidget(QFrame):
         # 设置模型（先触发provider变化，再设置模型）
         model = config.get("model", "")
         if model and hasattr(self, '_model_combo'):
-            QTimer.singleShot(100, lambda: self._set_model_delayed(model))
+            self._pending_model = str(model)
+            try:
+                self._set_model_timer.stop()
+                self._set_model_timer.start(100)
+            except Exception:
+                QTimer.singleShot(100, lambda: self._set_model_delayed(str(model)))
             
         if hasattr(self, '_temperature_slider'):
             self._temperature_slider.setValue(int(config.get("temperature", 0.8) * 100))
@@ -572,7 +588,14 @@ class UnifiedAPIConfigWidget(QFrame):
         
     def _set_model_delayed(self, model: str):
         """延迟设置模型（等待模型列表更新）"""
-        self._model_combo.setCurrentText(model)
+        try:
+            combo = getattr(self, "_model_combo", None)
+            if not combo:
+                return
+            combo.setCurrentText(model)
+        except RuntimeError:
+            # The widget might have been destroyed before the delayed callback fires.
+            return
     
     def _save_current_scheme(self):
         """保存当前配置方案"""
