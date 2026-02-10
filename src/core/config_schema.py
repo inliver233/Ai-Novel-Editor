@@ -39,6 +39,7 @@ DEFAULT_CONFIG_SECTIONS: Dict[str, Dict[str, Any]] = {
         "api_key": "",
         "model": "gpt-3.5-turbo",
         "endpoint_url": "",
+        "stream_response": True,
         "temperature": 0.8,
         "max_tokens": 2000,  # 与 ai_client.py 保持一致
         "top_p": 0.9,

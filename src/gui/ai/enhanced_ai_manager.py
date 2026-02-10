@@ -440,6 +440,9 @@ class EnhancedAIManager(QObject):
         cancel_token = context.get("cancel_token")
         if cancel_token is not None and getattr(cancel_token, "cancelled", False):
             return
+        task_key = context.get("task_key")
+        if task_key and task_key in self._cancelled_task_keys:
+            return
         self.streamUpdate.emit(partial_text)
     
     # 兼容性方法 - 保持与SimpleAIManager的接口兼容

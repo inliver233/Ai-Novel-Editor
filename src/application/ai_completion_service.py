@@ -3,6 +3,7 @@
 """
 
 import logging
+import uuid
 from typing import Any, Dict, List, Tuple
 
 from application.ai_context import IntelligentContextBuilder, DynamicPromptGenerator
@@ -24,8 +25,16 @@ class AIRequestDispatcher:
     def update_task_manager(self, task_manager):
         self._task_manager = task_manager
 
-    def send_request(self, prompt: str, request_context: Dict[str, Any],
-                     max_tokens: int, temperature: float, task_key: str) -> bool:
+    def send_request(
+        self,
+        prompt: str,
+        request_context: Dict[str, Any],
+        max_tokens: int,
+        temperature: float,
+        task_key: str,
+        *,
+        stream_response: bool = True,
+    ) -> bool:
         if not self._ai_client:
             logger.warning("AIRequestDispatcher: AI客户端不可用")
             return False
@@ -34,12 +43,19 @@ class AIRequestDispatcher:
         if task_key:
             self._cancelled_task_keys.discard(task_key)
 
+        request_context["request_id"] = str(uuid.uuid4())
+        request_context["stream_response"] = bool(stream_response)
+
+        request_fn = getattr(self._ai_client, "complete_async", None)
+        if stream_response:
+            request_fn = getattr(self._ai_client, "complete_stream_async", request_fn)
+
         if self._task_manager:
             def _start_ai_request(token):
                 if token.cancelled:
                     return
                 request_context['cancel_token'] = token
-                self._ai_client.complete_async(
+                request_fn(
                     prompt=prompt,
                     context=request_context,
                     max_tokens=max_tokens,
@@ -57,14 +73,14 @@ class AIRequestDispatcher:
                 )
             except Exception as e:
                 logger.warning(f"TaskManager submit_external failed, fallback to direct request: {e}")
-                self._ai_client.complete_async(
+                request_fn(
                     prompt=prompt,
                     context=request_context,
                     max_tokens=max_tokens,
                     temperature=temperature
                 )
         else:
-            self._ai_client.complete_async(
+            request_fn(
                 prompt=prompt,
                 context=request_context,
                 max_tokens=max_tokens,
@@ -160,7 +176,8 @@ class AICompletionService:
             request_context,
             max_tokens=self._get_max_tokens(context_mode),
             temperature=self._get_temperature(),
-            task_key=task_key
+            task_key=task_key,
+            stream_response=bool(self._config.get("ai", "stream_response", True)),
         )
 
     def format_completion(self, response: str, context: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
